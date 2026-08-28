@@ -1,0 +1,102 @@
+# goreleaser configuration for the nodary binary.
+#
+# Every channel ships this one artifact and nothing else
+# (docs/adr/0004-release-artifacts-and-channels.md). Wheels, npm packages and
+# the Homebrew bottle are all built from the binaries produced here.
+version: 2
+
+project_name: nodary
+
+before:
+  hooks:
+    # The embedded component manifest must match upstream before we cut a
+    # release: a stale URL is a broken install for everyone who runs it.
+    - python3 hack/update-manifest.py --check
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: nodary
+    main: ./cmd/nodary
+    binary: nodary
+    # cgo-free is what makes the binary genuinely static and cross-compilable
+    # (ADR 0002). modernc.org/sqlite is chosen to keep it that way.
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/nodary/nodary/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/nodary/nodary/internal/buildinfo.Commit={{ .FullCommit }}
+      - -X github.com/nodary/nodary/internal/buildinfo.Date={{ .CommitDate }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# The bare binary is the release artifact — not a tarball. install.sh fetches
+# `nodary-<version>-<os>-<arch>` directly, and the wrapper packages embed the
+# same file.
+archives:
+  - id: binary
+    formats: [binary]
+    name_template: "nodary-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+
+checksums:
+  # One .sha256 per artifact rather than a single combined file, because
+  # install.sh fetches exactly one artifact and should not have to parse a
+  # manifest of everything else.
+  name_template: "{{ .ArtifactName }}.sha256"
+  split: true
+
+signs:
+  # ECDSA P-256 over SHA-256, verifiable with `openssl dgst` — the only
+  # verification tool install.sh can assume is present (01-install.md §2).
+  - id: openssl
+    artifacts: binary
+    signature: "${artifact}.sig"
+    cmd: openssl
+    args:
+      - dgst
+      - -sha256
+      - -sign
+      - "{{ .Env.NODARY_SIGNING_KEY }}"
+      - -out
+      - "${signature}"
+      - "${artifact}"
+
+  # Ed25519, for out-of-band verification by anyone who has minisign.
+  - id: minisign
+    artifacts: binary
+    signature: "${artifact}.minisig"
+    cmd: minisign
+    args: ["-S", "-s", "{{ .Env.NODARY_MINISIGN_KEY }}", "-m", "${artifact}", "-x", "${signature}"]
+
+release:
+  draft: true
+  prerelease: auto
+  extra_files:
+    - glob: install.sh
+  header: |
+    ## nodary {{ .Version }}
+
+    ```sh
+    curl -fsSL https://nodary.net/install.sh | sh -s -- server
+    ```
+
+    Also on PyPI (`pip install nodary`), npm (`npm i -g nodary`) and Homebrew.
+    Every channel ships the same binary.
+  footer: |
+    ### Verifying
+
+    ```sh
+    openssl dgst -sha256 -verify nodary-release.pub \
+        -signature nodary-{{ .Version }}-linux-amd64.sig \
+        nodary-{{ .Version }}-linux-amd64
+    ```
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

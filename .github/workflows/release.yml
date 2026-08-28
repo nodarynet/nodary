@@ -1,0 +1,110 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, without the leading v
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: astral-sh/setup-uv@v5
+
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # The signing key is written to a file goreleaser can point openssl at,
+      # then removed. It is never committed and never echoed.
+      - name: Stage the signing key
+        env:
+          SIGNING_KEY: ${{ secrets.NODARY_SIGNING_KEY }}
+        run: |
+          umask 077
+          printf '%s' "$SIGNING_KEY" > /tmp/nodary-release.key
+          echo "NODARY_SIGNING_KEY=/tmp/nodary-release.key" >> "$GITHUB_ENV"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: rm -f /tmp/nodary-release.key
+        if: always()
+
+      - name: Build channel packages
+        run: |
+          make wheels npm VERSION=${{ steps.version.outputs.version }}
+          make test-packages VERSION=${{ steps.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/wheels/
+            dist/npm/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      # Trusted Publishing: PyPI verifies this workflow's OIDC identity, so no
+      # long-lived API token exists to leak.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/wheels
+
+  npm:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+
+      # Platform packages first: the entry package's optionalDependencies must
+      # already resolve, or the first person to install it gets a broken tree.
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for p in dist/npm/nodary-*/; do
+            npm publish --provenance --access public "$p"
+          done
+
+      - name: Publish entry package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public dist/npm/nodary

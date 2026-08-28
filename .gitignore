@@ -1,0 +1,6 @@
+# Build output
+/dist/
+
+# Release signing material — the private key never belongs in the repository
+*.key
+nodary-release.pub

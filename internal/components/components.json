@@ -1,0 +1,204 @@
+{
+  "schema": 1,
+  "nodary_version": "0.0.1",
+  "components": [
+    {
+      "name": "cni-plugins",
+      "version": "1.9.1",
+      "kind": "archive",
+      "roles": [
+        "node"
+      ],
+      "group": "runtime",
+      "notes": "provides the bridge plugin backing nodary-isolated",
+      "platforms": {
+        "linux/amd64": {
+          "url": "https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz",
+          "sha256": "b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-arm64-v1.9.1.tgz",
+          "sha256": "56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec"
+        }
+      }
+    },
+    {
+      "name": "containerd",
+      "version": "2.3.4",
+      "kind": "archive",
+      "roles": [
+        "node"
+      ],
+      "group": "runtime",
+      "platforms": {
+        "linux/amd64": {
+          "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-amd64.tar.gz",
+          "sha256": "9d68969855fbf676cdb8ed758e420fb048d61f984f61de3e53eddfebe484d168"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-arm64.tar.gz",
+          "sha256": "a985fbb7e18fc0362d31a055338f5d7b0e087a3e27f14c70d1c5965399a29f95"
+        }
+      }
+    },
+    {
+      "name": "dcgm-exporter",
+      "version": "4.4.1-4.5.2-ubuntu22.04",
+      "kind": "image",
+      "roles": [
+        "node"
+      ],
+      "group": "observability",
+      "platforms": {
+        "linux/amd64": {
+          "image": "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:d22403c31e5f17d089f909a3d9f0e4e5114258ea063a81f9268c55d5ab663cf1"
+        },
+        "linux/arm64": {
+          "image": "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:d22403c31e5f17d089f909a3d9f0e4e5114258ea063a81f9268c55d5ab663cf1"
+        }
+      },
+      "notes": "GPU telemetry"
+    },
+    {
+      "name": "grafana",
+      "version": "13.1.4",
+      "kind": "image",
+      "roles": [
+        "server"
+      ],
+      "group": "observability",
+      "platforms": {
+        "linux/amd64": {
+          "image": "grafana/grafana@sha256:9be3a3ccdb06bcbb127f888b0c4c1d151837443e478887897a63a27d7b348043"
+        },
+        "linux/arm64": {
+          "image": "grafana/grafana@sha256:9be3a3ccdb06bcbb127f888b0c4c1d151837443e478887897a63a27d7b348043"
+        }
+      }
+    },
+    {
+      "name": "litellm",
+      "version": "v1.98.0",
+      "kind": "image",
+      "roles": [
+        "server"
+      ],
+      "group": "core",
+      "platforms": {
+        "linux/amd64": {
+          "image": "ghcr.io/berriai/litellm@sha256:20b5044b619055374061a6d5b7b08754cad75aeabbf82ddf4f69cc0cf80ddaf4"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/berriai/litellm@sha256:20b5044b619055374061a6d5b7b08754cad75aeabbf82ddf4f69cc0cf80ddaf4"
+        }
+      },
+      "notes": "OpenAI-compatible data plane; runs stateless (ADR 0003)"
+    },
+    {
+      "name": "llama-cpp",
+      "version": "server-cuda-b4738",
+      "kind": "image",
+      "roles": [
+        "node"
+      ],
+      "group": "backend",
+      "platforms": {
+        "linux/amd64": {
+          "image": "ghcr.io/ggml-org/llama.cpp@sha256:634aca75c060474d467b34c15053e68740334294ca7a428349db5614ef4ecb6c"
+        }
+      },
+      "notes": "backend descriptor: llama-cpp"
+    },
+    {
+      "name": "nerdctl",
+      "version": "2.3.5",
+      "kind": "archive",
+      "roles": [
+        "node"
+      ],
+      "group": "runtime",
+      "platforms": {
+        "linux/amd64": {
+          "url": "https://github.com/containerd/nerdctl/releases/download/v2.3.5/nerdctl-2.3.5-linux-amd64.tar.gz",
+          "sha256": "de3206aeb7cbd5f20f5fb1f55c1e3bf2db1be567812a8a3f5e65eba2488347ee"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/containerd/nerdctl/releases/download/v2.3.5/nerdctl-2.3.5-linux-arm64.tar.gz",
+          "sha256": "76ced9bd0d03f6140f9cf7b927958b654cb8d5ecd3c58af585d096c8bdf9d6c2"
+        }
+      }
+    },
+    {
+      "name": "prometheus",
+      "version": "v3.14.0",
+      "kind": "image",
+      "roles": [
+        "server"
+      ],
+      "group": "observability",
+      "platforms": {
+        "linux/amd64": {
+          "image": "prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0"
+        },
+        "linux/arm64": {
+          "image": "prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0"
+        }
+      }
+    },
+    {
+      "name": "runc",
+      "version": "1.5.1",
+      "kind": "binary",
+      "roles": [
+        "node"
+      ],
+      "group": "runtime",
+      "platforms": {
+        "linux/amd64": {
+          "url": "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc.amd64",
+          "sha256": "177df879d50c913eb205e898d5c1c05a18f574053c0ce5524c471208eaf06f6f"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc.arm64",
+          "sha256": "ca70e7dbd6616ca782a59b5d3ac86909123fdaa9fa3f89dcf29051c70eee7ce9"
+        }
+      }
+    },
+    {
+      "name": "sglang",
+      "version": "v0.5.18",
+      "kind": "image",
+      "roles": [
+        "node"
+      ],
+      "group": "backend",
+      "platforms": {
+        "linux/amd64": {
+          "image": "lmsysorg/sglang@sha256:9e148f5ac788e856a06166bd6347a831831eb9fcfab4d1770874823a7c29a1a1"
+        },
+        "linux/arm64": {
+          "image": "lmsysorg/sglang@sha256:9e148f5ac788e856a06166bd6347a831831eb9fcfab4d1770874823a7c29a1a1"
+        }
+      },
+      "notes": "backend descriptor: sglang"
+    },
+    {
+      "name": "vllm",
+      "version": "v0.28.0",
+      "kind": "image",
+      "roles": [
+        "node"
+      ],
+      "group": "backend",
+      "platforms": {
+        "linux/amd64": {
+          "image": "vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14"
+        },
+        "linux/arm64": {
+          "image": "vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14"
+        }
+      },
+      "notes": "backend descriptor: vllm"
+    }
+  ]
+}
