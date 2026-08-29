@@ -21,9 +21,10 @@ import sys
 import urllib.error
 import urllib.request
 
-OUT = pathlib.Path(__file__).resolve().parent.parent / "internal" / "components" / "components.json"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+OUT = ROOT / "internal" / "components" / "components.json"
 
-NODARY_VERSION = "0.0.1"
+NODARY_VERSION = (ROOT / "VERSION").read_text().strip()
 PLATFORMS = ["linux/amd64", "linux/arm64"]
 ARCH = {"linux/amd64": "amd64", "linux/arm64": "arm64"}
 

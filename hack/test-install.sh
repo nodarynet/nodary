@@ -15,6 +15,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+version=$(cat "$root/VERSION")
 work=$(mktemp -d "${TMPDIR:-/tmp}/nodary-test.XXXXXX")
 port=0
 srv_pid=""
@@ -32,18 +33,18 @@ GO="${GO:-go}"
 command -v "$GO" >/dev/null 2>&1 || GO="$HOME/sdk/go1.27.0/bin/go"
 
 printf 'building\n'
-mkdir -p "$work/releases/0.0.1"
+mkdir -p "$work/releases/$version"
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-asset="nodary-0.0.1-${platform}"
+asset="nodary-$version-${platform}"
 
 (cd "$root" && CGO_ENABLED=0 "$GO" build \
-    -ldflags "-s -w -X github.com/nodary/nodary/internal/buildinfo.Version=0.0.1" \
-    -o "$work/releases/0.0.1/$asset" ./cmd/nodary)
+    -ldflags "-s -w -X github.com/nodary/nodary/internal/buildinfo.Version=$version" \
+    -o "$work/releases/$version/$asset" ./cmd/nodary)
 pass "built $asset"
 
 printf 'signing\n'
 (cd "$work" && "$root/hack/release-key.sh" generate key >/dev/null 2>&1)
-"$root/hack/release-key.sh" sign "$work/key.key" "$work/releases/0.0.1/$asset" 2>/dev/null
+"$root/hack/release-key.sh" sign "$work/key.key" "$work/releases/$version/$asset" 2>/dev/null
 pass "signed with a throwaway key"
 
 # Embed the throwaway public key into a copy of install.sh.
@@ -84,14 +85,14 @@ fi
 pass "installed to $prefix/current/nodary"
 
 got=$("$prefix/current/nodary" version --format json | sed -n 's/.*"version": "\([^"]*\)".*/\1/p')
-[ "$got" = "0.0.1" ] || fail "installed binary reports version '$got', want 0.0.1"
-pass "installed binary runs and reports 0.0.1"
+[ "$got" = "$version" ] || fail "installed binary reports version '$got', want $version"
+pass "installed binary runs and reports $version"
 
 grep -q 'sha256:' "$work/install.log" || fail "install.sh did not print the digest"
 pass "digest printed before proceeding"
 
 printf 'tamper detection\n'
-printf 'x' >> "$work/releases/0.0.1/$asset"
+printf 'x' >> "$work/releases/$version/$asset"
 rm -rf "$prefix"
 if NODARY_BASE_URL="$base" NODARY_PREFIX="$prefix" NODARY_BIN_DIR="$work/nonexistent" \
         sh "$work/install.sh" >"$work/tamper.log" 2>&1; then

@@ -4,7 +4,10 @@
 # `make dist` cross-compiles the binary; the wheel and npm targets package that
 # same binary rather than building anything of their own.
 
-VERSION ?= 0.0.1
+# One version source for the whole tree. install.sh carries its own literal
+# because it is fetched standalone and cannot read a file from the repo; the
+# release pipeline stamps it from this same value.
+VERSION ?= $(shell cat VERSION)
 GO      ?= go
 DIST    ?= dist
 

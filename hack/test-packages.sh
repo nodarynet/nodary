@@ -11,10 +11,10 @@
 
 set -eu
 
-version="0.0.1"
-[ "${1:-}" = "--version" ] && { version="$2"; shift 2; }
-
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+version=$(cat "$root/VERSION")
+[ "${1:-}" = "--version" ] && { version="$2"; shift 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/nodary-pkg.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM
 
