@@ -83,6 +83,12 @@ functions, and every mutating call passes through the audit layer.
 | 0003 | [LiteLLM as the data plane](docs/adr/0003-litellm-as-data-plane.md) |
 | 0004 | [Release artifacts and install channels](docs/adr/0004-release-artifacts-and-channels.md) — one binary, four channels |
 
+### Implementation
+
+[docs/tasks/](docs/tasks/) tracks the work derived from the specifications above — the
+milestone breakdown, what is done, and what is next. The specifications are authoritative;
+the tracker follows them.
+
 ## Verifying a release
 
 Every release artifact is signed. The release public key fingerprint is published here so it
