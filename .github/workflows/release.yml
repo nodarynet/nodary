@@ -52,6 +52,32 @@ jobs:
           echo "NODARY_SIGNING_KEY=/tmp/nodary-release.key"    >> "$GITHUB_ENV"
           echo "NODARY_MINISIGN_KEY=/tmp/nodary-minisign.key"  >> "$GITHUB_ENV"
 
+      # components.json embeds nodary_version from the VERSION file, so a tag
+      # that disagrees with it ships a binary describing itself as some other
+      # release. Catch that here rather than in someone's manifest.
+      - name: VERSION file agrees with the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          want="${{ steps.version.outputs.version }}"
+          have=$(cat VERSION)
+          test "$want" = "$have" || {
+            echo "tag is $want but VERSION says $have — bump VERSION and re-tag" >&2
+            exit 1
+          }
+
+      # The install.sh in the repository is a development copy: placeholder key,
+      # development version. Publishing it verbatim would hand every user an
+      # installer that refuses to verify and fetches the wrong release, so the
+      # shipped copy is built from it here. goreleaser uploads build/install.sh.
+      - name: Stamp install.sh for this release
+        run: |
+          umask 077
+          openssl ec -in "$NODARY_SIGNING_KEY" -pubout -out /tmp/nodary-release.pub
+          hack/stamp-install.sh \
+              --version "${{ steps.version.outputs.version }}" \
+              --pubkey /tmp/nodary-release.pub \
+              -o build/install.sh
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
@@ -59,7 +85,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key
+      - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key /tmp/nodary-release.pub
         if: always()
 
       - name: Build channel packages

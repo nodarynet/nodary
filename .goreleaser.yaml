@@ -76,7 +76,12 @@ release:
   draft: true
   prerelease: auto
   extra_files:
-    - glob: install.sh
+    # Built by hack/stamp-install.sh, not the copy in the repository: that one
+    # carries a placeholder signing key and cannot verify anything. If the stamp
+    # step did not run, this glob matches nothing and the release fails — which
+    # is the correct outcome, because the alternative is publishing an installer
+    # that refuses to install.
+    - glob: build/install.sh
   header: |
     ## nodary {{ .Version }}
 

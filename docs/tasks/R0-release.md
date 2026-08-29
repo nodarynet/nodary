@@ -43,8 +43,8 @@ Verified by reading the tree, **not** by execution: this machine has Go 1.22 and
 These block a first real release. Each is a gap between what a document promises
 and what the tree does.
 
-- [ ] **R0-19** Replace the `REPLACE_AT_RELEASE_TIME` placeholder in `install.sh` with the real ECDSA P-256 public key · [01 §2](../specs/01-install.md#2-the-installsh-contract)
-  - *done:* `install.sh` verifies a genuine release artifact; `hack/test-install.sh` still passes against its throwaway key
+- [x] **R0-19** Replace the `REPLACE_AT_RELEASE_TIME` placeholder in `install.sh` with the real ECDSA P-256 public key · [01 §2](../specs/01-install.md#2-the-installsh-contract)
+  - *done:* `hack/stamp-install.sh` builds the shipped installer from the repository copy, embedding the public half derived from the release signing key and refusing to emit a file that still carries either placeholder. The repository copy stays a development copy, so `hack/test-install.sh`'s placeholder-refusal check still holds
 - [ ] **R0-20** Supply `NODARY_MINISIGN_KEY` to the release workflow
   - *done:* the `minisign` signer in `.goreleaser.yaml` resolves its key. `release.yml` now stages it alongside the openssl key and fails early if either secret is empty; what remains is provisioning the repository secret itself, with a **passwordless** key (`minisign -G -W`) — goreleaser signs non-interactively and an encrypted key blocks the release on a prompt
 - [ ] **R0-21** Wire the Homebrew channel · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
@@ -53,5 +53,7 @@ and what the tree does.
   - *done:* the `curl … | sh` path in the README works unmodified against a published release
 - [ ] **R0-23** Publish the release key fingerprints in the README
   - *done:* the minisign and openssl fingerprints replace "to be published with the first release", so they can be checked against a source other than the one serving the download
-- [ ] **R0-24** Reconcile `NODARY_VERSION` defaults across `install.sh`, `Makefile` and `components.json`
-  - *done:* one version source; cutting a release does not require editing three files that can disagree
+- [x] **R0-24** Reconcile `NODARY_VERSION` defaults across `install.sh`, `Makefile` and `components.json`
+  - *done:* a `VERSION` file at the root is the one source the build tooling reads; `install.sh` keeps a literal because it is fetched standalone and cannot read the repository, and the release pipeline stamps it from the tag. A tag that disagrees with `VERSION` fails the release rather than shipping a binary that describes itself as some other version
+- [ ] **R0-25** `workflow_dispatch.inputs.version` in `release.yml` is declared `required: true` and never read
+  - *done:* a manual release either honours the input or stops declaring it. Today the version comes only from `GITHUB_REF_NAME`, so a `workflow_dispatch` run outside a tag derives it from a branch name

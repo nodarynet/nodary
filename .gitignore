@@ -1,5 +1,6 @@
 # Build output
 /dist/
+/build/
 
 # Release signing material — the private key never belongs in the repository
 *.key
