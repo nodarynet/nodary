@@ -30,8 +30,21 @@ jobs:
           node-version: "20"
       - uses: astral-sh/setup-uv@v5
 
+      # A tag push carries the version in its name; a manual dispatch carries it
+      # in the input. Preferring the input is what makes `required: true` mean
+      # something. The input is passed through the environment rather than
+      # interpolated into the script, so its contents stay data.
+      #
+      # goreleaser still derives its own version from git, so a dispatch outside
+      # a tag builds a snapshot — the input names the release, it does not
+      # conjure one.
       - id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          v="$INPUT_VERSION"
+          [ -n "$v" ] || v="${GITHUB_REF_NAME#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
 
       # Both signing keys are written to files the signers can be pointed at,
       # then removed. Neither is ever committed and neither is ever echoed.
@@ -55,13 +68,12 @@ jobs:
       # components.json embeds nodary_version from the VERSION file, so a tag
       # that disagrees with it ships a binary describing itself as some other
       # release. Catch that here rather than in someone's manifest.
-      - name: VERSION file agrees with the tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: VERSION file agrees with the release being built
         run: |
           want="${{ steps.version.outputs.version }}"
           have=$(cat VERSION)
           test "$want" = "$have" || {
-            echo "tag is $want but VERSION says $have — bump VERSION and re-tag" >&2
+            echo "releasing $want but VERSION says $have — bump VERSION first" >&2
             exit 1
           }
 

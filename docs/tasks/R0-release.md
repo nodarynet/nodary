@@ -55,5 +55,5 @@ and what the tree does.
   - *done:* the minisign and openssl fingerprints replace "to be published with the first release", so they can be checked against a source other than the one serving the download
 - [x] **R0-24** Reconcile `NODARY_VERSION` defaults across `install.sh`, `Makefile` and `components.json`
   - *done:* a `VERSION` file at the root is the one source the build tooling reads; `install.sh` keeps a literal because it is fetched standalone and cannot read the repository, and the release pipeline stamps it from the tag. A tag that disagrees with `VERSION` fails the release rather than shipping a binary that describes itself as some other version
-- [ ] **R0-25** `workflow_dispatch.inputs.version` in `release.yml` is declared `required: true` and never read
-  - *done:* a manual release either honours the input or stops declaring it. Today the version comes only from `GITHUB_REF_NAME`, so a `workflow_dispatch` run outside a tag derives it from a branch name
+- [x] **R0-25** `workflow_dispatch.inputs.version` in `release.yml` is declared `required: true` and never read
+  - *done:* the version step prefers the input and falls back to the tag name, passing the input through the environment rather than interpolating it into the script. The `VERSION` guard now runs on both trigger paths, since the version resolves on both
