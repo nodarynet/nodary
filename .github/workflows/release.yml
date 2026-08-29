@@ -96,6 +96,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN is scoped to this repository; pushing the formula to
+          # nodarynet/homebrew-tap needs a token that reaches it.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key /tmp/nodary-release.pub
         if: always()

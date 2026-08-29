@@ -48,7 +48,8 @@ and what the tree does.
 - [ ] **R0-20** Supply `NODARY_MINISIGN_KEY` to the release workflow
   - *done:* the `minisign` signer in `.goreleaser.yaml` resolves its key. `release.yml` now stages it alongside the openssl key and fails early if either secret is empty; what remains is provisioning the repository secret itself, with a **passwordless** key (`minisign -G -W`) — goreleaser signs non-interactively and an encrypted key blocks the release on a prompt
 - [ ] **R0-21** Wire the Homebrew channel · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
-  - *done:* `brew install nodary/tap/nodary` places the same binary. `.goreleaser.yaml` has no `brews:` block, so the channel named in the README, [01 §7](../specs/01-install.md#7-package-manager-channels) and ADR 0004 does not exist yet
+  - *done:* `brew install nodarynet/tap/nodary` places the same binary. `.goreleaser.yaml` now carries a `brews:` block targeting `nodarynet/homebrew-tap`, and [01 §7](../specs/01-install.md#7-package-manager-channels) names that path rather than the `nodary/tap` the README implied. What remains is outside this repository: create the tap repository, and provision `HOMEBREW_TAP_TOKEN` with write access to it — the default `GITHUB_TOKEN` is scoped here and cannot reach another repository
+  - *note:* the config is unvalidated — `goreleaser` is not installed on the machine it was written on, and goreleaser has been moving formula support toward `homebrew_casks`. A cask would be wrong here regardless: casks are macOS-only and nodary's primary platform is Linux, where Homebrew serves formulae. Check the first release's log for a deprecation warning
 - [ ] **R0-22** Host `nodary.net/install.sh` and `nodary.net/releases/<version>/<asset>`
   - *done:* the `curl … | sh` path in the README works unmodified against a published release
 - [ ] **R0-23** Publish the release key fingerprints in the README

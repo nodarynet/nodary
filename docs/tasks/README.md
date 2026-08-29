@@ -21,7 +21,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 
 | | Milestone | Proves | Depth | Open |
 | :--- | :--- | :--- | :--- | ---: |
-| **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | 5 of 25 |
+| **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | 4 of 25 |
 | **[R1](R1-core-audit-identity.md)** | Core, audit, identity | Accountability, before any rearchitecture | task | 31 |
 | **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 40 |
 | **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 14 |
@@ -36,10 +36,10 @@ R3–R8 are deliverable level deliberately: writing 150 detailed tasks against
 decisions R1 and R2 have not yet tested produces detail that has to be unwritten.
 Break a milestone down when you reach it.
 
-R0 has 20 items delivered and 5 outstanding; the 5 are gaps between what a
-document promises and what the tree does, and they block a first real release.
-Three of them — the signing key, the fingerprints and the hosting — need
-material only the release owner holds.
+R0 has 21 items delivered and 4 outstanding, and the 4 all block a first real
+release. Each now needs material only the release owner holds — the minisign
+secret, the tap repository and its token, the `nodary.net` hosting, and the key
+fingerprints to publish. The code side of R0 is done.
 
 ## Task format
 

@@ -72,6 +72,35 @@ signs:
     cmd: minisign
     args: ["-S", "-s", "{{ .Env.NODARY_MINISIGN_KEY }}", "-m", "${artifact}", "-x", "${signature}"]
 
+# ADR 0004 promises a tap with a bottle per platform, which is a formula rather
+# than a cask: casks are macOS-only, and nodary's primary platform is Linux,
+# where Homebrew serves formulae. One formula covers both.
+#
+# The formula is pushed as soon as the release object exists, but `release.draft`
+# below means the asset it points at is not downloadable until the draft is
+# published — publish the draft promptly or `brew install` 404s in between.
+brews:
+  - name: nodary
+    ids: [binary]
+    repository:
+      owner: nodarynet
+      name: homebrew-tap
+      branch: main
+      # A PAT with write access to the tap repository. The default GITHUB_TOKEN
+      # is scoped to this repository and cannot push to another one.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://nodary.net"
+    description: "One control plane for all of your GPU nodes"
+    license: "Apache-2.0"
+    # `prerelease: auto` below means a pre-release tag skips the tap rather than
+    # advertising itself as the current formula.
+    skip_upload: auto
+    install: |
+      bin.install "nodary"
+    test: |
+      system "#{bin}/nodary", "version"
+
 release:
   draft: true
   prerelease: auto
