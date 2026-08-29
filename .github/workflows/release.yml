@@ -33,15 +33,24 @@ jobs:
       - id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      # The signing key is written to a file goreleaser can point openssl at,
-      # then removed. It is never committed and never echoed.
-      - name: Stage the signing key
+      # Both signing keys are written to files the signers can be pointed at,
+      # then removed. Neither is ever committed and neither is ever echoed.
+      #
+      # The minisign key must be passwordless (`minisign -G -W`): goreleaser
+      # invokes the signer non-interactively, and an encrypted key would block
+      # the release on a password prompt nobody is there to answer.
+      - name: Stage the signing keys
         env:
           SIGNING_KEY: ${{ secrets.NODARY_SIGNING_KEY }}
+          MINISIGN_KEY: ${{ secrets.NODARY_MINISIGN_KEY }}
         run: |
           umask 077
-          printf '%s' "$SIGNING_KEY" > /tmp/nodary-release.key
-          echo "NODARY_SIGNING_KEY=/tmp/nodary-release.key" >> "$GITHUB_ENV"
+          test -n "$SIGNING_KEY"  || { echo "NODARY_SIGNING_KEY is empty"  >&2; exit 1; }
+          test -n "$MINISIGN_KEY" || { echo "NODARY_MINISIGN_KEY is empty" >&2; exit 1; }
+          printf '%s' "$SIGNING_KEY"  > /tmp/nodary-release.key
+          printf '%s\n' "$MINISIGN_KEY" > /tmp/nodary-minisign.key
+          echo "NODARY_SIGNING_KEY=/tmp/nodary-release.key"    >> "$GITHUB_ENV"
+          echo "NODARY_MINISIGN_KEY=/tmp/nodary-minisign.key"  >> "$GITHUB_ENV"
 
       - uses: goreleaser/goreleaser-action@v6
         with:
@@ -50,7 +59,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: rm -f /tmp/nodary-release.key
+      - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key
         if: always()
 
       - name: Build channel packages

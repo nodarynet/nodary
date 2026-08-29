@@ -46,7 +46,7 @@ and what the tree does.
 - [ ] **R0-19** Replace the `REPLACE_AT_RELEASE_TIME` placeholder in `install.sh` with the real ECDSA P-256 public key · [01 §2](../specs/01-install.md#2-the-installsh-contract)
   - *done:* `install.sh` verifies a genuine release artifact; `hack/test-install.sh` still passes against its throwaway key
 - [ ] **R0-20** Supply `NODARY_MINISIGN_KEY` to the release workflow
-  - *done:* the `minisign` signer in `.goreleaser.yaml` resolves its key; today `release.yml` stages only `NODARY_SIGNING_KEY`, so the minisign signing step has no key to read
+  - *done:* the `minisign` signer in `.goreleaser.yaml` resolves its key. `release.yml` now stages it alongside the openssl key and fails early if either secret is empty; what remains is provisioning the repository secret itself, with a **passwordless** key (`minisign -G -W`) — goreleaser signs non-interactively and an encrypted key blocks the release on a prompt
 - [ ] **R0-21** Wire the Homebrew channel · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* `brew install nodary/tap/nodary` places the same binary. `.goreleaser.yaml` has no `brews:` block, so the channel named in the README, [01 §7](../specs/01-install.md#7-package-manager-channels) and ADR 0004 does not exist yet
 - [ ] **R0-22** Host `nodary.net/install.sh` and `nodary.net/releases/<version>/<asset>`
