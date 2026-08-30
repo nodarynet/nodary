@@ -90,6 +90,17 @@ curl -fsSLO https://nodary.net/install.sh.minisig
 minisign -Vm install.sh -P "$(grep -A1 '^minisign' ../../README.md | tail -1)"
 ```
 
+## Tests
+
+```sh
+node test/worker.test.mjs
+```
+
+No dependencies, no network, no wrangler. The mock deliberately mirrors one R2
+behaviour that is easy to get wrong: `range` is populated on a full-object get,
+not only on a ranged one. A mock that omits it passes a Worker which answers
+every request with a 206.
+
 ## Caching
 
 The two policies are deliberately opposite, and are set on the object at upload

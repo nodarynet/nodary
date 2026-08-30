@@ -70,7 +70,12 @@ export default {
     // No body means the conditional request matched what the client already has.
     if (!object.body) return new Response(null, { status: 304, headers });
 
-    if (object.range) {
+    // Key the status off what the client asked for, not off `object.range`:
+    // R2 populates that field on a full-object get too, so branching on it
+    // answers every plain GET with a 206 and a content-range covering the
+    // whole file. curl tolerates it; it is still wrong, and a client entitled
+    // to reject an unrequested 206 would be right to.
+    if (request.headers.get("range") !== null && object.range) {
       const offset = object.range.offset ?? 0;
       const end = object.range.end ?? object.size - 1;
       headers.set("content-range", `bytes ${offset}-${end}/${object.size}`);
