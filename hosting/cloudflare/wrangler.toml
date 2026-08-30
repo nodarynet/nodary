@@ -1,0 +1,17 @@
+name = "nodary-releases"
+main = "src/index.js"
+compatibility_date = "2026-08-30"
+
+# Bound to the three published paths rather than the whole apex, so the zone can
+# serve anything else it likes from nodary.net without going through here.
+routes = [
+  { pattern = "nodary.net/install.sh",         zone_name = "nodary.net" },
+  { pattern = "nodary.net/install.sh.minisig", zone_name = "nodary.net" },
+  { pattern = "nodary.net/releases/*",         zone_name = "nodary.net" },
+]
+
+# The bucket the release workflow uploads to. Bound directly, so the bucket
+# itself never needs to be public and no credentials sit in the request path.
+[[r2_buckets]]
+binding = "RELEASES"
+bucket_name = "nodary-releases"
