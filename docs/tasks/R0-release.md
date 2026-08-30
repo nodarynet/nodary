@@ -52,8 +52,8 @@ and what the tree does.
   - *note:* the config is unvalidated — `goreleaser` is not installed on the machine it was written on, and goreleaser has been moving formula support toward `homebrew_casks`. A cask would be wrong here regardless: casks are macOS-only and nodary's primary platform is Linux, where Homebrew serves formulae. Check the first release's log for a deprecation warning
 - [ ] **R0-22** Host `nodary.net/install.sh` and `nodary.net/releases/<version>/<asset>`
   - *done:* the `curl … | sh` path in the README works unmodified against a published release
-- [ ] **R0-23** Publish the release key fingerprints in the README
-  - *done:* the minisign and openssl fingerprints replace "to be published with the first release", so they can be checked against a source other than the one serving the download
+- [x] **R0-23** Publish the release key fingerprints in the README
+  - *done:* the minisign public key and the openssl SHA-256 fingerprint are published, and both were verified against the key files rather than taken on trust — the minisign line is byte-identical to `nodary-minisign.pub` (key id `575BA1AF9E7AB458`) and the openssl line recomputes exactly from `nodary-release.pub`. They live on github.com while the artifacts are served elsewhere, which is what makes checking them worth anything
 - [x] **R0-24** Reconcile `NODARY_VERSION` defaults across `install.sh`, `Makefile` and `components.json`
   - *done:* a `VERSION` file at the root is the one source the build tooling reads; `install.sh` keeps a literal because it is fetched standalone and cannot read the repository, and the release pipeline stamps it from the tag. A tag that disagrees with `VERSION` fails the release rather than shipping a binary that describes itself as some other version
 - [x] **R0-25** `workflow_dispatch.inputs.version` in `release.yml` is declared `required: true` and never read
