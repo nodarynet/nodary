@@ -2,6 +2,11 @@ name = "nodary-releases"
 main = "src/index.js"
 compatibility_date = "2026-08-30"
 
+# Reachable only on the routes below. A workers.dev URL would be a second origin
+# serving the same signed artifacts, which is one more thing to have to reason
+# about and nothing anyone needs.
+workers_dev = false
+
 # Bound to the three published paths rather than the whole apex, so the zone can
 # serve anything else it likes from nodary.net without going through here.
 routes = [
