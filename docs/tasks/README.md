@@ -21,7 +21,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 
 | | Milestone | Proves | Depth | Open |
 | :--- | :--- | :--- | :--- | ---: |
-| **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | 2 of 26 |
+| **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | **0 of 26** |
 | **[R1](R1-core-audit-identity.md)** | Core, audit, identity | Accountability, before any rearchitecture | task | 31 |
 | **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 40 |
 | **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 14 |
@@ -36,9 +36,10 @@ R3–R8 are deliverable level deliberately: writing 150 detailed tasks against
 decisions R1 and R2 have not yet tested produces detail that has to be unwritten.
 Break a milestone down when you reach it.
 
-R0 has 24 items delivered and 2 outstanding, and both block a first real
-release: provisioning the `NODARY_MINISIGN_KEY` secret, and creating the
-Homebrew tap repository and its token.
+R0 is complete: 26 of 26. Every channel, signature, secret and host is in place.
+What has *not* happened is a release — the pipeline has never run end to end, and
+the first tag is what proves it. Treat R0 as built and unexercised rather than
+finished.
 
 ## Task format
 

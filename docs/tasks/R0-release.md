@@ -38,17 +38,18 @@ Verified by reading the tree, **not** by execution: this machine has Go 1.22 and
 - [x] **R0-17** Release workflow with PyPI Trusted Publishing and npm provenance; platform packages published before the entry package
 - [x] **R0-18** `hack/update-manifest.py` regenerates the manifest and `--check` fails a stale one in CI
 
-## Outstanding
+## Closed
 
-These block a first real release. Each is a gap between what a document promises
-and what the tree does.
+Each of these was a gap between what a document promised and what the tree did.
+All are now closed; none has been exercised by a real release, which is the one
+thing still outstanding for R0 as a whole.
 
 - [x] **R0-19** Replace the `REPLACE_AT_RELEASE_TIME` placeholder in `install.sh` with the real ECDSA P-256 public key · [01 §2](../specs/01-install.md#2-the-installsh-contract)
   - *done:* `hack/stamp-install.sh` builds the shipped installer from the repository copy, embedding the public half derived from the release signing key and refusing to emit a file that still carries either placeholder. The repository copy stays a development copy, so `hack/test-install.sh`'s placeholder-refusal check still holds
-- [ ] **R0-20** Supply `NODARY_MINISIGN_KEY` to the release workflow
-  - *done:* the `minisign` signer in `.goreleaser.yaml` resolves its key. `release.yml` now stages it alongside the openssl key and fails early if either secret is empty; what remains is provisioning the repository secret itself, with a **passwordless** key (`minisign -G -W`) — goreleaser signs non-interactively and an encrypted key blocks the release on a prompt
-- [ ] **R0-21** Wire the Homebrew channel · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
-  - *done:* `brew install nodarynet/tap/nodary` places the same binary. `.goreleaser.yaml` now carries a `brews:` block targeting `nodarynet/homebrew-tap`, and [01 §7](../specs/01-install.md#7-package-manager-channels) names that path rather than the `nodary/tap` the README implied. What remains is outside this repository: create the tap repository, and provision `HOMEBREW_TAP_TOKEN` with write access to it — the default `GITHUB_TOKEN` is scoped here and cannot reach another repository
+- [x] **R0-20** Supply `NODARY_MINISIGN_KEY` to the release workflow
+  - *done:* `release.yml` stages it alongside the openssl key, installs `minisign` (absent from the runner image, so goreleaser's own signer could not have run either), and fails early if either secret is empty. The secret is provisioned with a passwordless key, verified structurally: its KDF bytes are zero and its key id matches the published public half
+- [x] **R0-21** Wire the Homebrew channel · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
+  - *done:* `brew install nodarynet/tap/nodary` places the same binary. `.goreleaser.yaml` carries a `brews:` block targeting `nodarynet/homebrew-tap`, which exists with default branch `main`, and `HOMEBREW_TAP_TOKEN` is provisioned — the default `GITHUB_TOKEN` is scoped to this repository and cannot reach another one. [01 §7](../specs/01-install.md#7-package-manager-channels) names that path rather than the `nodary/tap` the README implied
   - *note:* the config is unvalidated — `goreleaser` is not installed on the machine it was written on, and goreleaser has been moving formula support toward `homebrew_casks`. A cask would be wrong here regardless: casks are macOS-only and nodary's primary platform is Linux, where Homebrew serves formulae. Check the first release's log for a deprecation warning
 - [x] **R0-26** Sign the stamped `install.sh` · [01 §2](../specs/01-install.md#2-the-installsh-contract)
   - *done:* `install.sh.minisig` is produced after stamping — stamping changes the bytes, so signing earlier would sign the wrong file — and published beside `install.sh`. goreleaser's signers are `artifacts: binary` and never covered it, so the out-of-band verification the spec documents had nothing to verify against. The runner image has no `minisign`, which also meant goreleaser's own minisign signer could not have run; it is installed now. The version is carried in the signed trusted comment, so a signature cannot be lifted onto a different release
@@ -58,7 +59,7 @@ and what the tree does.
   - *serving side:* a Worker in [`hosting/cloudflare/`](../../hosting/cloudflare/) maps the three published paths onto the bucket, bound to those paths only so the rest of the apex stays free. Range requests and conditional requests are handled, since the binaries are 20–40 MB; anything outside the published shape is refused before R2 is touched
   - *Cloudflare account:* `nodary-releases` bucket created; the three GitHub repository secrets added; the Worker deployed with its R2 binding and all three routes bound to `nodary.net`
   - *note:* the first real release is what exercises this with real artifacts; nothing else stands between here and that. The runbook is in [`hosting/cloudflare/README.md`](../../hosting/cloudflare/README.md)
-  - *leftover:* `releases/0.0.0-probe/probe.txt` is still in the bucket — deleting it needs R2 permission the setup token no longer carries
+  - *cleanup:* the probe object has been deleted; the bucket is empty until the first release publishes into it
 - [x] **R0-23** Publish the release key fingerprints in the README
   - *done:* the minisign public key and the openssl SHA-256 fingerprint are published, and both were verified against the key files rather than taken on trust — the minisign line is byte-identical to `nodary-minisign.pub` (key id `575BA1AF9E7AB458`) and the openssl line recomputes exactly from `nodary-release.pub`. They live on github.com while the artifacts are served elsewhere, which is what makes checking them worth anything
 - [x] **R0-24** Reconcile `NODARY_VERSION` defaults across `install.sh`, `Makefile` and `components.json`
