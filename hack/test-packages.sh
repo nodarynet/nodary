@@ -37,8 +37,11 @@ wheel_tag="$1"; npm_pkg="nodary-$2"
 # --- PyPI --------------------------------------------------------------------
 
 printf 'pypi\n'
-wheel="$root/dist/wheels/nodary-$version-py3-none-$wheel_tag.whl"
-[ -f "$wheel" ] || fail "no wheel for this host: $wheel (run 'make wheels')"
+# A wheel carries a PEP 440 version, which is not the release tag for a
+# prerelease: 0.0.1-rc1 is spelled 0.0.1rc1, because `-` separates fields in a
+# wheel filename. Match on the platform tag rather than rebuilding the name.
+wheel=$(ls "$root"/dist/wheels/nodary-*-py3-none-"$wheel_tag".whl 2>/dev/null | head -1)
+[ -n "${wheel:-}" ] || fail "no wheel for this host (tag $wheel_tag; run 'make wheels')"
 
 if command -v uv >/dev/null 2>&1; then
     uv venv "$work/venv" --quiet

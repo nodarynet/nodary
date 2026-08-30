@@ -20,6 +20,7 @@ cannot run.
 from __future__ import annotations
 
 import argparse
+import re
 import base64
 import csv
 import hashlib
@@ -155,7 +156,31 @@ class Wheel:
         self.zf.close()
 
 
+def pep440(version: str) -> str:
+    """Express a release tag as a PEP 440 version.
+
+    A wheel filename uses `-` to separate its fields, so a semver prerelease
+    cannot appear verbatim: `0.0.1-rc1` would parse as version `0.0.1` with a
+    build tag of `rc1`. PEP 440 spells the same thing `0.0.1rc1`.
+
+    The Go binary keeps the original tag — it is what the release is called
+    everywhere else — so only the Python packaging is rewritten.
+    """
+    base, sep, pre = version.partition("-")
+    if not sep:
+        return version
+    m = re.fullmatch(r"(alpha|a|beta|b|rc|c)\.?(\d*)", pre.replace("-", "."), re.I)
+    if not m:
+        raise SystemExit(
+            f"cannot express {version!r} as a PEP 440 version; "
+            "use a prerelease of the form 0.0.1-rc1"
+        )
+    kind = {"alpha": "a", "a": "a", "beta": "b", "b": "b", "rc": "rc", "c": "rc"}[m.group(1).lower()]
+    return f"{base}{kind}{m.group(2) or '0'}"
+
+
 def build_wheel(version: str, binary: pathlib.Path, tag: str, outdir: pathlib.Path) -> pathlib.Path:
+    version = pep440(version)
     distinfo = f"nodary-{version}.dist-info"
     datadir = f"nodary-{version}.data"
     filename = f"nodary-{version}-py3-none-{tag}.whl"
