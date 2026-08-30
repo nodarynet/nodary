@@ -126,6 +126,73 @@ jobs:
       - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key /tmp/nodary-release.pub /tmp/nodary-minisign.pub
         if: always()
 
+      # nodary.net is the origin install.sh hardcodes, so the artifacts have to
+      # be there and not only in GitHub Releases. Uploading from dist/ rather
+      # than from the release object also sidesteps `release.draft: true`, which
+      # makes a GitHub asset undownloadable until someone publishes the draft.
+      - name: Publish to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # Recent AWS CLI versions send integrity headers R2 rejects outright.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: nodary-releases
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          put() { # put <local> <key> <content-type> <cache-control>
+            aws s3 cp "$1" "s3://$BUCKET/$2" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --content-type "$3" --cache-control "$4" --only-show-errors
+            echo "  put $2"
+          }
+
+          # Locate rather than assume: a goreleaser layout change should fail
+          # here, not silently publish a release missing half its platforms.
+          missing=0
+          for p in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            b=$(find dist -type f -name "nodary-$V-$p" -print -quit)
+            [ -n "$b" ] || { echo "no binary for $p" >&2; missing=1; continue; }
+            for ext in sha256 sig minisig; do
+              [ -f "$b.$ext" ] || { echo "no $ext for $p" >&2; missing=1; }
+            done
+          done
+          [ "$missing" -eq 0 ] || { echo "refusing to publish a partial release" >&2; exit 1; }
+
+          # A version-scoped path never changes its contents, so it caches
+          # forever.
+          for p in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            b=$(find dist -type f -name "nodary-$V-$p" -print -quit)
+            n=$(basename "$b")
+            immutable="public, max-age=31536000, immutable"
+            put "$b" "releases/$V/$n" application/octet-stream "$immutable"
+            for ext in sha256 sig minisig; do
+              put "$b.$ext" "releases/$V/$n.$ext" "text/plain; charset=utf-8" "$immutable"
+            done
+          done
+
+          # install.sh is overwritten every release, so it must not cache for
+          # long: a year-long TTL here pins every `curl … | sh` to whatever
+          # shipped first. It is served as text/plain so it can be read in a
+          # browser before anyone pipes it to a shell.
+          #
+          # A prerelease publishes its artifacts but must not touch the
+          # installer at the apex, or `curl … | sh` starts handing out release
+          # candidates. `prerelease: auto` in .goreleaser.yaml keys off the same
+          # semver prerelease suffix.
+          case "$V" in
+            *-*) echo "prerelease $V — artifacts published, install.sh left alone" ;;
+            *)
+              for f in install.sh install.sh.minisig; do
+                put "build/$f" "$f" "text/plain; charset=utf-8" "public, max-age=300"
+              done
+              ;;
+          esac
+
       - name: Build channel packages
         run: |
           make wheels npm VERSION=${{ steps.version.outputs.version }}
