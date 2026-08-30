@@ -95,8 +95,8 @@ Every release artifact is signed. The release public key fingerprint is publishe
 can be checked against a source other than the one serving the download:
 
 ```
-minisign  RWQ…                      (fingerprint to be published with the first release)
-openssl   SHA256:…                  (P-256 key embedded in install.sh)
+minisign  RWRYtHqer6FbV8fMD5CEK+XBDBiX++arPJsueLpwXAowfcYBj6bwEWJD
+openssl   SHA256:ec401b74444511fa2ee060cfbb39e1411e77884dfab2223576509e1396457900
 ```
 
 `install.sh` verifies the signature and digest before it will place anything, and has no
