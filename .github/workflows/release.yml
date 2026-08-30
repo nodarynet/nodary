@@ -68,6 +68,11 @@ jobs:
       # components.json embeds nodary_version from the VERSION file, so a tag
       # that disagrees with it ships a binary describing itself as some other
       # release. Catch that here rather than in someone's manifest.
+      # Not in the runner image. goreleaser's minisign signer needs it, and so
+      # does the install.sh signature below.
+      - name: Install minisign
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+
       - name: VERSION file agrees with the release being built
         run: |
           want="${{ steps.version.outputs.version }}"
@@ -90,6 +95,24 @@ jobs:
               --pubkey /tmp/nodary-release.pub \
               -o build/install.sh
 
+      # 01-install.md §2 tells users to verify install.sh out of band before
+      # running it. That is the one check that does not depend on trusting
+      # whoever serves the script, so the signature has to exist — and it has to
+      # be made after stamping, because stamping is what changes the bytes.
+      #
+      # The trusted comment is covered by the signature, so naming the version
+      # there means a signature cannot be lifted onto a different release.
+      - name: Sign the stamped install.sh
+        run: |
+          minisign -S -s "$NODARY_MINISIGN_KEY" \
+              -m build/install.sh -x build/install.sh.minisig \
+              -c "nodary installer" \
+              -t "nodary ${{ steps.version.outputs.version }} install.sh"
+
+          # Verify before publishing rather than trusting the signer exited 0.
+          minisign -R -s "$NODARY_MINISIGN_KEY" -p /tmp/nodary-minisign.pub
+          minisign -Vm build/install.sh -x build/install.sh.minisig -p /tmp/nodary-minisign.pub
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
@@ -100,7 +123,7 @@ jobs:
           # nodarynet/homebrew-tap needs a token that reaches it.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-      - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key /tmp/nodary-release.pub
+      - run: rm -f /tmp/nodary-release.key /tmp/nodary-minisign.key /tmp/nodary-release.pub /tmp/nodary-minisign.pub
         if: always()
 
       - name: Build channel packages

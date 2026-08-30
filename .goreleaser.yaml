@@ -111,6 +111,8 @@ release:
     # is the correct outcome, because the alternative is publishing an installer
     # that refuses to install.
     - glob: build/install.sh
+    # 01-install.md §2 documents fetching this next to install.sh.
+    - glob: build/install.sh.minisig
   header: |
     ## nodary {{ .Version }}
 
