@@ -234,6 +234,17 @@ jobs:
           node-version: "20"
           registry-url: https://registry.npmjs.org
 
+      # npm assigns `latest` to whatever was published most recently unless a
+      # tag is given, so a prerelease would quietly become what `npm i -g
+      # nodary` installs. PyPI needs no equivalent guard: pip already excludes
+      # prereleases unless asked for them.
+      - id: npmtag
+        run: |
+          case "${{ needs.build.outputs.version }}" in
+            *-*) echo "tag=next"   >> "$GITHUB_OUTPUT" ;;
+            *)   echo "tag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       # Platform packages first: the entry package's optionalDependencies must
       # already resolve, or the first person to install it gets a broken tree.
       - name: Publish platform packages
@@ -241,10 +252,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for p in dist/npm/nodary-*/; do
-            npm publish --provenance --access public "$p"
+            npm publish --provenance --access public --tag ${{ steps.npmtag.outputs.tag }} "$p"
           done
 
       - name: Publish entry package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public dist/npm/nodary
+        run: npm publish --provenance --access public --tag ${{ steps.npmtag.outputs.tag }} dist/npm/nodary
