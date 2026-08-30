@@ -5,3 +5,9 @@
 # Release signing material — the private key never belongs in the repository
 *.key
 *.pub
+
+# Local credentials — Cloudflare tokens and anything else a developer needs on
+# their own machine. Nothing matching these is ever committed.
+.env
+.env.local
+.env.*.local
