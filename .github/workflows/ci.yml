@@ -34,6 +34,29 @@ jobs:
           go build -o /tmp/nodary ./cmd/nodary
           /tmp/nodary components verify
 
+  # The release config is only exercised by a tag, so a mistake in it surfaces
+  # as a failed release rather than a failed pull request — which is how a
+  # `checksums:`/`checksum:` typo sat here unnoticed until the first tag.
+  #
+  # `check` exits 1 for an invalid config and 2 for a valid one using
+  # deprecated properties. Fail on the first, report the second.
+  goreleaser-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          install-only: true
+      - name: Release config is valid
+        run: |
+          set +e; goreleaser check; rc=$?; set -e
+          case $rc in
+            0) echo "configuration is valid" ;;
+            2) echo "::warning::goreleaser config uses deprecated properties" ;;
+            *) echo "::error::goreleaser config is invalid"; exit 1 ;;
+          esac
+
   install-script:
     runs-on: ubuntu-latest
     steps:
