@@ -368,7 +368,7 @@ The in-flight record. A tracker checkbox in
 [R1](../tasks/R1-core-audit-identity.md) flips only when the task's `done:` criteria
 actually pass. One commit per step, citing its task ID.
 
-- [ ] **1.** `internal/paths` — the four locations above
+- [x] **1.** `internal/paths` — the four locations above
 - [ ] **2.** `internal/canonical` — encoder, ES6 numbers, `Hash` and `HashHex`, vectors, fuzz · **R1-01**
 - [ ] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
 - [ ] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
