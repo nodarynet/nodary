@@ -42,7 +42,7 @@ archives:
     formats: [binary]
     name_template: "nodary-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
 
-checksums:
+checksum:
   # One .sha256 per artifact rather than a single combined file, because
   # install.sh fetches exactly one artifact and should not have to parse a
   # manifest of everything else.
