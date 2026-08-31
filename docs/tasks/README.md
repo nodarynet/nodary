@@ -26,7 +26,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 40 |
 | **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 14 |
 | **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 37 |
-| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 21 |
+| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 24 |
 | **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 12 |
 | **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 |
 | **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 |
@@ -36,10 +36,11 @@ R3–R8 are deliverable level deliberately: writing 150 detailed tasks against
 decisions R1 and R2 have not yet tested produces detail that has to be unwritten.
 Break a milestone down when you reach it.
 
-R0 is complete: 26 of 26. Every channel, signature, secret and host is in place.
-What has *not* happened is a release — the pipeline has never run end to end, and
-the first tag is what proves it. Treat R0 as built and unexercised rather than
-finished.
+R0 is complete: 26 of 26, and exercised — `v0.0.1-rc1` shipped through every
+channel and a binary fetched through `nodary.net` verified against both
+published keys. Doing it at zero stakes was worth it: tagging found three bugs
+reading the tree had not. The follow-ups it raised are tracked in
+[R5](R5-install.md) rather than reopening R0.
 
 ## Task format
 

@@ -41,8 +41,25 @@ Verified by reading the tree, **not** by execution: this machine has Go 1.22 and
 ## Closed
 
 Each of these was a gap between what a document promised and what the tree did.
-All are now closed; none has been exercised by a real release, which is the one
-thing still outstanding for R0 as a whole.
+
+**R0 is exercised, not just built.** `v0.0.1-rc1` shipped through every channel
+on 2026-08-31: GitHub release, R2 behind `nodary.net`, PyPI as `0.0.1rc1`, and
+npm under the `next` tag. Homebrew and the apex `install.sh` were correctly
+skipped as a prerelease. A binary fetched through `nodary.net` verified against
+both published keys and ran, reporting its own version and commit.
+
+Tagging found three bugs that reading the tree had not, which is the whole
+argument for having done it at zero stakes:
+
+| Bug | Nature |
+| :--- | :--- |
+| `checksums:` where goreleaser wants `checksum:` | pre-existing in R0-15, invisible until a tag |
+| The R2 step guessed goreleaser's artifact filenames | `formats: [binary]` never writes a renamed file; the name is upload metadata and the path stays `dist/nodary_<target>/nodary`. `dist/artifacts.json` is the only authoritative mapping |
+| npm rejected a classic Publish token with `EOTP` | such a token still enforces 2FA; CI needs an Automation token |
+
+The first is now caught by a `goreleaser check` job in CI — the release config
+was previously only exercised by a tag, so a mistake in it could only ever
+surface as a failed release.
 
 - [x] **R0-19** Replace the `REPLACE_AT_RELEASE_TIME` placeholder in `install.sh` with the real ECDSA P-256 public key · [01 §2](../specs/01-install.md#2-the-installsh-contract)
   - *done:* `hack/stamp-install.sh` builds the shipped installer from the repository copy, embedding the public half derived from the release signing key and refusing to emit a file that still carries either placeholder. The repository copy stays a development copy, so `hack/test-install.sh`'s placeholder-refusal check still holds

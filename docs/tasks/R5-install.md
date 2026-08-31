@@ -61,3 +61,9 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 - [ ] **R5-20** Unsupported platforms fail loudly in every channel
   - *done:* npm resolves `optionalDependencies` silently, so the shim checks for its platform package and exits with a named error; wheels carry precise tags so `pip` reports "no matching distribution" rather than installing a broken entry point
 - [ ] **R5-21** A native Windows install fails at resolution with a comprehensible message in both wrapper channels
+- [ ] **R5-22** Move npm publishing to Trusted Publishing · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
+  - *done:* `NPM_TOKEN` is gone and npm authenticates by OIDC, as PyPI already does. This removes the last long-lived publishing credential and the whole class of failure that `EOTP` belongs to
+- [ ] **R5-23** Resolve the goreleaser `brews` deprecation before it is removed
+  - *done:* the Homebrew channel survives a goreleaser major bump. The migration target, `homebrew_casks`, is macOS-only, so adopting it as-is would silently drop Linux Homebrew users — and Linux is the primary platform while macOS is CLI-only ([01 §8](../specs/01-install.md#8-platform-support)). Decide deliberately: keep a formula by another route, or accept narrowing the channel and say so in [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
+- [ ] **R5-24** Move npm's `latest` tag off the release candidate
+  - *done:* `npm install -g nodary` resolves to a stable version. `--tag next` does not hold on a package's **first** publish — npm must give a new package a `latest` and has nowhere else to point it — so `0.0.1-rc1` currently owns it. Publishing `0.0.1` with `--tag latest` fixes it; `npm deprecate` warns installers in the meantime
