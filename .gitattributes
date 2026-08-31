@@ -1,0 +1,8 @@
+# Migration checksums are SHA-256 over the file's bytes, so a CRLF checkout
+# would change every one of them and abort startup with a message about a
+# schema that does not match — indistinguishable, to the operator reading it,
+# from tampering.
+*.sql text eol=lf
+
+# The installer is fetched and executed by sh; CRLF breaks the shebang.
+*.sh text eol=lf

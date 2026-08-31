@@ -26,10 +26,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/paths"
 
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite"
 )
 
 // applicationID stamps the file as nodary's. Without it, pointing at an
@@ -53,9 +54,9 @@ type DB struct {
 // pragmas are applied through the DSN on every connection in a pool, not once
 // at open. A pool opens connections lazily, so a pragma set on the first
 // connection would silently not apply to the rest.
-const pragmas = "_pragma=journal_mode(WAL)" +
+const pragmas = "_pragma=busy_timeout(5000)" +
+	"&_pragma=journal_mode(WAL)" +
 	"&_pragma=foreign_keys(1)" +
-	"&_pragma=busy_timeout(5000)" +
 	"&_pragma=synchronous(FULL)"
 
 func writerDSN(path string) string {
@@ -93,11 +94,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 
 	db := &DB{write: write, read: read, path: path}
 
-	if err := db.write.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("opening %s: %w", path, err)
-	}
-	if err := db.checkIdentity(ctx); err != nil {
+	if err := db.initialise(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -106,6 +103,57 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// SQLite result codes. Named here rather than imported from
+// modernc.org/sqlite/lib, which is a very large package to pull in for two
+// integers.
+const (
+	sqliteBusy   = 5
+	sqliteLocked = 6
+)
+
+// initialise establishes the first connection and stamps the database,
+// retrying while another process is doing the same thing.
+//
+// The retry is not defensive padding. Converting a fresh database to WAL takes
+// an exclusive lock, and SQLite does not run the busy handler for a
+// journal_mode change — so busy_timeout cannot cover it however it is ordered.
+// Two processes reaching a brand-new database together is an ordinary event
+// here: on a first install the systemd unit and an operator's first CLI command
+// race, and "database is locked" would be the very first thing nodary ever said.
+func (db *DB) initialise(ctx context.Context) error {
+	const attempts = 40
+	delay := 5 * time.Millisecond
+
+	var err error
+	for range attempts {
+		if err = db.write.PingContext(ctx); err == nil {
+			if err = db.checkIdentity(ctx); err == nil {
+				return nil
+			}
+		}
+		if !isLocked(err) {
+			return fmt.Errorf("opening %s: %w", db.path, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < 200*time.Millisecond {
+			delay *= 2
+		}
+	}
+	return fmt.Errorf("opening %s: still locked after %d attempts: %w", db.path, attempts, err)
+}
+
+func isLocked(err error) bool {
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		return se.Code() == sqliteBusy || se.Code() == sqliteLocked
+	}
+	return false
 }
 
 // checkIdentity stamps a fresh database and refuses somebody else's.

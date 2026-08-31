@@ -21,7 +21,7 @@ front of the same core functions.
 - [x] **R1-02** Open SQLite in WAL mode through `modernc.org/sqlite` · [08](../specs/08-data-model.md)
   - *done:* `CGO_ENABLED=0 go build` still produces a static binary · [ADR 0002](../adr/0002-go-with-package-manager-wrappers.md)
   - *deps:* R1-01
-- [ ] **R1-03** Embedded, forward-only migration runner recording each migration's checksum · [08 §5](../specs/08-data-model.md#5-migrations)
+- [x] **R1-03** Embedded, forward-only migration runner recording each migration's checksum · [08 §5](../specs/08-data-model.md#5-migrations)
   - *done:* a checksum mismatch aborts startup rather than proceeding against an unexpected schema; downgrade is refused
   - *deps:* R1-02
 - [ ] **R1-04** `/etc/nodary/secret.key` generation (0400 root) and the at-rest encryption helper · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)

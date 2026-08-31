@@ -252,6 +252,16 @@ on power loss, and what would be lost is evidence.
 busy handler applies and `busy_timeout` works. Without it a read-then-write transaction
 returns `SQLITE_BUSY_SNAPSHOT` immediately and bypasses the timeout entirely.
 
+**`busy_timeout` comes first in the DSN, and `Open` retries on top of it.** Both were
+found by `TestConcurrentMigratorsApplyOnce` rather than by reading. The driver applies
+`_pragma` parameters in the order given, so `journal_mode(WAL)` listed ahead of
+`busy_timeout` converts a fresh database with no busy handler set at all. Reordering
+fixed most of it; the rest is inherent, because SQLite does not run the busy handler for
+a `journal_mode` change however it is ordered. `Open` therefore retries on `SQLITE_BUSY`
+and `SQLITE_LOCKED` with backoff. This is not defensive padding — on a first install the
+systemd unit and an operator's first CLI command reach a brand-new database together,
+and *"database is locked"* would be the first thing nodary ever said.
+
 ```go
 func Open(ctx context.Context, path string) (*DB, error)
 func (db *DB) WriteTx(ctx context.Context, fn func(*sql.Tx) error) error
@@ -380,7 +390,7 @@ actually pass. One commit per step, citing its task ID.
 - [x] **2.** `internal/canonical` — encoder, ES6 numbers, `Hash` and `HashHex`, vectors, fuzz · **R1-01**
 - [x] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
 - [x] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
-- [ ] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
+- [x] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
 - [ ] **6.** `internal/secret` — atomic creation, validation, versioned ciphertext, AAD · **R1-04**
 - [ ] **7.** Correct [08](../specs/08-data-model.md) on backup and on who migrates (below)
 
