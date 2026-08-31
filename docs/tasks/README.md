@@ -12,6 +12,13 @@ points at the text that made it. Where a task and its spec disagree, the spec
 wins and the task is wrong — fix the task. A change of intent is a change to a
 spec, and the tasks follow.
 
+**How a task gets built lives elsewhere.** A milestone is too large to design in
+one pass, so each is split into slices, and every slice has a plan in
+[`docs/plans/`](../plans/) carrying its design, the decisions behind it, and its
+in-flight steps. A checkbox here flips only when a task's `done:` criteria
+actually pass — work in progress is visible in the plan rather than as a third
+checkbox state.
+
 ## Milestones
 
 R0 is the ground the milestones stand on rather than one of them. R1–R5 deliver
