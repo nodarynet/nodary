@@ -144,36 +144,52 @@ jobs:
         run: |
           set -euo pipefail
 
-          put() { # put <local> <key> <content-type> <cache-control>
+          put() { # put <local path> <key> <content-type> <cache-control>
             aws s3 cp "$1" "s3://$BUCKET/$2" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --content-type "$3" --cache-control "$4" --only-show-errors
             echo "  put $2"
           }
 
-          # Locate rather than assume: a goreleaser layout change should fail
-          # here, not silently publish a release missing half its platforms.
+          # `archives: formats: [binary]` does NOT write a renamed file: the
+          # templated name is upload metadata, while the path stays
+          # dist/nodary_<target>/nodary. artifacts.json is the only authoritative
+          # mapping between the two, so read it rather than guessing filenames.
+          # `.extra.ID` separates the archive artifacts (id "binary") from the
+          # raw build outputs (id "nodary"), which share the type "Binary".
+          A=dist/artifacts.json
+          [ -f "$A" ] || { echo "no $A — did goreleaser run?" >&2; exit 1; }
+
+          uploads=$(jq -r '.[]
+            | select((.type=="Binary" and .extra.ID=="binary")
+                     or .type=="Checksum" or .type=="Signature")
+            | "\(.name)\t\(.path)"' "$A")
+
+          mapfile -t names < <(printf '%s\n' "$uploads" | cut -f1)
+
+          # Every platform needs its binary, its digest and both signatures, or
+          # someone downloads an artifact they cannot verify.
           missing=0
-          for p in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            b=$(find dist -type f -name "nodary-$V-$p" -print -quit)
-            [ -n "$b" ] || { echo "no binary for $p" >&2; missing=1; continue; }
+          bins=0
+          for n in "${names[@]}"; do
+            case "$n" in *.sha256|*.sig|*.minisig) continue ;; esac
+            bins=$((bins + 1))
             for ext in sha256 sig minisig; do
-              [ -f "$b.$ext" ] || { echo "no $ext for $p" >&2; missing=1; }
+              printf '%s\n' "${names[@]}" | grep -qx -- "$n.$ext" \
+                || { echo "missing $n.$ext" >&2; missing=1; }
             done
           done
+          [ "$bins" -eq 4 ] || { echo "expected 4 platform binaries, found $bins" >&2; missing=1; }
           [ "$missing" -eq 0 ] || { echo "refusing to publish a partial release" >&2; exit 1; }
 
-          # A version-scoped path never changes its contents, so it caches
-          # forever.
-          for p in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            b=$(find dist -type f -name "nodary-$V-$p" -print -quit)
-            n=$(basename "$b")
-            immutable="public, max-age=31536000, immutable"
-            put "$b" "releases/$V/$n" application/octet-stream "$immutable"
-            for ext in sha256 sig minisig; do
-              put "$b.$ext" "releases/$V/$n.$ext" "text/plain; charset=utf-8" "$immutable"
-            done
-          done
+          # A version-scoped path never changes its contents, so it caches forever.
+          while IFS=$'\t' read -r name path; do
+            case "$name" in
+              *.sha256|*.sig|*.minisig) ct="text/plain; charset=utf-8" ;;
+              *)                        ct="application/octet-stream" ;;
+            esac
+            put "$path" "releases/$V/$name" "$ct" "public, max-age=31536000, immutable"
+          done <<< "$uploads"
 
           # install.sh is overwritten every release, so it must not cache for
           # long: a year-long TTL here pins every `curl … | sh` to whatever
