@@ -8,12 +8,21 @@ import (
 	"syscall"
 )
 
-// openNoFollow opens path for reading, refusing to traverse a final symlink.
-// A symlink here would let anyone able to create it redirect the read to a file
-// they control. O_NOFOLLOW is a syscall flag rather than an os one, which is
-// why this lives beside the ownership check.
+// openNoFollow opens path for reading, refusing to traverse a final symlink and
+// refusing to block.
+//
+// O_NOFOLLOW: a symlink here would let anyone able to create it redirect the
+// read to a file they control.
+//
+// O_NONBLOCK: without it, open(2) on a FIFO blocks until a writer appears, so a
+// FIFO left at the key path hangs startup forever before any check can run.
+// The caller rejects non-regular files immediately afterwards; on a regular
+// file the flag has no effect.
+//
+// Both are syscall flags rather than os ones, which is why this lives beside
+// the ownership check.
 func openNoFollow(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }
 
 // checkOwner refuses a key file owned by somebody other than the process

@@ -78,6 +78,9 @@ front of the same core functions.
 - [ ] **R1-19** TOTP enrollment and verification, seed encrypted at rest
   - *done:* the seed is displayed exactly once at enrollment and is never readable back · [10 §4](../specs/10-cli.md#4-output-discipline)
   - *deps:* R1-04, R1-18
+- [ ] **R1-36** Record the active key id, and refuse to start under a key that does not match it · [11 §5](../specs/11-failure-modes.md#5-recovery)
+  - *done:* deleting `/etc/nodary/secret.key` and restarting is refused rather than silently minting a fresh key. Today the two are indistinguishable, so the recovery path and the unrecoverable one look identical — every TOTP seed, the LiteLLM key and the CA key become permanently unreadable, with a clean startup to say nothing is wrong. The id belongs in a table, so it lands with the schema rather than in R1a
+  - *deps:* R1-03, R1-04
 - [ ] **R1-20** Roles `viewer`, `user`, `operator`, `admin` and the permission checks between them · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
   - *done:* an `operator` can restart a model and cannot approve a node
   - *deps:* R1-18

@@ -334,13 +334,29 @@ func (k *Key) Seal(context string, plaintext []byte) ([]byte, error)
 func (k *Key) Open(context string, ciphertext []byte) ([]byte, error)
 ```
 
-AES-256-GCM from the standard library. Ciphertext is
-`version(1) || keyID(4) || nonce(12) || ciphertext`, where `keyID` is the first four
-bytes of SHA-256 over the key material. Five bytes of overhead buys incremental rotation:
-`Load` accepts a primary key plus retired ones, `Open` selects by id and reports an
-unknown id clearly. Without an id, rotation is a flag day — decrypt and re-encrypt
-everything in one transaction, with no resumability and no way to verify afterwards which
-rows moved.
+Each message gets its own AES-256 key, derived with HKDF-SHA256 (stdlib `crypto/hkdf`,
+available at the 1.25 floor) from the stored key and a 192-bit random salt, then sealed
+with AES-GCM under an all-zero nonce. The subkey is unique per message, so the nonce
+never repeats.
+
+```
+version(1) || keyID(4) || salt(24) || ciphertext+tag
+```
+
+**This replaces sealing directly under the stored key with a random 96-bit nonce**, which
+is what an earlier draft specified. Review priced it: NIST SP 800-38D caps random-nonce
+GCM at 2^32 invocations per key, and a GCM nonce repeat is not a partial failure — it
+leaks the plaintext XOR *and* the authentication subkey, which yields forgery. The
+material [08 §4](../specs/08-data-model.md#4-secrets-at-rest) names would never approach
+that, but nothing in the API signalled a budget and the label parameter actively invites
+per-row use. A 192-bit salt puts the birthday bound at 2^96 and removes the question.
+
+`keyID` is the first four bytes of SHA-256 over a domain-separated string plus the key
+material. It buys incremental rotation: `Load` takes a primary key plus retired ones and
+**refuses two keys sharing an id**, because silently overwriting the lookup would evict
+the primary and make everything sealed under the live key undecryptable. Without an id,
+rotation is a flag day — decrypt and re-encrypt everything in one transaction, with no
+resumability and no way to verify afterwards which rows moved.
 
 The key is 32 random bytes, hex-encoded so `/etc/nodary/secret.key` stays greppable.
 Creation is **not** a bare `O_EXCL` create: a crash between create and write leaves a
@@ -364,9 +380,24 @@ owned by another account is one that account can replace. Testing for root speci
 would also make the package unusable to its own tests and to anyone running as a
 developer, which is how a check ends up disabled rather than fixed.
 
-`context` becomes GCM's additional authenticated data — `"totp:user:42"`. Without it an
-attacker able to write the database can move user A's encrypted TOTP seed into user B's
-row and it decrypts cleanly.
+`Seal(kind, id string, ...)` binds the ciphertext through GCM's additional authenticated
+data. Without it an attacker able to write the database can move user A's encrypted TOTP
+seed into user B's row and it decrypts cleanly. The two components are length-prefixed
+rather than joined, so `("totp", "user:42")` and `("totp:user", "42")` cannot produce the
+same binding — a single `context` string, as first specified, could.
+
+The header is in the additional data too, but it earns less than it appears to: the key
+id and salt both feed the subkey derivation, so altering either already fails, and the
+version is checked before decryption. Measured — removing it breaks no test. It is kept
+for one real reason, which is binding the format version so a future v2 construction
+under the same key cannot be confused with a v1 ciphertext.
+
+`Create` is hardened against the failure modes review found: a `open(2)` on a FIFO left at
+the key path blocked forever before any check could run (fixed with `O_NONBLOCK` plus a
+regular-file check), a single short `Read` could accept a truncated key and ignore the
+rest (fixed by sizing from the descriptor), and a crash between writing the temporary file
+and linking it stranded live key material in `/etc/nodary` permanently, since nothing ever
+swept it.
 
 **A constraint this places on R1c:** any id used in an AAD context must never be reused.
 SQLite reuses the rowid of a deleted row under a plain `INTEGER PRIMARY KEY`, and
