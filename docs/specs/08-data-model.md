@@ -1,6 +1,13 @@
 # 08 — Data model
 
-SQLite at `/var/lib/nodary/nodary.db`, WAL mode. One file; back it up by copying it.
+SQLite at `/var/lib/nodary/nodary.db`, WAL mode.
+
+**WAL means the database is not one file, and copying `nodary.db` alone is not a backup.**
+A live database is `nodary.db` plus `nodary.db-wal` and `nodary.db-shm`, and a commit lives
+in the write-ahead log until it is checkpointed — so a copy of the first file alone silently
+loses the most recent writes, including audit records. A backup must either checkpoint
+first or use `VACUUM INTO`, which writes a genuine single-file snapshot from a consistent
+view. `nodary backup create` does this; anything hand-rolled must too.
 
 A pure-Go SQLite driver (`modernc.org/sqlite`) is used so the binary stays cgo-free and
 genuinely static ([ADR 0002](../adr/0002-go-with-package-manager-wrappers.md)).
@@ -94,9 +101,16 @@ destination.
 
 ## 5. Migrations
 
-Schema migrations are embedded in the binary, forward-only, and applied automatically at
-server start. Each migration is recorded with its checksum; a mismatch aborts startup rather
-than proceeding against an unexpected schema.
+Schema migrations are embedded in the binary and forward-only. Each is recorded with its
+checksum; a mismatch aborts startup rather than proceeding against an unexpected schema.
+
+They are applied by **any process that opens the database for writing**, not only by the
+server. The CLI operates on a local database directly, so on a first install an operator's
+first command and the server's first start reach an unmigrated database together. The whole
+run therefore happens inside one immediate transaction, with the applied set re-read after
+the write lock is held, which makes the loser of that race a no-op rather than a second
+application of the same migration. A read-only open never migrates: it refuses when the
+schema is behind rather than changing it underneath a reader.
 
 Downgrade is not supported. Rolling back a nodary version requires restoring a backup taken
 before the upgrade, which `nodary upgrade` takes automatically and names in its output.

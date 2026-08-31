@@ -401,21 +401,26 @@ actually pass. One commit per step, citing its task ID.
 - [x] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
 - [x] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
 - [x] **6.** `internal/secret` — atomic creation, validation, versioned ciphertext, AAD · **R1-04**
-- [ ] **7.** Correct [08](../specs/08-data-model.md) on backup and on who migrates (below)
+- [x] **7.** Correct [08](../specs/08-data-model.md) on backup and on who migrates (below)
 
-## Open items
+## Resolved items
 
-**[08](../specs/08-data-model.md) overstates the backup story.** It opens with *"One
-file; back it up by copying it."* WAL makes that false: the probe produces `nodary.db`,
-`nodary.db-shm` and `nodary.db-wal`, and copying the first alone loses whatever sits
-uncheckpointed — which includes audit records. The tracker's rule is that
-[the spec wins and gets fixed](../tasks/README.md), so the line is corrected to require a
-checkpoint or `VACUUM INTO`. This also touches
-[08 §4](../specs/08-data-model.md#4-secrets-at-rest), which already warns that a database
-backed up without `/etc/nodary/secret.key` is useless.
+Both were spec defects rather than implementation problems, so
+[the spec was corrected](../tasks/README.md) rather than worked around.
 
-**[08 §5](../specs/08-data-model.md#5-migrations) says migrations are applied "at server
-start", but [R1](../tasks/R1-core-audit-identity.md) has no server and states the CLI
-"operates on a local database directly".** As built, any *writable* open migrates,
-guarded by the immediate transaction described above; a read-only open refuses when the
-schema is behind rather than migrating underneath a reader. 08 §5 is widened to say so.
+**[08](../specs/08-data-model.md) claimed the database was one file.** It opened with
+*"One file; back it up by copying it."* WAL makes that false: a live database is
+`nodary.db` plus `nodary.db-wal` and `nodary.db-shm`, and a commit lives in the log until
+it is checkpointed — so copying the first alone silently loses the most recent writes,
+including audit records. The line now states that, and requires a checkpoint or
+`VACUUM INTO`. It sits beside [08 §4](../specs/08-data-model.md#4-secrets-at-rest), which
+already warned that a database backed up without `/etc/nodary/secret.key` is useless; the
+two failures compound, and an operator who hits both has a backup that is neither
+complete nor decryptable.
+
+**[08 §5](../specs/08-data-model.md#5-migrations) said migrations run "at server start".**
+R1 has no server, and states the CLI "operates on a local database directly", so on a
+first install an operator's first command and the server's first start reach an
+unmigrated database together. The section now says any *writable* open migrates, guarded
+by the immediate transaction described above, and that a read-only open refuses rather
+than migrating underneath a reader.
