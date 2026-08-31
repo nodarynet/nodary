@@ -34,6 +34,34 @@ jobs:
           go build -o /tmp/nodary ./cmd/nodary
           /tmp/nodary components verify
 
+  # The `go` directive is a promise to contributors and downstream packagers,
+  # and nothing exercised it — so it sat at 1.27 while the tree built fine on
+  # 1.21, locking out every stock distro toolchain for no reason. Same shape as
+  # the goreleaser config below: declared, unverified, wrong.
+  #
+  # GOTOOLCHAIN=local is what makes this a real test. Without it the `toolchain`
+  # line would quietly upgrade the job to the release compiler and it would pass
+  # no matter what the floor said.
+  go-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: floor
+        run: |
+          v=$(grep -m1 '^go ' go.mod | awk '{print $2}')
+          [ -n "$v" ] || { echo "::error::no go directive in go.mod"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ steps.floor.outputs.version }}"
+      - name: The declared floor builds and tests
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go version
+          go build ./...
+          go test ./...
+
   # The release config is only exercised by a tag, so a mistake in it surfaces
   # as a failed release rather than a failed pull request — which is how a
   # `checksums:`/`checksum:` typo sat here unnoticed until the first tag.
