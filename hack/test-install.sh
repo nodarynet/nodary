@@ -47,10 +47,16 @@ printf 'signing\n'
 "$root/hack/release-key.sh" sign "$work/key.key" "$work/releases/$version/$asset" 2>/dev/null
 pass "signed with a throwaway key"
 
-# Embed the throwaway public key into a copy of install.sh.
-cp "$root/install.sh" "$work/install.sh"
-(cd "$work" && "$root/hack/release-key.sh" embed key.pub >/dev/null 2>&1) \
-    || fail "release-key.sh embed failed"
+# Build the installer the way the release pipeline does, stamping in both the
+# version and the key. Testing the stamped artifact rather than the repository
+# copy is the point: the stamped one is what users receive, and it is the only
+# form whose NODARY_VERSION matches the release being served below.
+"$root/hack/stamp-install.sh" --version "$version" --pubkey "$work/key.pub" \
+    -o "$work/install.sh" >/dev/null 2>&1 \
+    || fail "stamp-install.sh failed"
+
+grep -Fq "NODARY_VERSION:-$version}" "$work/install.sh" \
+    || fail "stamped install.sh does not default to $version"
 
 # Check the PEM block, not the whole file: install.sh keeps the placeholder
 # string in its own guard against running unsigned, so a whole-file grep would
@@ -58,7 +64,7 @@ cp "$root/install.sh" "$work/install.sh"
 case "$(sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "$work/install.sh")" in
     *REPLACE_AT_RELEASE_TIME*) fail "key was not embedded" ;;
 esac
-pass "embedded the public key into install.sh"
+pass "stamped install.sh: version $version, throwaway key embedded"
 
 printf 'serving\n'
 (cd "$work" && exec python3 -u -m http.server 0 --bind 127.0.0.1 >"$work/server.log" 2>&1) &
@@ -104,9 +110,14 @@ $(cat "$work/tamper.log")"
 [ ! -e "$prefix/current" ] || fail "a rejected install still placed files"
 pass "tampered binary rejected, nothing installed"
 
+# The repository copy is a development copy: it carries the placeholder key and
+# whatever version the tree is on, so it needs NODARY_VERSION pointing at what
+# is actually being served — otherwise it 404s at download and never reaches
+# the guard this is testing, which is about the key and not the version.
 printf 'placeholder key refusal\n'
 rm -rf "$prefix"
 if NODARY_BASE_URL="$base" NODARY_PREFIX="$prefix" NODARY_BIN_DIR="$work/nonexistent" \
+        NODARY_VERSION="$version" \
         sh "$root/install.sh" >"$work/placeholder.log" 2>&1; then
     fail "the shipped install.sh installed despite carrying a placeholder key"
 fi
