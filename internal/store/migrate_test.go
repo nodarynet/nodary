@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func set(files map[string]string) fs.FS {
@@ -246,6 +247,10 @@ func TestConcurrentMigratorsApplyOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nodary.db")
 
 	const procs = 4
+	// Same barrier as the writer test: the migration itself takes microseconds,
+	// so without a rendezvous the children never overlap and this passed 14
+	// times in a row with the mechanism it exists to test deleted.
+	startAt := startBarrier(2 * time.Second)
 	var wg sync.WaitGroup
 	fails := make(chan string, procs)
 	for p := range procs {
@@ -257,6 +262,7 @@ func TestConcurrentMigratorsApplyOnce(t *testing.T) {
 				"NODARY_STORE_CHILD=1",
 				"NODARY_STORE_PATH="+path,
 				"NODARY_STORE_WHO="+strconv.Itoa(p),
+				"NODARY_STORE_START="+startAt,
 			)
 			if b, err := cmd.CombinedOutput(); err != nil {
 				fails <- fmt.Sprintf("child %d: %v\n%s", p, err, b)
@@ -290,6 +296,7 @@ func TestChildMigrator(t *testing.T) {
 		t.Fatalf("child Open: %v", err)
 	}
 	defer db.Close()
+	waitForBarrier(t)
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("child Migrate: %v", err)
 	}

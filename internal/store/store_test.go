@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func openTemp(t *testing.T) *DB {
@@ -55,14 +56,14 @@ func TestFileAndSidecarModes(t *testing.T) {
 	old := syscallUmask(0o022) // a permissive umask is the case that matters
 	defer syscallUmask(old)
 
+	// Deliberately does NOT call restrictPermissions: Open must do it, and an
+	// earlier version of this test called it here, so deleting the call in
+	// Open would not have failed anything.
 	db := openTemp(t)
 	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
 		_, err := tx.Exec(`CREATE TABLE t(a INTEGER)`)
 		return err
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.restrictPermissions(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,6 +245,10 @@ func TestConcurrentProcessesCannotShareASeq(t *testing.T) {
 	db.Close()
 
 	const procs, each = 4, 25
+	// Every child starts at the same instant. Without a barrier the spawn cost
+	// dominates and the winner finishes all its writes before the next child is
+	// even running, so the assertion below is satisfied trivially.
+	startAt := startBarrier(2 * time.Second)
 	var wg sync.WaitGroup
 	out := make(chan string, procs)
 	for p := range procs {
@@ -256,6 +261,7 @@ func TestConcurrentProcessesCannotShareASeq(t *testing.T) {
 				"NODARY_STORE_PATH="+path,
 				"NODARY_STORE_WHO="+strconv.Itoa(p),
 				"NODARY_STORE_COUNT="+strconv.Itoa(each),
+				"NODARY_STORE_START="+startAt,
 			)
 			if b, err := cmd.CombinedOutput(); err != nil {
 				out <- fmt.Sprintf("child %d: %v\n%s", p, err, b)
@@ -291,6 +297,7 @@ func TestChildWriter(t *testing.T) {
 		t.Fatalf("child Open: %v", err)
 	}
 	defer db.Close()
+	waitForBarrier(t)
 	for range n {
 		if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
 			return appendLink(tx, who)
@@ -332,17 +339,22 @@ func TestCloseTruncatesTheWAL(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if fi, err := os.Stat(path + "-wal"); err == nil && fi.Size() == 0 {
-		t.Skip("WAL already empty before close; nothing to observe")
+	before, err := os.Stat(path + "-wal")
+	if err != nil {
+		t.Fatalf("no WAL after 200 writes, so this test would prove nothing: %v", err)
+	}
+	if before.Size() == 0 {
+		t.Fatal("WAL is empty before Close; this test would pass without doing anything")
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	fi, err := os.Stat(path + "-wal")
-	if err != nil {
-		return // removed entirely, which is also a truncation
-	}
-	if fi.Size() != 0 {
-		t.Errorf("WAL is %d bytes after Close, want truncated", fi.Size())
+	switch fi, err := os.Stat(path + "-wal"); {
+	case errors.Is(err, os.ErrNotExist):
+		// Removed entirely, which is also a truncation.
+	case err != nil:
+		t.Fatalf("stat after Close: %v", err)
+	case fi.Size() != 0:
+		t.Errorf("WAL is %d bytes after Close (was %d), want truncated", fi.Size(), before.Size())
 	}
 }
