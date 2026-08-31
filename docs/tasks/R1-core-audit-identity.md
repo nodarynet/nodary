@@ -18,7 +18,7 @@ front of the same core functions.
 
 - [x] **R1-01** Canonical JSON encoding — deterministic key order, stable number and string forms · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
   - *done:* the same record encodes byte-identically across processes and Go versions; this is what makes a hash reproducible, so it is a prerequisite for every hash below
-- [ ] **R1-02** Open SQLite in WAL mode through `modernc.org/sqlite` · [08](../specs/08-data-model.md)
+- [x] **R1-02** Open SQLite in WAL mode through `modernc.org/sqlite` · [08](../specs/08-data-model.md)
   - *done:* `CGO_ENABLED=0 go build` still produces a static binary · [ADR 0002](../adr/0002-go-with-package-manager-wrappers.md)
   - *deps:* R1-01
 - [ ] **R1-03** Embedded, forward-only migration runner recording each migration's checksum · [08 §5](../specs/08-data-model.md#5-migrations)
