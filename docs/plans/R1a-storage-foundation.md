@@ -1,7 +1,7 @@
 # R1a — Storage foundation
 
 **Slice of:** [R1](../tasks/R1-core-audit-identity.md) · **Tasks:** R1-01 – R1-04 ·
-**Status:** in progress
+**Status:** complete
 
 The first of five slices of R1. [R1](../tasks/R1-core-audit-identity.md) is 31 tasks
 whose internal dependencies are forced rather than chosen — attestation cannot be

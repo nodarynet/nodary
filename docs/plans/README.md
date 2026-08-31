@@ -36,4 +36,4 @@ A plan carries three things the tracker cannot:
 
 | Plan | Milestone | Tasks | Status |
 | :--- | :--- | :--- | :--- |
-| [R1a — Storage foundation](R1a-storage-foundation.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-01 – R1-04 | in progress |
+| [R1a — Storage foundation](R1a-storage-foundation.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-01 – R1-04 | complete |
