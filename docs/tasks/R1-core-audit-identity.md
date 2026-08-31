@@ -115,3 +115,34 @@ front of the same core functions.
   - *done:* `--format json` emits a stable schema to stdout and nothing else; progress and diagnostics go to stderr; secrets never appear in list output
 - [ ] **R1-31** `--yes` skips the interactive confirmation and does **not** skip justification or TOTP · [10 §2](../specs/10-cli.md#2-global-flags)
   - *deps:* R1-15, R1-16
+
+## Quality gates
+
+These are the only tasks in the tracker without a spec link, and the exception
+is deliberate rather than an oversight. The rule exists so nobody invents scope;
+these invent none — they are the machinery that decides whether the `done:`
+criteria above are actually met. R0 owned its CI ([R0-16](R0-release.md)); R1
+through R8 owned none, so nothing tracked them.
+
+They land before the rest of R1 on purpose. Twenty-nine tasks written under the
+gates cost nothing; twenty-nine retrofitted into them cost a great deal, and a
+data race introduced in R1b's chain writer is far cheaper to catch on the commit
+that adds it than in the quarter it first reproduces.
+
+- [x] **R1-32** `go test -race` in `make check` and CI
+  - *done:* the race detector runs on every pull request. R1-07 requires that concurrent writers cannot interleave; nothing currently tests the code that claim rests on, and the control plane, agent and audit writer are all concurrent
+- [x] **R1-33** `staticcheck`, pinned, in CI
+  - *done:* it runs green and its version is pinned in the `Makefile`. The pin is not optional: staticcheck 2025.1.1 cannot parse a Go 1.27 tree at all, so a floating version fails on somebody else's release schedule · [ADR 0002](../adr/0002-go-with-package-manager-wrappers.md)
+- [x] **R1-34** `govulncheck` over the dependency tree in CI
+  - *done:* a vulnerability nodary can actually reach fails the build. It is reachability-based, so it does not fire on a CVE in code we never call — which is what makes blocking on it safe rather than noisy
+- [x] **R1-35** Nightly fuzzing for `internal/canonical`
+  - *done:* the corpus runs as regression cases on every pull request, and a scheduled job searches for new inputs. Not per-pull-request: a fixed-time run either finds nothing or fails on an input unrelated to the change under review · [R1-01](#foundation)
+
+**Not gated: a coverage threshold.** It measures whether a line ran, not whether
+a test would fail if the behaviour were wrong, and R1a produced two arguments
+against it. The differential test in `internal/canonical` had full coverage of
+the encoder while comparing almost nothing, until it was checked for vacuity.
+The concurrency test in `internal/store` had full coverage of `WriteTx` and
+passed with the mechanism it existed to test deleted. A percentage would have
+called both excellent. Coverage is worth reporting and worth reading; it is not
+worth failing a build over.
