@@ -351,9 +351,18 @@ cut during first install. Instead: write a temporary file in the same directory,
 it, `fsync` the directory, then `link` it to the final path. `link` is atomic and still
 fails if the target exists, so it keeps the race protection.
 
-`Load` opens `O_NOFOLLOW` and refuses a file that carries group or other bits, is not
-owned by root, or is not exactly 64 lowercase hex characters with an optional trailing
-newline.
+`Load` opens `O_NOFOLLOW` and refuses a file that carries group or other bits, is owned
+by another account, or is not exactly 64 lowercase hex characters with an optional
+trailing newline. Every check is made against the descriptor rather than the path, so
+nothing can be swapped between the check and the read.
+
+**Ownership is checked against the effective uid, not literally against root**, which is
+a correction to what this plan first said. [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
+says "0400, root", and in a real install that is exactly what this enforces, because
+nodary runs as root. But root is not the invariant — ownership by the reader is. A key
+owned by another account is one that account can replace. Testing for root specifically
+would also make the package unusable to its own tests and to anyone running as a
+developer, which is how a check ends up disabled rather than fixed.
 
 `context` becomes GCM's additional authenticated data — `"totp:user:42"`. Without it an
 attacker able to write the database can move user A's encrypted TOTP seed into user B's
@@ -391,7 +400,7 @@ actually pass. One commit per step, citing its task ID.
 - [x] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
 - [x] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
 - [x] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
-- [ ] **6.** `internal/secret` — atomic creation, validation, versioned ciphertext, AAD · **R1-04**
+- [x] **6.** `internal/secret` — atomic creation, validation, versioned ciphertext, AAD · **R1-04**
 - [ ] **7.** Correct [08](../specs/08-data-model.md) on backup and on who migrates (below)
 
 ## Open items

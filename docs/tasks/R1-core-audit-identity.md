@@ -24,7 +24,7 @@ front of the same core functions.
 - [x] **R1-03** Embedded, forward-only migration runner recording each migration's checksum · [08 §5](../specs/08-data-model.md#5-migrations)
   - *done:* a checksum mismatch aborts startup rather than proceeding against an unexpected schema; downgrade is refused
   - *deps:* R1-02
-- [ ] **R1-04** `/etc/nodary/secret.key` generation (0400 root) and the at-rest encryption helper · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
+- [x] **R1-04** `/etc/nodary/secret.key` generation (0400 root) and the at-rest encryption helper · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
   - *done:* TOTP seeds round-trip through encrypt/decrypt; a database copied without the key yields no plaintext secret
   - *deps:* R1-02
 
