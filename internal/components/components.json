@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nodary_version": "0.0.1",
+  "nodary_version": "0.0.1-rc1",
   "components": [
     {
       "name": "cni-plugins",
