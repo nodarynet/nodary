@@ -109,3 +109,7 @@ R2-34 rather than reimplementing behaviour.
 - [ ] **R2-40** The internal CA that signs agent certificates, unrelated to the server's public TLS certificate · [01 §4](../specs/01-install.md#4-server-install)
   - *done:* the CA private key is encrypted at rest under `secret.key`
   - *deps:* R1-04
+- [ ] **R2-41** A network audit sink — Elastic, Splunk HEC, or a generic NDJSON endpoint · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
+  - *done:* an implementation of R1-08's `Sink` and nothing else changes; the endpoint, credentials and TLS settings come from `server.toml` with the credential sealed under `secret.key`, and a destination that fell behind is re-synced with `audit export --from-seq` rather than by replaying from a queue
+  - *note:* deferred out of [R1b](../plans/R1b-audit-chain.md) deliberately. Shipping records to a SIEM with WORM retention is what a CMMC deployment needs and no MVP install does, and its configuration has nowhere to live until R2-35. The seam, the per-record `install` id and the `v` field that lets the record shape grow all land in R1-08 so this stays additive
+  - *deps:* R1-08, R2-35, R1-04
