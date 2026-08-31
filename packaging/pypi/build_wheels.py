@@ -63,7 +63,7 @@ nodary node install …      # GPU node   (Linux, systemd)
 The server and agent require Linux with systemd. macOS wheels provide the
 operator CLI.
 
-Documentation: <https://github.com/nodary/nodary>
+Documentation: <https://github.com/nodarynet/nodary>
 """
 
 # `python -m nodary`. The console script is the binary itself, so this exists
@@ -209,8 +209,8 @@ def build_wheel(version: str, binary: pathlib.Path, tag: str, outdir: pathlib.Pa
         f"Summary: {SUMMARY}\n"
         "Author: nodary contributors\n"
         "License: Apache-2.0\n"
-        "Project-URL: Homepage, https://github.com/nodary/nodary\n"
-        "Project-URL: Source, https://github.com/nodary/nodary\n"
+        "Project-URL: Homepage, https://github.com/nodarynet/nodary\n"
+        "Project-URL: Source, https://github.com/nodarynet/nodary\n"
         "Classifier: License :: OSI Approved :: Apache Software License\n"
         "Classifier: Operating System :: POSIX :: Linux\n"
         "Classifier: Operating System :: MacOS\n"

@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/nodary/nodary/internal/cli"
+	"github.com/nodarynet/nodary/internal/cli"
 )
 
 func main() {

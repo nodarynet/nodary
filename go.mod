@@ -1,3 +1,3 @@
-module github.com/nodary/nodary
+module github.com/nodarynet/nodary
 
 go 1.27

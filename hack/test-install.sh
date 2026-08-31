@@ -38,7 +38,7 @@ platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/am
 asset="nodary-$version-${platform}"
 
 (cd "$root" && CGO_ENABLED=0 "$GO" build \
-    -ldflags "-s -w -X github.com/nodary/nodary/internal/buildinfo.Version=$version" \
+    -ldflags "-s -w -X github.com/nodarynet/nodary/internal/buildinfo.Version=$version" \
     -o "$work/releases/$version/$asset" ./cmd/nodary)
 pass "built $asset"
 

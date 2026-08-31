@@ -26,7 +26,7 @@ import pathlib
 import shutil
 import sys
 
-REPO = "https://github.com/nodary/nodary"
+REPO = "https://github.com/nodarynet/nodary"
 
 # (goos, goarch) -> (npm platform, npm cpu)
 TARGETS = {

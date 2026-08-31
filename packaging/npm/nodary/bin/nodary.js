@@ -40,7 +40,7 @@ function resolveBinary() {
       `unsupported platform ${k}.\n` +
         `nodary supports: ${Object.keys(SUPPORTED).join(", ")}.\n` +
         `The server and agent additionally require Linux with systemd; ` +
-        `see https://github.com/nodary/nodary`
+        `see https://github.com/nodarynet/nodary`
     );
   }
 

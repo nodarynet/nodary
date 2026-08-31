@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/nodary/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/buildinfo"
 )
 
 func buildVersion() string {

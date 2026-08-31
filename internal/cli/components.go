@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/nodary/nodary/internal/buildinfo"
-	"github.com/nodary/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/components"
 )
 
 func cmdComponents(e env, args []string) int {

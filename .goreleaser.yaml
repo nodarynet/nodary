@@ -27,9 +27,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/nodary/nodary/internal/buildinfo.Version={{ .Version }}
-      - -X github.com/nodary/nodary/internal/buildinfo.Commit={{ .FullCommit }}
-      - -X github.com/nodary/nodary/internal/buildinfo.Date={{ .CommitDate }}
+      - -X github.com/nodarynet/nodary/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/nodarynet/nodary/internal/buildinfo.Commit={{ .FullCommit }}
+      - -X github.com/nodarynet/nodary/internal/buildinfo.Date={{ .CommitDate }}
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"

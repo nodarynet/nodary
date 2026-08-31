@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION)
 GO      ?= go
 DIST    ?= dist
 
-PKG     := github.com/nodary/nodary
+PKG     := github.com/nodarynet/nodary
 LDFLAGS := -s -w -X $(PKG)/internal/buildinfo.Version=$(VERSION)
 
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
