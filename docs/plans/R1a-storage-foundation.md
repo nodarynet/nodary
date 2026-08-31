@@ -378,7 +378,7 @@ actually pass. One commit per step, citing its task ID.
 
 - [x] **1.** `internal/paths` — the four locations above
 - [x] **2.** `internal/canonical` — encoder, ES6 numbers, `Hash` and `HashHex`, vectors, fuzz · **R1-01**
-- [ ] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
+- [x] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
 - [ ] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
 - [ ] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
 - [ ] **6.** `internal/secret` — atomic creation, validation, versioned ciphertext, AAD · **R1-04**
