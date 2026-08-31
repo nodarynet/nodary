@@ -1,0 +1,56 @@
+name: fuzz
+
+# `go test` already replays everything in testdata/fuzz as ordinary regression
+# cases, so a pull request pays nothing for the corpus. What it does not do is
+# search for new inputs, and the encoder in internal/canonical is the one place
+# where that search has already paid: FuzzEncodeJSON found, in well under a
+# second, that a magnitude-based integer rule made the encoder refuse to read
+# back its own output for the input 1e17 — a defect that would have surfaced as
+# `audit verify` reporting tampering in history nobody had touched.
+#
+# Nightly rather than per-pull-request: a fixed-time fuzz run either finds
+# nothing (and has told you nothing) or fails on an input unrelated to the
+# change under review, which teaches people to re-run red builds.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: "Duration per target, e.g. 10m"
+        required: false
+        default: "10m"
+
+permissions:
+  contents: read
+
+jobs:
+  canonical:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzEncodeJSON, FuzzDifferential]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          go test ./internal/canonical/ \
+            -run=XXX -fuzz='^${{ matrix.target }}$' \
+            -fuzztime='${{ inputs.fuzztime || ''10m'' }}'
+
+      # A crasher is worthless if it dies with the runner. Go writes the
+      # reproducer under testdata/fuzz, where committing it turns the finding
+      # into a permanent regression case.
+      - name: Upload any reproducer
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-reproducer
+          path: internal/canonical/testdata/fuzz/
+          if-no-files-found: ignore
