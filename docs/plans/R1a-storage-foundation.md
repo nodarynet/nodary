@@ -160,7 +160,7 @@ over the domain, so the two entry points genuinely cannot drift.
 | Rule | Behaviour | JCS |
 | :--- | :--- | :--- |
 | Numbers | ES6 `Number::toString` over the IEEE-754 double | §3.2.2.3 |
-| Integers | Rejected when not exactly representable as a double (magnitude above 2^53-1) | see below |
+| Integers | Rejected when no double holds them exactly — an exactness test, not a magnitude one | see below |
 | Keys | Sorted by UTF-16 code unit, on the **decoded** string, not its escaped form | §3.2.3 |
 | Escapes | The seven JCS escapes — backspace, tab, newline, formfeed, return, backslash, quote. A forward slash is emitted literally | §3.2.2.2 |
 | Other C0 | Four-digit hex escape in **lowercase**; an uppercase hex digit changes the hash of every record containing a control character | §3.2.2.2 |
@@ -175,6 +175,14 @@ conforming implementation given 2^53+1 emits `9007199254740992` — it rounds. n
 different number rule: on every input we accept, our output is byte-identical to any
 conforming JCS implementation. Refusing beats silently losing precision, and it is what
 RFC 7493 §2.2 recommends for interoperable JSON. `seq` will not approach 2^53.
+
+The test is exactness, **not** magnitude, and an earlier draft of this plan got it
+wrong. 2^53 is only the point below which *every* integer is representable; plenty of
+larger ones still are, and 10^17 is one of them. A magnitude check therefore made the
+encoder emit `100000000000000000` for the input `1e17` and then refuse to read its own
+output back — `FuzzEncodeJSON` found it in under a second, and the failing input is kept
+as a corpus seed. Producing a canonical form that cannot be re-canonicalised would have
+broken `audit verify`, which re-hashes stored records to walk the chain.
 
 Lone surrogates need their own rule because a UTF-8 check does not catch them: a string
 containing only the escape `\udead` is valid ASCII, valid RFC 8259, and `encoding/json`
@@ -369,7 +377,7 @@ The in-flight record. A tracker checkbox in
 actually pass. One commit per step, citing its task ID.
 
 - [x] **1.** `internal/paths` — the four locations above
-- [ ] **2.** `internal/canonical` — encoder, ES6 numbers, `Hash` and `HashHex`, vectors, fuzz · **R1-01**
+- [x] **2.** `internal/canonical` — encoder, ES6 numbers, `Hash` and `HashHex`, vectors, fuzz · **R1-01**
 - [ ] **3.** `modernc.org/sqlite`; `internal/store` `Open`, DSNs, `WriteTx`, `application_id` · **R1-02**
 - [ ] **4.** CI: cross-build all four targets with `CGO_ENABLED=0` and assert static · **R1-02**
 - [ ] **5.** `migrate.go`, `0001_schema_migration.sql`, checksum, downgrade and gap refusal · **R1-03**
