@@ -514,7 +514,7 @@ would leave that field unprotected while everything still verified.
 One commit per step, citing its task ID.
 
 - [x] **1.** `store.OpenReadOnly` — read-only open that refuses rather than migrates
-- [ ] **2.** `internal/audit` record, `members()`, preimage and hash, golden vector · **R1-05**, **R1-06**
+- [x] **2.** `internal/audit` record, `members()`, preimage and hash, golden vector · **R1-05**, **R1-06**
 - [ ] **3.** `0002_audit.sql`; `Append` assigning `seq` and `prev_hash` inside `WriteTx` · **R1-07**
 - [ ] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**
 - [ ] **5.** `log.go` — `Log`, `Request`, `Mutation`, `Act`, and the bypass test · **R1-12**
