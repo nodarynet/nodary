@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +48,25 @@ func appliedVersions(t *testing.T, db *DB) []int {
 	return out
 }
 
+// embeddedVersions is what a fully migrated database should contain. Derived
+// rather than written out, so adding a migration does not silently turn these
+// tests into assertions about a stale number.
+func embeddedVersions(t *testing.T) []int {
+	t.Helper()
+	ms, err := loadMigrations(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]int, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.version)
+	}
+	if len(out) == 0 {
+		t.Fatal("no migrations are embedded")
+	}
+	return out
+}
+
 // The bookkeeping table is created by a migration, not by bootstrap DDL in Go,
 // so the very first run has to work against a database where the table the
 // runner records into does not exist yet.
@@ -55,8 +75,8 @@ func TestFreshDatabaseBootstrapsItself(t *testing.T) {
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if got := appliedVersions(t, db); len(got) != 1 || got[0] != 1 {
-		t.Errorf("applied = %v, want [1]", got)
+	if got, want := appliedVersions(t, db), embeddedVersions(t); !slices.Equal(got, want) {
+		t.Errorf("applied = %v, want %v", got, want)
 	}
 }
 
@@ -68,8 +88,8 @@ func TestRerunIsANoOp(t *testing.T) {
 			t.Fatalf("Migrate #%d: %v", i+1, err)
 		}
 	}
-	if got := appliedVersions(t, db); len(got) != 1 {
-		t.Errorf("applied = %v after three runs, want one row", got)
+	if got, want := appliedVersions(t, db), embeddedVersions(t); !slices.Equal(got, want) {
+		t.Errorf("applied = %v after three runs, want %v", got, want)
 	}
 }
 
@@ -280,8 +300,8 @@ func TestConcurrentMigratorsApplyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if got := appliedVersions(t, db); len(got) != 1 || got[0] != 1 {
-		t.Errorf("applied = %v after %d concurrent migrators, want exactly [1]", got, procs)
+	if got, want := appliedVersions(t, db), embeddedVersions(t); !slices.Equal(got, want) {
+		t.Errorf("applied = %v after %d concurrent migrators, want exactly %v", got, procs, want)
 	}
 }
 

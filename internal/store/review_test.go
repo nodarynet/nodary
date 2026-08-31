@@ -305,10 +305,11 @@ func TestBarrierMakesChildrenOverlap(t *testing.T) {
 // transaction.
 //
 // This one forces the ordering instead of hoping for it. A holds the write lock
-// with 0001 applied but uncommitted; B calls Migrate and must block on BEGIN,
-// observe 0001 once A commits, and do nothing. A build that read the applied
-// set before taking the lock sees an empty set and tries to CREATE TABLE a
-// second time — verified: 3 failures in 3 runs against that mutation.
+// with every migration applied but uncommitted; B calls Migrate and must block
+// on BEGIN, observe the applied set once A commits, and do nothing. A build
+// that read the applied set before taking the lock sees an empty set and tries
+// to CREATE TABLE a second time — verified: 3 failures in 3 runs against that
+// mutation, before and after 0002 joined the set.
 func TestMigrateBlockedBehindAWriterAppliesOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nodary.db")
 	ctx := context.Background()
@@ -335,8 +336,10 @@ func TestMigrateBlockedBehindAWriterAppliesOnce(t *testing.T) {
 
 	go func() {
 		aDone <- a.WriteTx(ctx, func(tx *sql.Tx) error {
-			if err := apply(tx, first[0]); err != nil {
-				return err
+			for _, m := range first {
+				if err := apply(tx, m); err != nil {
+					return err
+				}
 			}
 			close(holding)
 			<-release // hold the write lock open
@@ -362,14 +365,14 @@ func TestMigrateBlockedBehindAWriterAppliesOnce(t *testing.T) {
 		t.Fatalf("first migrator: %v", err)
 	}
 	if err := <-bDone; err != nil {
-		t.Fatalf("second migrator failed instead of finding 0001 already applied: %v", err)
+		t.Fatalf("second migrator failed instead of finding the set already applied: %v", err)
 	}
 
 	var rows int
 	if err := b.Read().QueryRow(`SELECT count(*) FROM schema_migration`).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 {
-		t.Errorf("schema_migration has %d rows, want exactly 1", rows)
+	if want := len(embeddedVersions(t)); rows != want {
+		t.Errorf("schema_migration has %d rows, want exactly %d", rows, want)
 	}
 }
