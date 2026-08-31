@@ -62,6 +62,34 @@ jobs:
           go build ./...
           go test ./...
 
+  # staticcheck finds what the type system and `go vet` cannot. Its version is
+  # pinned in the Makefile, and has to be: staticcheck 2025.1.1 cannot read a
+  # Go 1.27 tree at all. A bleeding-edge `go` floor means third-party analysers
+  # lag, and this will recur every February and August.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - run: make lint
+
+  # Reachability-based, so it reports a CVE only when this code can actually
+  # reach the affected function. That is what makes it safe to block on: a
+  # vulnerable dependency nodary genuinely calls is a reason to stop, and for a
+  # product whose pitch is evidence and accountability it is cheap evidence.
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - run: make vuln
+
   # ADR 0002's whole thesis is one static binary with no interpreter and no host
   # runtime, and it is the property that survives least well by accident: a
   # single dependency pulling in cgo would end it silently, on one platform,

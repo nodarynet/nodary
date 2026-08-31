@@ -11,13 +11,25 @@ VERSION ?= $(shell cat VERSION)
 GO      ?= go
 DIST    ?= dist
 
+# Analyser versions are pinned because a floating one breaks the build on
+# somebody else's schedule. They also have to be new enough to read this tree:
+# staticcheck 2025.1.1 cannot parse a Go 1.27 stdlib at all, failing with
+# "export data version 4 is greater than maximum supported version 2".
+STATICCHECK ?= v0.8.1
+GOVULNCHECK ?= v1.7.0
+
+# `go run tool@version` resolves its own toolchain and ignores this module's,
+# so both analysers silently pick an older Go and fail. Read the pin from
+# go.mod so it cannot drift from what the release is built with.
+TOOLCHAIN := $(shell awk '/^toolchain /{print $$2}' go.mod)
+
 PKG     := github.com/nodarynet/nodary
 LDFLAGS := -s -w -X $(PKG)/internal/buildinfo.Version=$(VERSION)
 
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 .DEFAULT_GOAL := help
-.PHONY: help build test check fmt vet dist wheels npm packages manifest manifest-check test-install test-packages clean
+.PHONY: help build test test-race lint vuln check fmt vet dist wheels npm packages manifest manifest-check test-install test-packages clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -31,13 +43,31 @@ build: ## Build the binary for this host into $(DIST)/
 test: ## Run the Go test suite
 	$(GO) test ./...
 
+# The race detector requires cgo, which is the one place this repo does not set
+# CGO_ENABLED=0. It changes nothing about what ships: `dist` sets it explicitly,
+# and the `static-binary` CI job asserts the result. Do not "fix" this by
+# dropping -race — the control plane, the agent and the audit writer are all
+# concurrent, and a data race in the chain writer is exactly the defect that
+# survives review and reproduces once a quarter in production.
+test-race: ## Run the test suite under the race detector
+	$(GO) test -race ./...
+
 fmt: ## Format all Go source
 	gofmt -w .
 
 vet: ## Run go vet
 	$(GO) vet ./...
 
-check: fmt-check vet test ## Everything CI runs on a pull request
+# lint and vuln are deliberately not in `check`: both fetch a tool, so keeping
+# them out leaves `check` usable offline and fast. CI runs them as their own
+# jobs, where a failure names which gate failed rather than "check failed".
+lint: ## Run staticcheck
+	GOTOOLCHAIN=$(TOOLCHAIN) $(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK) ./...
+
+vuln: ## Report known vulnerabilities reachable from this code
+	GOTOOLCHAIN=$(TOOLCHAIN) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK) ./...
+
+check: fmt-check vet test-race ## Everything CI runs on a pull request
 
 .PHONY: fmt-check
 fmt-check:
