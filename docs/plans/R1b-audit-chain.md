@@ -379,8 +379,19 @@ inspecting.
 func OpenReadOnly(ctx context.Context, path string) (*DB, error)
 ```
 
-Refuses a missing file rather than creating one, opens `_query_only`, verifies
-`application_id`, and reports a schema behind the binary as an error naming both versions.
+Refuses a missing file rather than creating one, opens `mode=rw&_query_only=1`, verifies
+`application_id`, and runs the migrator's own reconciliation so a downgrade, a checksum
+mismatch and an outstanding migration are reported in the migrator's words rather than as
+*no such column* three queries later.
+
+`mode=rw` is the mechanism and matters more than it looks: `_query_only=1` alone still
+**creates** the database, so `audit verify` against a mistyped path would report an empty
+chain over a file it had just invented — the most misleading answer an evidence tool can
+give. `mode=ro` was measured and rejected: SQLite needs the `-shm` index to read a WAL
+database at all, so the sidecars appear either way and it buys nothing, while it cannot
+recover a `-wal` left by a writer that crashed — which would break `verify` at exactly the
+moment someone needs it. The honest guarantee is *no create, no migrate, no journal_mode
+conversion, no write*, not *no file touched*.
 
 ### `audit` — the record and its hash
 
@@ -491,7 +502,7 @@ more than one that re-nests, and JSONL is there for anything that needs structur
 | `audit` concurrency | N **separate processes** each appending M records: `seq` is 1..N·M with no gaps or duplicates, every `prev_hash` is unique, and the whole chain verifies |
 | `audit` sinks | `ParseSinks` round-trips every form and rejects unknown ones; a failing sink does not fail `Act` under `warn` and refuses the *next* `Act` under `block`, naming the sink; the file sink's line is byte-identical to the JSONL export; `verify --mirror` verifies a file with no database present; a record committed but undelivered is recovered by `--from-seq` |
 | `audit` seam | `Act` records `success`, `failure` and `partial` with the error tail in `detail`; a failed mutation leaves no state change and still leaves a record; no package outside `store` and `audit` names `WriteTx` |
-| `store` | `OpenReadOnly` refuses a missing file, a foreign `application_id`, and a schema behind the binary, and creates neither the file nor sidecars |
+| `store` | `OpenReadOnly` refuses a missing file, a directory, a foreign or absent `application_id`, a schema behind the binary and a downgrade; the refusal does not migrate the database it refused; `Read().Exec`, `WriteTx` and `Migrate` are all refused; it opens while a writer holds the lock; and the DSN itself is tested, so removing `mode=rw` cannot hide behind the `os.Stat` |
 | `cli` | `list` filters and orders descending; `verify` exits 1 naming the first bad sequence; `export --format text` is rejected naming `jsonl` and `csv`; a `stdout` sink plus a document-producing command is refused; `--format json` writes nothing to stdout but the document |
 
 The chain test that mutates *each field in turn* is the one that matters most: it is the
@@ -502,7 +513,7 @@ would leave that field unprotected while everything still verified.
 
 One commit per step, citing its task ID.
 
-- [ ] **1.** `store.OpenReadOnly` — read-only open that refuses rather than migrates
+- [x] **1.** `store.OpenReadOnly` — read-only open that refuses rather than migrates
 - [ ] **2.** `internal/audit` record, `members()`, preimage and hash, golden vector · **R1-05**, **R1-06**
 - [ ] **3.** `0002_audit.sql`; `Append` assigning `seq` and `prev_hash` inside `WriteTx` · **R1-07**
 - [ ] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**

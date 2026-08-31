@@ -193,9 +193,9 @@ func stripSQLComments(s string) string {
 // matching an error string: the driver returns SQLITE_ERROR with different
 // messages for many failures, and string-matching would read a corrupt database
 // as a fresh one.
-func appliedMigrations(tx *sql.Tx) (map[int]string, error) {
+func appliedMigrations(q querier) (map[int]string, error) {
 	var present int
-	if err := tx.QueryRow(
+	if err := q.QueryRow(
 		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migration'`,
 	).Scan(&present); err != nil {
 		return nil, fmt.Errorf("looking for schema_migration: %w", err)
@@ -205,7 +205,7 @@ func appliedMigrations(tx *sql.Tx) (map[int]string, error) {
 		return applied, nil // a fresh database; 0001 creates the table
 	}
 
-	rows, err := tx.Query(`SELECT version, checksum FROM schema_migration`)
+	rows, err := q.Query(`SELECT version, checksum FROM schema_migration`)
 	if err != nil {
 		return nil, fmt.Errorf("reading schema_migration: %w", err)
 	}

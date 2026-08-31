@@ -285,6 +285,14 @@ func (db *DB) restrictPermissions() error {
 // sequence number and writing the row that claims it cannot be split apart by
 // another writer in another process.
 func (db *DB) WriteTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	// A handle from OpenReadOnly has no writer pool. Reported here rather than
+	// left to nil-panic, because Migrate goes through this path: a read-only
+	// caller reaching a pending migration should be told the schema is behind,
+	// not crash.
+	if db.write == nil {
+		return fmt.Errorf("%w: %s", ErrReadOnly, db.path)
+	}
+
 	var tx *sql.Tx
 	// Retrying BEGIN is unconditionally safe — nothing in fn has run. Not
 	// retrying drops an audit record because someone else happened to be
