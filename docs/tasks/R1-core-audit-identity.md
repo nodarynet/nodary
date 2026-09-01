@@ -77,7 +77,9 @@ front of the same core functions.
 
 ## Identity
 
-- [ ] **R1-18** `user` table, argon2id password hashing, states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+- [ ] **R1-18** `user` table, roles, and the states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+  - *done:* a deleted user keeps its row, so every audit record naming it still resolves to a name, and gives that name back for reuse
+  - *note:* argon2id password hashing was part of this task and is now [R2-42](R2-control-plane.md). Nothing in R1 reads a password hash: the only consumer is `POST /auth/login` ([R2-25](R2-control-plane.md)), the CLI authenticates with a personal token, and [01 §9](../specs/01-install.md) has the first administrator set theirs through a one-time setup URL that does not exist until [R5](R5-install.md). Unlike the audit record's `v` and `install`, nothing hashes a `user` row, so the column is an ordinary forward-only migration · [R1c](../plans/R1c-identity.md)
   - *deps:* R1-03
 - [ ] **R1-19** TOTP enrollment and verification, seed encrypted at rest
   - *done:* the seed is displayed exactly once at enrollment and is never readable back · [10 §4](../specs/10-cli.md#4-output-discipline)

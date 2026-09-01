@@ -113,3 +113,7 @@ R2-34 rather than reimplementing behaviour.
   - *done:* an implementation of R1-08's `Sink` and nothing else changes; the endpoint, credentials and TLS settings come from `server.toml` with the credential sealed under `secret.key`, and a destination that fell behind is re-synced with `audit export --from-seq` rather than by replaying from a queue
   - *note:* deferred out of [R1b](../plans/R1b-audit-chain.md) deliberately. Shipping records to a SIEM with WORM retention is what a CMMC deployment needs and no MVP install does, and its configuration has nowhere to live until R2-35. The seam, the per-record `install` id and the `v` field that lets the record shape grow all land in R1-08 so this stays additive
   - *deps:* R1-08, R2-35, R1-04
+- [ ] **R2-42** argon2id password hashing, and the rehash-on-verify that lets its cost be raised · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+  - *done:* the parameters and their version are stored with each hash, so raising the cost does not invalidate an existing one; a hash produced under older parameters is replaced on the next successful verification
+  - *note:* deferred out of [R1c](../plans/R1c-identity.md). A password's only consumer is R2-25's login, R1 authenticates with personal tokens, and [01 §9](../specs/01-install.md) has the first one set through a setup URL that arrives in [R5](R5-install.md) — so choosing parameters in R1 would mean choosing them against no login path at all. Nothing hashes a `user` row, so the column is additive
+  - *deps:* R1-18, R2-25

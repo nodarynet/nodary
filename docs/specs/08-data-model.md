@@ -39,7 +39,8 @@ deployment(id PK, model_id, node_name, backend, gpus_json, params_json, extra_ar
 route(name PK, strategy, created_at)
 route_member(route_name, deployment_id, weight, PRIMARY KEY (route_name, deployment_id))
 
-user(id PK, name, email, role, state, password_hash, totp_secret_enc, created_at)
+user(id PK, name, email, role, state, totp_secret_enc, totp_last_step,
+     totp_enrolled_at, created_at)
 token(id PK, user_id, kind, hash, prefix, name, expires_at, revoked_at, last_used_at,
       allow_unattended, created_at)
 limits(subject_kind, subject_id, rpm, tpm, daily_tokens, max_concurrent,
@@ -49,7 +50,7 @@ revision(seq PK, ts, actor, justification, snapshot_json, prev_hash, hash)
 audit(seq PK, v, install, ts, actor_id, actor_method, actor_session,
       source_ip, source_version, action, target_kind, target_id,
       intent_hash, justification, outcome, detail_json, prev_hash, hash)
-installation(singleton PK, id, created_at)
+installation(singleton PK, id, secret_key_id, created_at)
 usage(id PK, ts, user_id, token_id, route, model_id, deployment_id, node_name,
       request_id, prompt_tokens, completion_tokens, latency_ms, status, streamed, partial)
 usage_daily(day, user_id, model_id, requests, prompt_tokens, completion_tokens,
@@ -68,6 +69,18 @@ goes through the audit layer.
 
 `installation` holds exactly one row, minted on first write. See
 [07 §3](07-identity-audit.md#v-and-install) for why the identifier is inside the hash.
+
+`secret_key_id` binds the database to the key that sealed its secrets. It is set on the
+first seal rather than at install, because until something is sealed there is nothing to
+lose — and from that point a mismatch is refused rather than answered by minting a fresh
+key, which would leave every sealed value permanently unreadable behind a clean startup.
+
+`user` records `totp_last_step` because a TOTP code is spent, not merely valid. RFC 6238
+codes stand for a whole 30-second step and a skew window widens that further, so a code
+that survives its own use can be replayed by anyone who saw it once — which is exactly
+what [07 §2](07-identity-audit.md#2-attestation)'s re-entry exists to prevent. A user has
+no password column: authentication in [R1](../tasks/R1-core-audit-identity.md) is by
+personal token, and password hashing lands with the login endpoint that first verifies one.
 
 ## 2. Revisions replace version control
 
