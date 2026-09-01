@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/nodarynet/nodary/internal/canonical"
 	"github.com/nodarynet/nodary/internal/store"
 )
 
@@ -310,5 +313,179 @@ func TestBypassScanFindsAnOffender(t *testing.T) {
 	}
 	if scanned < 10 {
 		t.Errorf("the bypass scan visited %d Go files; it is not reaching the tree", scanned)
+	}
+}
+
+// A detail this package cannot encode must never cost the operator their
+// change. The coercion exists for exactly that, and rendering with %v is not
+// enough on its own: the rendering of an invalid-UTF-8 string is still invalid
+// UTF-8, so the record failed to hash and the successful mutation rolled back.
+func TestAHostileDetailDoesNotRollBackTheMutation(t *testing.T) {
+	l, _, db := logFor(t, Warn)
+
+	r, err := l.Act(context.Background(), request("thing.add"), func(m Mutation) error {
+		m.Detail("raw", string([]byte{0xff, 0xfe}))
+		m.Detail("nested", map[string]any{"also": string([]byte{0x80})})
+		_, err := m.Tx().Exec(`INSERT INTO thing(name) VALUES ('first')`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("a detail the encoder cannot hold failed the action: %v", err)
+	}
+	if things(t, db) != 1 {
+		t.Error("the change was rolled back by a logging value")
+	}
+	if r.Seq != 1 {
+		t.Errorf("no record was written: seq %d", r.Seq)
+	}
+
+	// Repaired, not discarded. Falling back to a placeholder would also keep
+	// the mutation, and would throw away what the detail was trying to say.
+	// strings.ToValidUTF8 replaces each *run* of invalid bytes with one
+	// replacement character, so two bad bytes in a row become one.
+	raw, _ := r.Detail["raw"].(string)
+	if raw != "\uFFFD" {
+		t.Errorf("detail raw = %q, want the invalid run replaced", raw)
+	}
+	nested, _ := r.Detail["nested"].(string)
+	if !utf8.ValidString(nested) || !strings.Contains(nested, "also") {
+		t.Errorf("detail nested = %q, want a repaired rendering that kept its content", nested)
+	}
+	for _, v := range []string{raw, nested} {
+		if strings.Contains(v, "unrepresentable") {
+			t.Errorf("a repairable value fell back to the placeholder: %q", v)
+		}
+	}
+}
+
+// A key is a map key in the record, so it has to be encodable too — and a
+// hostile one fails the whole record, not just its own entry.
+func TestAHostileDetailKeyDoesNotRollBackTheMutation(t *testing.T) {
+	l, _, db := logFor(t, Warn)
+
+	r, err := l.Act(context.Background(), request("thing.add"), func(m Mutation) error {
+		m.Detail(string([]byte{0xff}), "fine")
+		_, err := m.Tx().Exec(`INSERT INTO thing(name) VALUES ('first')`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("a detail key the encoder cannot hold failed the action: %v", err)
+	}
+	if things(t, db) != 1 || r.Seq != 1 {
+		t.Errorf("things=%d seq=%d", things(t, db), r.Seq)
+	}
+	if got, ok := r.Detail["\uFFFD"]; !ok || got != "fine" {
+		t.Errorf("detail = %#v, want the key repaired and the value kept", r.Detail)
+	}
+}
+
+// Whatever a caller passes, the result must encode. This is the invariant the
+// repair exists for, asserted directly rather than only through Act.
+func TestEncodableAlwaysProducesSomethingTheEncoderAccepts(t *testing.T) {
+	for name, v := range map[string]any{
+		"invalid utf-8":     string([]byte{0xff, 0xfe}),
+		"lone surrogate":    string([]byte{0xed, 0xa0, 0x80}),
+		"map with raw byte": map[string]any{"k": string([]byte{0x80})},
+		"slice with raw":    []any{string([]byte{0xc3})},
+		"a time":            time.Now(),
+		"a channel":         make(chan int),
+		"an error":          errors.New("disk full"),
+		"a func":            func() {},
+		"nil":               nil,
+		"fine":              "ordinary",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, _ := encodable(v)
+			if _, err := canonical.Encode(got); err != nil {
+				t.Errorf("encodable(%v) produced %#v, which the encoder refuses: %v", name, got, err)
+			}
+		})
+	}
+}
+
+// The error tail is cut to a byte length. Cutting a multi-byte rune in half
+// leaves invalid UTF-8, the record cannot be hashed, and a failed mutation
+// produces no audit record at all — which is the one thing R1-12 promises
+// cannot happen.
+func TestAFailureWithALongNonASCIIErrorIsStillRecorded(t *testing.T) {
+	l, _, db := logFor(t, Warn)
+	boom := errors.New(strings.Repeat("日", 700) + " — 停止")
+
+	r, err := l.Act(context.Background(), request("thing.add"), func(m Mutation) error {
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("Act error = %v, want the mutation error", err)
+	}
+	if r.Seq == 0 {
+		t.Fatal("a failure with a long non-ASCII error produced no record")
+	}
+	if r.Outcome != OutcomeFailure {
+		t.Errorf("outcome = %q", r.Outcome)
+	}
+	tail, _ := r.Detail["error"].(string)
+	if !utf8.ValidString(tail) {
+		t.Errorf("the recorded error tail is not valid UTF-8: %q", tail)
+	}
+	if !strings.HasPrefix(tail, "日") {
+		t.Errorf("the error tail lost its start: %q", tail)
+	}
+	if len(tail) > maxErrorTail+len("… (truncated)") {
+		t.Errorf("the error tail is %d bytes, past the bound", len(tail))
+	}
+	if things(t, db) != 0 {
+		t.Error("a failed mutation left its change behind")
+	}
+}
+
+// An error's text can carry raw bytes from a subprocess, and the encoder
+// refuses invalid UTF-8. Unrepaired, that is again a failed mutation with no
+// record — the same hole as the rune split, reached a different way.
+func TestAFailureWithAnUnprintableErrorIsStillRecorded(t *testing.T) {
+	l, _, _ := logFor(t, Warn)
+	boom := errors.New("backend said: " + string([]byte{0xff, 0xfe, 0x80}))
+
+	r, err := l.Act(context.Background(), request("thing.add"), func(m Mutation) error {
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("Act error = %v", err)
+	}
+	if r.Seq == 0 {
+		t.Fatal("a failure with an unprintable error produced no record")
+	}
+	tail, _ := r.Detail["error"].(string)
+	if !utf8.ValidString(tail) {
+		t.Errorf("recorded tail is not valid UTF-8: %q", tail)
+	}
+	if !strings.HasPrefix(tail, "backend said: ") {
+		t.Errorf("tail = %q, want the readable part kept", tail)
+	}
+}
+
+// An error is the most natural thing to put in a detail — the field is
+// specified as "exit status, error tail, objects changed". It used to encode as
+// {} and say nothing: errors.errorString has one unexported field, so the
+// canonical encoder produced an empty object and reported no problem.
+func TestAnErrorInADetailKeepsItsText(t *testing.T) {
+	l, _, _ := logFor(t, Warn)
+
+	r, err := l.Act(context.Background(), request("thing.add"), func(m Mutation) error {
+		m.Detail("reason", errors.New("disk full"))
+		m.Detail("wrapped", fmt.Errorf("staging %s: %w", "mdl_1", errors.New("disk full")))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Detail["reason"]; got != "disk full" {
+		t.Errorf("detail reason = %#v, want the error text", got)
+	}
+	if got := r.Detail["wrapped"]; got != "staging mdl_1: disk full" {
+		t.Errorf("detail wrapped = %#v, want the error text", got)
+	}
+	// An error is rendered, not coerced: nothing was lost, so nothing is flagged.
+	if _, flagged := r.Detail["_coerced"]; flagged {
+		t.Errorf("an error was reported as coerced: %#v", r.Detail["_coerced"])
 	}
 }

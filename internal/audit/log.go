@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nodarynet/nodary/internal/canonical"
 	"github.com/nodarynet/nodary/internal/store"
@@ -202,11 +204,57 @@ func (l *Log) emit(ctx context.Context, r Record) {
 	l.delivery.Emit(ctx, r.Seq, line)
 }
 
+// truncate bounds the error tail and keeps it valid UTF-8.
+//
+// Both halves matter. Cutting to a byte length splits a multi-byte rune, and an
+// error's text can carry raw bytes from a subprocess; either leaves a string
+// the canonical encoder refuses, the record then cannot be hashed, and a failed
+// mutation produces no audit record at all — the one thing this seam promises
+// cannot happen. Found by review: 700 CJK characters were enough.
 func truncate(s string, n int) string {
+	s = validUTF8(s)
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "… (truncated)"
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "… (truncated)"
+}
+
+// validUTF8 replaces anything that is not well-formed. The canonical encoder
+// refuses invalid UTF-8 rather than substituting silently, which is right for a
+// record's own fields and wrong for a diagnostic detail: a detail must never
+// cost the operator the change it was describing.
+func validUTF8(s string) string { return strings.ToValidUTF8(s, "\uFFFD") }
+
+// encodable returns a value canonical.Encode is guaranteed to accept, and
+// reports whether anything had to change to get there.
+func encodable(v any) (any, bool) {
+	// An error's text is the whole reason for recording one. The encoder
+	// accepts *errors.errorString as a struct whose only field is unexported,
+	// emits {} and reports no problem — so an operator reading a failure record
+	// found an empty object where the reason should have been. Found by review.
+	if err, ok := v.(error); ok {
+		v = err.Error()
+	}
+	if _, e := canonical.Encode(v); e == nil {
+		return v, false
+	}
+	// Rendering alone is not enough: the rendering of an invalid-UTF-8 string
+	// is still invalid UTF-8, and a map containing one renders to a string
+	// containing one.
+	s := validUTF8(fmt.Sprintf("%v", v))
+	// Unreachable as canonical stands: it refuses a Go string only for invalid
+	// UTF-8, which validUTF8 has just removed. Kept so that a new rejection
+	// rule there cannot silently bring back the rollback this function exists
+	// to prevent — deliberately redundant, and measured as such: removing this
+	// alone breaks no test, removing it together with the repair above does.
+	if _, e := canonical.Encode(s); e != nil {
+		return "<unrepresentable value>", true
+	}
+	return s, true
 }
 
 // mutation is the only implementation of Mutation.
@@ -236,15 +284,20 @@ func (m *mutation) reset(tx *sql.Tx) {
 // rarely-taken branch would refuse an operator's action. Instead the value is
 // rendered and the coercion is recorded in the record itself, under
 // "_coerced", so nothing is lost quietly.
+//
+// The guarantee is absolute rather than best-effort: whatever a caller passes,
+// the resulting record encodes. An earlier version only rendered with %v, which
+// left invalid UTF-8 still invalid and rolled the mutation back anyway.
 func (m *mutation) Detail(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := canonical.Encode(value); err != nil {
-		m.detail[key] = fmt.Sprintf("%v", value)
+	// The key is a map key in the record, so it has to be encodable too.
+	key = validUTF8(key)
+	v, coerced := encodable(value)
+	m.detail[key] = v
+	if coerced {
 		m.coerced = append(m.coerced, key)
-		return
 	}
-	m.detail[key] = value
 }
 
 func (m *mutation) snapshot() map[string]any {
