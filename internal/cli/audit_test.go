@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/store"
 )
 
@@ -140,6 +141,16 @@ func TestAuditVerifyJSONIsAStableDocumentOnStdout(t *testing.T) {
 // The case an auditor is in: a copy pulled from a SIEM, on a machine that has
 // never seen the database it came from.
 func TestAuditVerifyChecksAMirrorWithNoDatabase(t *testing.T) {
+	// This case is defined by the absence of a database at the default
+	// location, and internal/paths is deliberately not configurable — so the
+	// test can only assert it on a machine where nodary is not installed.
+	// Without this it opened the operator's real chain and compared the fixture
+	// against it, and the failure read as a defect in the code rather than in
+	// the machine.
+	if _, err := os.Stat(paths.Database()); err == nil {
+		t.Skipf("%s exists on this machine, so there is no no-database case to test",
+			paths.Database())
+	}
 	dbPath, mirror := chain(t, 5)
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		os.Remove(dbPath + suffix)
@@ -468,5 +479,135 @@ func TestAuditListFilterErrorReadsAsASentence(t *testing.T) {
 	want := `nodary audit list: --from: "last tuesday" is neither a date (2006-01-02) nor an RFC3339 instant` + "\n"
 	if stderr != want {
 		t.Errorf("stderr = %q\n   want %q", stderr, want)
+	}
+}
+
+// A damaged mirror is what this verb exists to report, and comparing before
+// verifying made it the one input that produced no report: a bare stderr line,
+// exit 1, and nothing on stdout at all under --format json.
+func TestAuditVerifyReportsADamagedMirrorRatherThanAborting(t *testing.T) {
+	dbPath, mirror := chain(t, 4)
+	lines := strings.Split(strings.TrimSuffix(readFile(t, mirror), "\n"), "\n")
+	lines[2] = lines[2][:len(lines[2])/2]
+	writeFile(t, mirror, strings.Join(lines, "\n")+"\n")
+
+	code, stdout, stderr := run(t, "audit", "verify", "--db", dbPath, "--mirror", mirror, "--format", "json")
+	if code != ExitFailure {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, stderr)
+	}
+	var report struct {
+		OK     bool               `json:"ok"`
+		Chain  *struct{ OK bool } `json:"chain"`
+		Mirror *struct {
+			OK    bool `json:"ok"`
+			Break *struct {
+				Seq    int64  `json:"seq"`
+				Detail string `json:"detail"`
+			} `json:"break"`
+		} `json:"mirror"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("--format json wrote nothing parseable: %q (stderr %q)", stdout, stderr)
+	}
+	if report.OK {
+		t.Error("a damaged mirror was reported as sound")
+	}
+	if report.Chain == nil || !report.Chain.OK {
+		t.Error("the database report was discarded, though it had already been computed")
+	}
+	if report.Mirror == nil || report.Mirror.Break == nil {
+		t.Fatalf("the mirror's break was not named: %q", stdout)
+	}
+	if report.Mirror.Break.Seq != 3 || !strings.Contains(report.Mirror.Break.Detail, "line 3") {
+		t.Errorf("the break does not name the damaged line: %+v", report.Mirror.Break)
+	}
+}
+
+// audit.Unlimited is -1, and Filter tests for it before its range guard — so
+// -1 was the one negative value that returned the whole chain, at exit 0, past
+// the cap this flag's own help advertises.
+func TestAuditListRefusesALimitOutsideItsAdvertisedRange(t *testing.T) {
+	dbPath, _ := chain(t, 3)
+	for _, limit := range []string{"-1", "0", "-2", "501"} {
+		code, stdout, _ := run(t, "audit", "list", "--db", dbPath, "--limit", limit)
+		if code != ExitUsage {
+			t.Errorf("--limit %s: exit = %d, want 2 (stdout %q)", limit, code, stdout)
+		}
+	}
+}
+
+// `audit list --format json` is the same record `audit export --format jsonl`
+// writes. encoding/json escapes <, > and & by default, so the two commands
+// printed different bytes for one record.
+func TestAuditListJSONDoesNotEscapeTheCanonicalBytes(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "nodary.db")
+	db, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	l := audit.New(db, audit.NewDelivery(nil, audit.Warn, io.Discard))
+	if _, err := l.Act(context.Background(), audit.Request{
+		Actor:         audit.Actor{ID: "root", Method: "local"},
+		Action:        "thing.add",
+		Justification: "rollback of <prod> & staging",
+	}, func(m audit.Mutation) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	_, listed, _ := run(t, "audit", "list", "--db", dbPath, "--format", "json")
+	_, exported, _ := run(t, "audit", "export", "--db", dbPath)
+	const want = `rollback of <prod> & staging`
+	if !strings.Contains(exported, want) {
+		t.Fatalf("export did not carry the literal characters: %q", exported)
+	}
+	if !strings.Contains(listed, want) {
+		t.Errorf("list --format json escaped the canonical bytes: %q", listed)
+	}
+}
+
+// -h is a request, not a usage error: docs/specs/10-cli.md §4 puts human output
+// on stdout and §5's code 2 is "bad flags, missing arguments".
+func TestHelpGoesToStdoutAndSucceeds(t *testing.T) {
+	for _, verb := range [][]string{
+		{"audit", "list"}, {"audit", "verify"}, {"audit", "export"},
+		{"components", "list"}, {"version"},
+	} {
+		name := strings.Join(verb, " ")
+		code, stdout, stderr := run(t, append(verb, "-h")...)
+		switch {
+		case code != ExitOK:
+			t.Errorf("%s -h: exit = %d, want 0", name, code)
+		case stdout == "":
+			t.Errorf("%s -h: nothing on stdout", name)
+		case stderr != "":
+			t.Errorf("%s -h: wrote a diagnostic too: %q", name, stderr)
+		}
+	}
+
+	// A genuinely bad flag is still a usage error, on stderr.
+	code, stdout, stderr := run(t, "audit", "list", "--nope")
+	if code != ExitUsage || stdout != "" || stderr == "" {
+		t.Errorf("bad flag: exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

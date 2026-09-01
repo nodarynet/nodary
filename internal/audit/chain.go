@@ -89,14 +89,14 @@ func AppendTx(tx *sql.Tx, e Entry) (Record, error) {
 	// stable form: the same detail always produces the same bytes, which is
 	// what makes a CSV export and a diff of two databases meaningful. The hash
 	// does not depend on it — it is taken over the decoded value either way.
-	detail, err := canonical.Encode(r.members()["detail"])
+	detail, err := r.detailJSON()
 	if err != nil {
-		return Record{}, fmt.Errorf("encoding detail of record %d: %w", r.Seq, err)
+		return Record{}, err
 	}
 
 	var targetKind, targetID any
-	if r.Target != nil {
-		targetKind, targetID = r.Target.Kind, r.Target.ID
+	if kind, id := r.targetFields(); r.Target != nil {
+		targetKind, targetID = kind, id
 	}
 	_, err = tx.Exec(`
 		INSERT INTO audit (seq, v, install, ts,
@@ -224,6 +224,24 @@ func scanRecord(rows interface{ Scan(...any) error }) (Record, error) {
 	dec.UseNumber()
 	if err := dec.Decode(&r.Detail); err != nil {
 		return Record{}, fmt.Errorf("record %d has unreadable detail: %w", r.Seq, err)
+	}
+
+	// The column has to be canonical, not merely decodable — the same
+	// self-check ParseLine makes of a mirror line, because the two readers of
+	// one record must not disagree about what is sound. The hash is taken over
+	// the decoded value, so anything the decoder skips is invisible to it:
+	// json.Decode stops at the end of the first value, and detail_json set to
+	// `{"k":"v"}  {"injected":true}` decoded to the same map, re-hashed to the
+	// stored hash, and verified. A tamper-detector cannot have a column it does
+	// not look at.
+	canon, err := canonical.EncodeJSON([]byte(detailRaw))
+	if err != nil {
+		return Record{}, fmt.Errorf("record %d has unreadable detail: %w", r.Seq, err)
+	}
+	if string(canon) != detailRaw {
+		return Record{}, fmt.Errorf(
+			"record %d has a detail that is not canonical; the column has been rewritten\n  stored: %s\n  canonical: %s",
+			r.Seq, detailRaw, canon)
 	}
 	return r, nil
 }

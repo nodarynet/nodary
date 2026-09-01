@@ -189,13 +189,17 @@ func stripSQLComments(s string) string {
 
 // appliedMigrations reads what the database says has run.
 //
+// It takes a transaction rather than a *sql.DB because its two statements have
+// to see one snapshot: run as separate autocommit reads they can straddle a
+// concurrent migration and report a migrated database as a fresh one.
+//
 // Absence of schema_migration is detected by asking the catalogue, not by
 // matching an error string: the driver returns SQLITE_ERROR with different
 // messages for many failures, and string-matching would read a corrupt database
 // as a fresh one.
-func appliedMigrations(q querier) (map[int]string, error) {
+func appliedMigrations(tx *sql.Tx) (map[int]string, error) {
 	var present int
-	if err := q.QueryRow(
+	if err := tx.QueryRow(
 		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migration'`,
 	).Scan(&present); err != nil {
 		return nil, fmt.Errorf("looking for schema_migration: %w", err)
@@ -205,7 +209,7 @@ func appliedMigrations(q querier) (map[int]string, error) {
 		return applied, nil // a fresh database; 0001 creates the table
 	}
 
-	rows, err := q.Query(`SELECT version, checksum FROM schema_migration`)
+	rows, err := tx.Query(`SELECT version, checksum FROM schema_migration`)
 	if err != nil {
 		return nil, fmt.Errorf("reading schema_migration: %w", err)
 	}

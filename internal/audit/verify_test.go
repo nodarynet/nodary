@@ -426,3 +426,97 @@ func TestCompareNamesTheFirstDivergence(t *testing.T) {
 		t.Errorf("diverged at %d, want 3", cmp.Diverged)
 	}
 }
+
+// Deleting a prefix of the chain was caught as KindNotGenesis, so the cheapest
+// move available to anyone holding the file — delete all of it — was the one
+// move the verifier could not name. The installation row is minted by the first
+// record's own transaction, so its presence proves records existed.
+func TestVerifyNamesAWhollyDeletedChain(t *testing.T) {
+	db, _ := chainOf(t, 5)
+	ctx := context.Background()
+
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DELETE FROM audit`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := VerifyDB(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() {
+		t.Fatal("an emptied chain verified as sound")
+	}
+	if !strings.Contains(res.Break.Detail, "every record has been deleted") {
+		t.Errorf("break = %v", res.Break)
+	}
+}
+
+// A database that genuinely never held a record has no installation row either,
+// and must still verify.
+func TestVerifyAcceptsAChainThatNeverHeldARecord(t *testing.T) {
+	res, err := VerifyDB(context.Background(), openDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() || res.Records != 0 {
+		t.Errorf("a fresh database did not verify: %+v", res.Break)
+	}
+}
+
+// A record the table's CHECK constraints could never have held must not verify
+// in the mirror either. The round-trip check proves the line was read
+// faithfully, not that what it says is well formed.
+func TestMirrorRecordsAreHeldToTheSameShapeAsRows(t *testing.T) {
+	_, path := chainOf(t, 1)
+	sound, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, from, to string }{
+		{"outcome", `"outcome":"success"`, `"outcome":"redacted"`},
+		{"version", `"v":1`, `"v":0`},
+		{"actor method", `"method":"local"`, `"method":null`},
+		{"half-set target", `"id":"thg_0","kind":"thing"`, `"id":null,"kind":"thing"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			line := strings.Replace(string(sound), tc.from, tc.to, 1)
+			if line == string(sound) {
+				t.Fatalf("the fixture does not contain %q", tc.from)
+			}
+			forged := filepath.Join(t.TempDir(), "audit.jsonl")
+			if err := os.WriteFile(forged, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res, err := VerifyFile(forged)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.OK() {
+				t.Errorf("a record the table would refuse verified in the mirror")
+			}
+		})
+	}
+}
+
+// A mirror from another installation is not a mirror of this database, and
+// matching by sequence alone reported that as tampering — same wording, same
+// exit code — for an ordinary reinstall or restore.
+func TestCompareNamesADifferentInstallationRatherThanDivergence(t *testing.T) {
+	_, theirs := chainOf(t, 3)
+	ours, _ := chainOf(t, 3)
+
+	cmp, err := Compare(context.Background(), ours, theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmp.Installs == nil {
+		t.Fatalf("a foreign mirror was compared as if it were a pair: %+v", cmp)
+	}
+	if cmp.Diverged != 0 || cmp.Ahead != 0 || cmp.Behind != 0 {
+		t.Errorf("counts were reported for chains that are not a pair: %+v", cmp)
+	}
+}

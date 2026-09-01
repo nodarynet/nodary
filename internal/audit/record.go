@@ -159,6 +159,32 @@ func (r Record) members() map[string]any {
 	}
 }
 
+// detailJSON is the record's detail as the column stores it and the CSV export
+// writes it.
+//
+// members() is documented as the only place the field names live, and reaching
+// into it by string literal from two other files defeated that: rename the
+// member and neither site fails to compile — canonical.Encode(nil) returns
+// "null", and every row's detail_json silently becomes the string null while
+// the hash, taken over the whole map, still verifies.
+func (r Record) detailJSON() ([]byte, error) {
+	b, err := canonical.Encode(r.members()["detail"])
+	if err != nil {
+		return nil, fmt.Errorf("encoding detail of record %d: %w", r.Seq, err)
+	}
+	return b, nil
+}
+
+// targetFields is the target flattened into its two columns. A Target is
+// all-or-nothing — Validate refuses a half-set one — so this is the one place
+// that decides what "no target" looks like in a row.
+func (r Record) targetFields() (kind, id string) {
+	if r.Target == nil {
+		return "", ""
+	}
+	return r.Target.Kind, r.Target.ID
+}
+
 func nullable(s string) any {
 	if s == "" {
 		return nil

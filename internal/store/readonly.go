@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
+
+	sqlite "modernc.org/sqlite"
 )
 
 // ErrSchemaBehind is returned when a read-only open finds migrations this
@@ -21,23 +24,37 @@ var ErrSchemaBehind = errors.New("database schema is behind this binary")
 // ErrReadOnly is returned by WriteTx on a handle from OpenReadOnly.
 var ErrReadOnly = errors.New("database was opened read-only")
 
+// sqliteReadOnlyDirectory is SQLITE_READONLY_DIRECTORY: the database itself is
+// readable, but its directory is not writable and SQLite cannot create the -shm
+// index it needs to read a WAL file.
+const sqliteReadOnlyDirectory = 1544
+
+func isReadOnlyDirectory(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code() == sqliteReadOnlyDirectory
+}
+
 // readOnlyDSN opens an existing file for queries and nothing else.
 //
-// mode=rw rather than the writer's implicit rwc: without it SQLite creates the
+// mode=ro rather than the writer's implicit rwc: without it SQLite creates the
 // database, so pointing `audit verify` at a typo would report an empty chain
 // against a file it had just invented. _query_only then refuses writes at the
-// SQL layer.
+// SQL layer as well.
 //
-// mode=ro was rejected. It is stricter at the OS layer and buys nothing here —
-// SQLite still needs the -shm index to read a WAL database, so the sidecars
-// appear either way — while it cannot recover a -wal left by a writer that
-// crashed. Refusing to read the chain after a crash would break `verify` at
-// exactly the moment someone needs it, and WAL recovery replays committed
-// frames rather than changing what the records say.
+// mode=rw was rejected, and the reason it was once preferred does not survive
+// measurement. _query_only gates the SQL layer, not the pager: under mode=rw
+// the last connection to close takes an exclusive lock, checkpoints the -wal
+// into the database and unlinks it. An auditor who hashes a db/-wal pair for
+// chain of custody and then runs `audit verify` gets a different hash and no
+// -wal back, while the command prints "chain: verified" — the tool altering the
+// evidence it was asked to inspect. mode=ro leaves both files byte-identical
+// and still reads every committed frame in an uncheckpointed -wal, so nothing
+// is given up: it is immutable=1, which this does not use, that would serve a
+// stale pre-WAL snapshot.
 //
 // No journal_mode: this must never convert the file it is reading.
 func readOnlyDSN(path string) string {
-	return "file:" + path + "?mode=rw&_query_only=1&_pragma=busy_timeout(5000)"
+	return fileURI(path, "mode=ro&_query_only=1&_pragma=busy_timeout(5000)")
 }
 
 // OpenReadOnly opens an existing database for queries.
@@ -73,6 +90,17 @@ func OpenReadOnly(ctx context.Context, path string) (*DB, error) {
 	// operator runs `audit verify` while the server is running.
 	if err := retryWhileLocked(ctx, func() error { return read.PingContext(ctx) }); err != nil {
 		db.Close()
+		if isReadOnlyDirectory(err) {
+			// SQLite needs to create the -shm index beside the database to read
+			// a WAL file at all, so a database on read-only media or in a
+			// locked-down custody directory fails here. Named, because
+			// "attempt to write a readonly database (1544)" about a read-only
+			// open reads as a contradiction and sends the operator looking at
+			// the file's mode rather than its directory's.
+			return nil, fmt.Errorf(
+				"opening %s: %s is not writable, and SQLite must create the -shm index there to read a WAL database; copy the database and its -wal to a writable directory first",
+				path, filepath.Dir(path))
+		}
 		return nil, fmt.Errorf("opening %s: %w", path, err)
 	}
 	if err := db.checkIdentity(ctx); err != nil {
@@ -96,11 +124,21 @@ func (db *DB) checkIdentity(ctx context.Context) error {
 	if err := db.read.QueryRowContext(ctx, "PRAGMA application_id").Scan(&id); err != nil {
 		return fmt.Errorf("reading application_id: %w", err)
 	}
-	if id != applicationID {
-		return fmt.Errorf("%w: application_id is %#x, want %#x",
-			ErrNotNodaryDatabase, id, applicationID)
+	switch {
+	case id == applicationID:
+		return nil
+	case id != 0:
+		return foreignApplicationID(id)
 	}
-	return nil
+	// Classified the same way Open does, so one file gets one explanation
+	// whichever command names it. Unlike Open there is nothing to stamp: an
+	// unstamped file is somebody else's, empty or not.
+	var objects int
+	if err := db.read.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil {
+		return fmt.Errorf("inspecting schema: %w", err)
+	}
+	return unstampedDatabase(objects)
 }
 
 // checkSchema refuses every schema this binary cannot read as it stands.
@@ -113,7 +151,20 @@ func (db *DB) checkSchema(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	applied, err := appliedMigrations(dbQuerier{ctx, db.read})
+	// One transaction, so the two statements see one snapshot. The read pool
+	// hands out up to maxReaders connections, so as separate autocommit reads
+	// they can straddle a concurrent migration: the count finds no
+	// schema_migration table, the applied set comes back empty, and a database
+	// that is fully migrated by the time the message prints is reported as
+	// behind, telling the operator to do what they have already done. The
+	// migrator takes the same care for the same reason — see MigrateFS.
+	tx, err := db.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("reading the schema of %s: %w", db.path, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	applied, err := appliedMigrations(tx)
 	if err != nil {
 		return err
 	}
@@ -127,26 +178,4 @@ func (db *DB) checkSchema(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-// querier is the subset of *sql.Tx and *sql.DB the schema reads need, so
-// appliedMigrations serves both the migrator inside its write transaction and
-// the read-only open outside one.
-type querier interface {
-	Query(query string, args ...any) (*sql.Rows, error)
-	QueryRow(query string, args ...any) *sql.Row
-}
-
-// dbQuerier carries a context onto a *sql.DB, which *sql.Tx already has bound.
-type dbQuerier struct {
-	ctx context.Context
-	db  *sql.DB
-}
-
-func (q dbQuerier) Query(query string, args ...any) (*sql.Rows, error) {
-	return q.db.QueryContext(q.ctx, query, args...)
-}
-
-func (q dbQuerier) QueryRow(query string, args ...any) *sql.Row {
-	return q.db.QueryRowContext(q.ctx, query, args...)
 }

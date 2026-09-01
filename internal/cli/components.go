@@ -66,8 +66,8 @@ func cmdComponentsList(e env, args []string) int {
 	format := formatFlag(fs)
 	platform := fs.String("platform", "host", "platform key, or 'all' (default: this host)")
 	long := fs.Bool("long", false, "include the full artifact URL and digest")
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
@@ -182,8 +182,8 @@ func cmdComponentsVerify(e env, args []string) int {
 	platform := fs.String("platform", "all", "platform key, 'host', or 'all'")
 	offline := fs.Bool("offline", false, "structural validation only; no network")
 	full := fs.Bool("full", false, "download every artifact and hash it (slow)")
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage

@@ -6,6 +6,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -80,7 +81,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version` and `components`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components` and `audit`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -145,6 +146,33 @@ func newFlagSet(e env, name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(e.stderr)
 	return fs
+}
+
+// parseFlags parses args and returns the exit code, or -1 to carry on.
+//
+// It exists to separate -h from a bad flag. flag.ContinueOnError reports both
+// as an error from Parse, so every verb returned ExitUsage with the help text
+// on stderr — while `nodary --help` puts its own on stdout and exits 0. A
+// requested help listing is human output (docs/specs/10-cli.md §4) and is not
+// "a usage error — bad flags, missing arguments" (§5), so `nodary audit list -h
+// | less` showed an empty screen and scripts saw a failure.
+func parseFlags(e env, fs *flag.FlagSet, args []string) int {
+	// Buffered, because Parse writes before it returns and only the returned
+	// error says which stream the text belongs on.
+	var out strings.Builder
+	fs.SetOutput(&out)
+	err := fs.Parse(args)
+	fs.SetOutput(e.stderr)
+
+	switch {
+	case err == nil:
+		return -1
+	case errors.Is(err, flag.ErrHelp):
+		io.WriteString(e.stdout, out.String())
+		return ExitOK
+	}
+	io.WriteString(e.stderr, out.String())
+	return ExitUsage
 }
 
 func versionString() string {

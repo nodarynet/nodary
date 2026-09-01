@@ -185,6 +185,9 @@ func TestRowRoundTripsLosslessly(t *testing.T) {
 // package — canonical refuses it — so finding one means the column was edited
 // underneath us. It must be refused by name rather than silently rounded into a
 // different number whose only symptom is a hash that does not match.
+//
+// The refusal is at the scan, not at the hash: a rewritten column that happens
+// to decode to the same value would never reach a hash comparison at all.
 func TestTamperedDetailIsRefusedRatherThanRounded(t *testing.T) {
 	db := openDB(t)
 	ctx := context.Background()
@@ -202,12 +205,44 @@ func TestTamperedDetailIsRefusedRatherThanRounded(t *testing.T) {
 	}
 
 	row := db.Read().QueryRow(`SELECT `+columns+` FROM audit WHERE seq = ?`, r.Seq)
-	got, err := scanRecord(row)
+	if _, err := scanRecord(row); !errors.Is(err, canonical.ErrIntegerTooLarge) {
+		t.Errorf("scanRecord() error = %v, want ErrIntegerTooLarge", err)
+	}
+}
+
+// The hash is taken over the decoded detail, so anything the decoder skips is
+// invisible to it: appending a second JSON value to the column left the same
+// map, the same hash, and a verify that reported the chain sound. The column
+// has to be canonical, which is the self-check ParseLine already makes of a
+// mirror line — the two readers of one record must not disagree about what is
+// sound.
+func TestDetailRewrittenBehindTheDecoderIsRefused(t *testing.T) {
+	db := openDB(t)
+	ctx := context.Background()
+	r, err := Append(ctx, db, entry("model.enable"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := got.Compute(); !errors.Is(err, canonical.ErrIntegerTooLarge) {
-		t.Errorf("Compute() error = %v, want ErrIntegerTooLarge", err)
+
+	for _, tampered := range []string{
+		`{"gpus":[0,1],"restarted":true}  {"injected":true}`,
+		`{"restarted":true,"gpus":[0,1]}`,
+		` {"gpus":[0,1],"restarted":true}`,
+	} {
+		if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+			_, err := tx.Exec(`UPDATE audit SET detail_json = ? WHERE seq = ?`, tampered, r.Seq)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		res, err := VerifyDB(ctx, db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.OK() {
+			t.Errorf("detail_json = %q verified as sound", tampered)
+		}
 	}
 }
 

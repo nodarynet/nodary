@@ -79,7 +79,14 @@ func ParseSinks(spec string) ([]Sink, error) {
 		case f == "stderr":
 			sinks = append(sinks, &consoleSink{name: "stderr", w: os.Stderr})
 		case strings.HasPrefix(f, "file:"):
-			path := strings.TrimPrefix(f, "file:")
+			// Trimmed again after the prefix, not only around the field. A
+			// space after the colon is a natural way to write this in a
+			// systemd Environment= line, and it used to land in the path:
+			// "file: /var/log/nodary/audit.jsonl" is a *relative* path whose
+			// first component is a directory named " ", so records went to a
+			// tree under the process CWD while Name() still printed the
+			// absolute path the operator had asked for.
+			path := strings.TrimSpace(strings.TrimPrefix(f, "file:"))
 			if path == "" {
 				return nil, fmt.Errorf("%w: \"file:\" has no path", ErrBadSinkSpec)
 			}
@@ -166,6 +173,17 @@ func DeliveryFromEnv(warn io.Writer) (*Delivery, error) {
 	return NewDelivery(sinks, posture, warn), nil
 }
 
+// warnf reports a delivery problem on the warn writer.
+//
+// Every write to warn goes through here, under d.mu: the writer is supplied by
+// the caller — a *bytes.Buffer in tests, a bufio.Writer in a server — and
+// nothing about io.Writer promises it is safe for concurrent use.
+func (d *Delivery) warnf(format string, a ...any) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	fmt.Fprintf(d.warn, format, a...)
+}
+
 // Emit delivers a committed record to every sink.
 //
 // It returns nothing. The record is already in the database, so a sink failure
@@ -213,8 +231,16 @@ func (d *Delivery) Blocked() error {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	// Every cause, not just the first name's: a caller deciding whether to
+	// retry or to page reaches for errors.Is/errors.As, and with two sinks down
+	// the second reason used to survive only as a name inside a formatted
+	// string.
+	causes := make([]error, len(names))
+	for i, name := range names {
+		causes[i] = d.failing[name]
+	}
 	return fmt.Errorf("audit delivery to %s is failing and the policy is block: %w",
-		strings.Join(names, ", "), d.failing[names[0]])
+		strings.Join(names, ", "), errors.Join(causes...))
 }
 
 // Sinks reports the configured sinks, so a caller can refuse a combination its

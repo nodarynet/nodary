@@ -19,6 +19,14 @@
 -- all, and a malformed timestamp would re-encode differently on the way out --
 -- either of which would report tampering that never happened, the one failure a
 -- tamper-detector must not have.
+--
+-- The timestamp is checked with GLOB, not LIKE. LIKE's `_` matches any single
+-- character and LIKE is case-insensitive for ASCII, so `____-__-__T...` pinned
+-- the length and the punctuation and nothing else: 'abcd-ef-ghTij:kl:mn.opqz'
+-- passed it. Go then refuses that value on the way out, and because a scan
+-- error aborts the whole query, one such row made `audit list` return nothing
+-- at all rather than the readable records around it. GLOB is case-sensitive and
+-- has character classes, so it says what was meant.
 CREATE TABLE audit (
     seq            INTEGER PRIMARY KEY,
     v              INTEGER NOT NULL,
@@ -43,7 +51,7 @@ CREATE TABLE audit (
     CHECK (v > 0),
     CHECK (outcome IN ('success', 'failure', 'partial')),
     CHECK (length(hash) = 64 AND length(prev_hash) = 64),
-    CHECK (ts LIKE '____-__-__T__:__:__.___Z'),
+    CHECK (ts GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     CHECK ((target_kind IS NULL) = (target_id IS NULL))
 ) STRICT;
 

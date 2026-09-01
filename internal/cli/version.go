@@ -15,8 +15,8 @@ func buildVersion() string {
 func cmdVersion(e env, args []string) int {
 	fs := newFlagSet(e, "version")
 	format := formatFlag(fs)
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage

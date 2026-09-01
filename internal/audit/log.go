@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +77,15 @@ var ErrDeliveryBlocked = errors.New("refused: audit delivery is failing")
 // evidence; a megabyte of one is a denial of service against the chain.
 const maxErrorTail = 2048
 
+// maxDetailValue bounds one caller-supplied detail string, for the same reason
+// and one the reader makes concrete: VerifyFile and Compare cap a mirror line
+// at 8 MiB, and nothing bounded a record. A single Detail("stdout", buildLog)
+// of nine megabytes committed happily, was written to the mirror in full, and
+// left every record after it in that file permanently unverifiable — the
+// database and its off-box evidence copy disagreeing about whether the chain
+// can be checked at all, with no way to retract the line.
+const maxDetailValue = 64 * 1024
+
 // Log is the seam every mutating call passes through.
 type Log struct {
 	db       *store.DB
@@ -113,27 +123,47 @@ func New(db *store.DB, d *Delivery, opts ...Option) *Log {
 // The record is returned whether the mutation succeeded or not, so a caller can
 // report the sequence number it will be held to.
 func (l *Log) Act(ctx context.Context, req Request, fn func(Mutation) error) (Record, error) {
-	if err := l.delivery.Blocked(); err != nil {
-		return Record{}, fmt.Errorf("%w: %w", ErrDeliveryBlocked, err)
-	}
-
 	now := l.clock()
 	m := &mutation{detail: map[string]any{}}
 
+	if err := l.delivery.Blocked(); err != nil {
+		blocked := fmt.Errorf("%w: %w", ErrDeliveryBlocked, err)
+		// The refusal is itself an action, and it is recorded. The posture
+		// decides whether the next mutation proceeds, never whether a record is
+		// written — docs/specs/07-identity-audit.md §3 says so in as many
+		// words. Nothing is wrong with the write path here; only delivery is
+		// failing. A refusal that left no trace would let anyone who can break
+		// a sink attempt mutations that never appear in the chain.
+		record, err := Append(ctx, l.db, l.entry(now, req, OutcomeFailure, m, blocked))
+		if err != nil {
+			return Record{}, errors.Join(blocked, fmt.Errorf("recording the refusal: %w", err))
+		}
+		// Delivering it is also the probe. A sink is cleared from the failing
+		// set by a delivery that succeeds, and Act is the only thing that
+		// delivers — so returning here without emitting meant that once a sink
+		// failed under Block, nothing could ever observe it recover and every
+		// mutation was refused until the process was restarted. Which is itself
+		// a mutating operation the CLI would have refused. Each refused attempt
+		// now re-tests delivery, so the appliance comes back on the attempt
+		// after the sink does rather than never.
+		l.emit(ctx, record)
+		return record, blocked
+	}
+
 	var (
-		record  Record
-		actErr  error
-		partial Partial
+		record Record
+		actErr error
 	)
 	txErr := l.db.WriteTx(ctx, func(tx *sql.Tx) error {
 		// Reset per attempt: WriteTx runs the callback once, but a detail
 		// accumulated by a previous call must never leak into this record.
 		m.reset(tx)
+		record = Record{}
 
 		err := fn(m)
 		switch {
 		case err == nil:
-		case errors.As(err, &partial):
+		case isPartial(err):
 			// Committed deliberately. See Partial.
 			actErr = err
 		default:
@@ -141,32 +171,72 @@ func (l *Log) Act(ctx context.Context, req Request, fn func(Mutation) error) (Re
 			return err
 		}
 
-		outcome := OutcomeSuccess
-		if actErr != nil {
-			outcome = OutcomePartial
-		}
-		record, err = AppendTx(tx, l.entry(now, req, outcome, m, actErr))
+		record, err = AppendTx(tx, l.entry(now, req, outcomeOf(actErr), m, actErr))
 		return err
 	})
 
-	switch {
-	case txErr != nil && actErr == nil:
+	if txErr == nil {
+		l.emit(ctx, record)
+		return record, actErr
+	}
+
+	// Nothing committed. Whatever the closure managed to assign to record
+	// before the failure describes a transaction that was rolled back, so the
+	// record does not exist and must not reach a sink as if it did: a Partial
+	// whose COMMIT failed used to fall past both arms below and deliver a
+	// phantom seq to every destination, leaving the mirror permanently ahead of
+	// the database and the commit error unreported.
+	record = Record{}
+
+	if actErr == nil {
 		// The mutation was fine; the chain write or the commit was not. There
 		// is no record to write about it, because writing one would need the
 		// same machinery that just failed.
 		return Record{}, txErr
-	case actErr != nil && record.Seq == 0:
-		// A rolled-back failure. Its record goes in a transaction of its own.
-		failure, err := Append(ctx, l.db, l.entry(now, req, OutcomeFailure, m, actErr))
-		if err != nil {
-			return Record{}, errors.Join(actErr, fmt.Errorf("recording the failure: %w", err))
-		}
-		l.emit(ctx, failure)
-		return failure, actErr
 	}
 
-	l.emit(ctx, record)
-	return record, actErr
+	// A rolled-back failure. Its record goes in a transaction of its own, and
+	// carries the outcome the mutation actually had: a Partial recorded as
+	// "failure" would positively assert that nothing changed on a node that
+	// was, in fact, drained.
+	cause := actErr
+	if !errors.Is(txErr, actErr) {
+		// The transaction failed for a reason of its own — the chain write, or
+		// the commit — on top of the mutation's, and dropping it would tell the
+		// caller their change was recorded when it was not.
+		cause = errors.Join(actErr, txErr)
+	}
+	failure, err := Append(ctx, l.db, l.entry(now, req, outcomeOf(actErr), m, cause))
+	if err != nil {
+		return Record{}, errors.Join(cause, fmt.Errorf("recording the failure: %w", err))
+	}
+	l.emit(ctx, failure)
+	return failure, cause
+}
+
+// isPartial reports whether err declares a change that reached outside the
+// transaction.
+//
+// Both Partial and *Partial satisfy error, because Error has a value receiver,
+// so both spellings compile at a call site and both mean the same thing. Only
+// the value form used to match, and a caller who wrote `return &Partial{...}`
+// silently had the mutation rolled back and recorded as "nothing changed".
+func isPartial(err error) bool {
+	var v Partial
+	var p *Partial
+	return errors.As(err, &v) || errors.As(err, &p)
+}
+
+// outcomeOf reads the outcome from what the mutation returned, so the two
+// places that build a record agree on one rule.
+func outcomeOf(actErr error) Outcome {
+	switch {
+	case actErr == nil:
+		return OutcomeSuccess
+	case isPartial(actErr):
+		return OutcomePartial
+	}
+	return OutcomeFailure
 }
 
 // entry assembles what the chain needs from a request and an outcome.
@@ -175,6 +245,7 @@ func (l *Log) entry(now time.Time, req Request, outcome Outcome, m *mutation, ac
 	if actErr != nil {
 		detail["error"] = truncate(actErr.Error(), maxErrorTail)
 	}
+	req = req.encodable()
 	return Entry{
 		TS:            now,
 		Actor:         req.Actor,
@@ -188,6 +259,38 @@ func (l *Log) entry(now time.Time, req Request, outcome Outcome, m *mutation, ac
 	}
 }
 
+// encodable returns the request with every string the record will hash made
+// valid UTF-8.
+//
+// Detail was repaired for this reason already, and these fields need it more.
+// The canonical encoder refuses invalid UTF-8, and it refuses it inside
+// AppendTx — after the mutation has run — so a justification, a target id or a
+// client version carrying a raw byte from a subprocess or an HTTP body did not
+// merely lose a field: it rolled the change back and left no audit record at
+// all, which is the one outcome this seam promises cannot happen. Unlike
+// Detail, every one of these arrives from outside the process.
+//
+// Nothing here can drop a field, so an actor still cannot become anonymous by
+// sending a bad byte: a replaced rune is visible in the record.
+func (r Request) encodable() Request {
+	r.Actor = Actor{
+		ID:      validUTF8(r.Actor.ID),
+		Method:  validUTF8(r.Actor.Method),
+		Session: validUTF8(r.Actor.Session),
+	}
+	r.Source = Source{
+		IP:      validUTF8(r.Source.IP),
+		Version: validUTF8(r.Source.Version),
+	}
+	r.Action = validUTF8(r.Action)
+	r.IntentHash = validUTF8(r.IntentHash)
+	r.Justification = validUTF8(r.Justification)
+	if r.Target != nil {
+		r.Target = &Target{Kind: validUTF8(r.Target.Kind), ID: validUTF8(r.Target.ID)}
+	}
+	return r
+}
+
 // emit hands a committed record to the sinks. It is deliberately after the
 // commit and deliberately returns nothing: see Delivery.Emit.
 func (l *Log) emit(ctx context.Context, r Record) {
@@ -197,8 +300,11 @@ func (l *Log) emit(ctx context.Context, r Record) {
 	line, err := r.Line()
 	if err != nil {
 		// The record is in the database and verifiable there; only delivery is
-		// affected, so this is reported the same way any delivery failure is.
-		fmt.Fprintf(l.delivery.warn, "nodary: audit record %d cannot be serialised: %v\n", r.Seq, err)
+		// affected, so this is reported the same way any delivery failure is —
+		// through Delivery, which holds the lock every other write to that
+		// writer is made under. warn is a caller-supplied io.Writer with no
+		// concurrency contract of its own.
+		l.delivery.warnf("nodary: audit record %d cannot be serialised: %v\n", r.Seq, err)
 		return
 	}
 	l.delivery.Emit(ctx, r.Seq, line)
@@ -229,6 +335,93 @@ func truncate(s string, n int) string {
 // cost the operator the change it was describing.
 func validUTF8(s string) string { return strings.ToValidUTF8(s, "\uFFFD") }
 
+// repairDetail rewrites v into something the canonical encoder can hold,
+// wherever the encoder would walk to find a problem, and reports whether
+// anything changed.
+//
+// It handles the two things a detail carries that the encoder will not:
+//
+// An error. canonical takes *errors.errorString for an ordinary struct whose
+// only field is unexported, emits {} and reports no problem at all — so an
+// operator reading a failure record found an empty object where the reason
+// should have been, and the coercion path never fired because nothing had
+// failed. Repairing only the top level left the same hole one level down, which
+// is where a mutation that touched several nodes puts it.
+//
+// A string the encoder refuses, or one large enough to break a reader of the
+// mirror. See maxDetailValue.
+//
+// The walk mirrors canonical's own: string-keyed maps and non-byte slices, and
+// nothing else. Repairing in place keeps the value's shape, which is worth more
+// to whoever reads the record than a %v rendering of the whole thing.
+func repairDetail(v any) (any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if err, ok := v.(error); ok {
+		// Rendering an error to its text loses nothing, so it is not a
+		// coercion. Having to cut it down is.
+		text := errorText(err)
+		return truncate(text, maxDetailValue), len(text) > maxDetailValue
+	}
+	if s, ok := v.(string); ok {
+		if r := truncate(s, maxDetailValue); r != s {
+			return r, true
+		}
+		return s, false
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map:
+		if rv.IsNil() || rv.Type().Key().Kind() != reflect.String {
+			return v, false
+		}
+		out, changed := make(map[string]any, rv.Len()), false
+		for iter := rv.MapRange(); iter.Next(); {
+			e, c := repairDetail(iter.Value().Interface())
+			out[iter.Key().String()], changed = e, changed || c
+		}
+		return out, changed
+	case reflect.Slice, reflect.Array:
+		// canonical refuses a []byte outright rather than base64ing it, so
+		// leave one alone and let it be rendered like any other refusal.
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return v, false
+		}
+		if rv.Kind() == reflect.Slice && rv.IsNil() {
+			return v, false
+		}
+		out, changed := make([]any, rv.Len()), false
+		for i := range out {
+			e, c := repairDetail(rv.Index(i).Interface())
+			out[i], changed = e, changed || c
+		}
+		return out, changed
+	}
+	return v, false
+}
+
+// errorText renders one error without trusting it not to panic.
+//
+// A typed-nil error — `var e *myErr; Detail("cause", e)`, the shape a Go
+// function produces by returning a concrete pointer type — is a non-nil
+// interface whose Error method dereferences nil. Calling it directly panicked
+// out of Act, so the mutation rolled back and no record was written: the exact
+// outcome Detail's doc promises is impossible. fmt recovers a panicking Error
+// and renders %!v(PANIC=...), which is a worse-looking detail than a message
+// and a better one than a lost record.
+func errorText(err error) (s string) {
+	defer func() {
+		if r := recover(); r != nil {
+			s = fmt.Sprintf("%v", err)
+		}
+	}()
+	if rv := reflect.ValueOf(err); rv.Kind() == reflect.Pointer && rv.IsNil() {
+		return "<nil error>"
+	}
+	return err.Error()
+}
+
 // encodable returns a value canonical.Encode is guaranteed to accept, and
 // reports whether anything had to change to get there.
 func encodable(v any) (any, bool) {
@@ -236,11 +429,9 @@ func encodable(v any) (any, bool) {
 	// accepts *errors.errorString as a struct whose only field is unexported,
 	// emits {} and reports no problem — so an operator reading a failure record
 	// found an empty object where the reason should have been. Found by review.
-	if err, ok := v.(error); ok {
-		v = err.Error()
-	}
+	v, repaired := repairDetail(v)
 	if _, e := canonical.Encode(v); e == nil {
-		return v, false
+		return v, repaired
 	}
 	// Rendering alone is not enough: the rendering of an invalid-UTF-8 string
 	// is still invalid UTF-8, and a map containing one renders to a string
@@ -308,13 +499,7 @@ func (m *mutation) snapshot() map[string]any {
 		out[k] = v
 	}
 	if len(m.coerced) > 0 {
-		keys := append([]string(nil), m.coerced...)
-		sort.Strings(keys)
-		rendered := make([]any, len(keys))
-		for i, k := range keys {
-			rendered[i] = k
-		}
-		out["_coerced"] = rendered
+		out["_coerced"] = slices.Sorted(slices.Values(m.coerced))
 	}
 	return out
 }

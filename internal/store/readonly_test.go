@@ -1,8 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -268,5 +271,147 @@ func TestReadOnlyCloseSucceeds(t *testing.T) {
 	}
 	if err := db.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+// _query_only gates the SQL layer, not the pager. Under mode=rw the last
+// connection to close checkpoints the -wal into the database and unlinks it, so
+// hashing a db/-wal pair for chain of custody and then running `audit verify`
+// changed both — the evidence tool altering the evidence.
+func TestOpenReadOnlyLeavesTheWALAlone(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "nodary.db")
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// wal_autocheckpoint(0) is what leaves an uncheckpointed -wal behind, which
+	// is the state a crashed writer leaves and the state this is about.
+	w, err := sql.Open("sqlite", writerDSN(path)+"&_pragma=wal_autocheckpoint(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const rows = 400
+	for i := range rows {
+		prev := sha256.Sum256([]byte{byte(i), byte(i >> 8), 1})
+		this := sha256.Sum256([]byte{byte(i), byte(i >> 8), 2})
+		if _, err := w.Exec(`
+			INSERT INTO audit (seq, v, install, ts, actor_method, action,
+			                   outcome, detail_json, prev_hash, hash)
+			VALUES (?, 1, 'ins_x', '2026-01-01T00:00:00.000Z', 'local', 'a',
+			        'success', '{}', ?, ?)`,
+			i+1, hex.EncodeToString(prev[:]), hex.EncodeToString(this[:])); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Copied while the frames are still only in the -wal, the way an auditor
+	// pulls a pair off a running or crashed appliance.
+	custody := filepath.Join(t.TempDir(), "nodary.db")
+	for _, sfx := range []string{"", "-wal", "-shm"} {
+		b, err := os.ReadFile(path + sfx)
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(custody+sfx, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	db.Close()
+
+	before, err := os.ReadFile(custody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeWAL, err := os.ReadFile(custody + "-wal")
+	if err != nil {
+		t.Fatalf("the copy has no -wal, so this test would prove nothing: %v", err)
+	}
+
+	ro := openRO(t, custody)
+	var n int
+	if err := ro.Read().QueryRow(`SELECT count(*) FROM audit`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if err := ro.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read every committed frame, and left both files exactly as they were.
+	if n != rows {
+		t.Errorf("read %d records, want %d: the uncheckpointed -wal was not read", n, rows)
+	}
+	after, err := os.ReadFile(custody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a read-only open changed the database: %d bytes became %d",
+			len(before), len(after))
+	}
+	afterWAL, err := os.ReadFile(custody + "-wal")
+	if err != nil {
+		t.Fatalf("a read-only open deleted the -wal: %v", err)
+	}
+	if !bytes.Equal(beforeWAL, afterWAL) {
+		t.Errorf("a read-only open changed the -wal: %d bytes became %d",
+			len(beforeWAL), len(afterWAL))
+	}
+}
+
+// Both the driver and SQLite split a DSN at the first '?', and SQLite
+// percent-decodes what precedes it. Concatenating a path into the URI therefore
+// opened a different file than the operator named: `--db no%64ary.db` reported
+// nodary.db's chain under the wrong name and exited 0, and `--db a?b.db`
+// created a file called `a`.
+func TestDSNDoesNotReinterpretAPath(t *testing.T) {
+	for _, name := range []string{"nodary?x.db", "a#b.db", "no%64ary.db", "plain.db"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, name)
+			db, err := Open(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Migrate(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			var opened string
+			rows, err := openRO(t, path).Read().Query(`PRAGMA database_list`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var seq int
+				var schema string
+				if err := rows.Scan(&seq, &schema, &opened); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rows.Close()
+			if opened != path {
+				t.Errorf("opened %q, want %q", opened, path)
+			}
+
+			ents, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range ents {
+				switch e.Name() {
+				case name, name + "-wal", name + "-shm":
+				default:
+					t.Errorf("invented a file: %q", e.Name())
+				}
+			}
+		})
 	}
 }

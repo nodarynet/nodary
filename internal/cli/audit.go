@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 
@@ -69,8 +70,8 @@ func cmdAuditVerify(e env, args []string) int {
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
 	mirror := fs.String("mirror", "", "also verify this JSONL file, with or without a database")
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
@@ -78,14 +79,25 @@ func cmdAuditVerify(e env, args []string) int {
 
 	path, explicit := resolveDB(*dbPath)
 	report := verifyReport{}
+	var chain *store.DB
 
 	// With --mirror and no database at the default location, the file is
 	// verified alone. That is the case an auditor is in when they check a copy
 	// retrieved from a SIEM on a machine that never held the original.
 	useDB := true
 	if *mirror != "" && !explicit {
-		if _, err := os.Stat(path); err != nil {
+		switch _, err := os.Stat(path); {
+		case errors.Is(err, os.ErrNotExist):
 			useDB = false
+		case err != nil:
+			// Anything else — a permission error on a 0700 data directory, an
+			// I/O error, a dangling symlink — is not "there is no database
+			// here". Swallowing it skipped the authoritative chain and still
+			// printed ok:true and exit 0, and because chain is omitempty the
+			// output did not even show that it had been skipped: a false
+			// all-clear, from the one command whose job is not to give one.
+			fmt.Fprintf(e.stderr, "nodary audit verify: reading %s: %v\n", path, err)
+			return ExitFailure
 		}
 	}
 
@@ -103,16 +115,7 @@ func cmdAuditVerify(e env, args []string) int {
 		}
 		report.Chain = newResultReport(res)
 
-		if *mirror != "" {
-			cmp, err := audit.Compare(context.Background(), db, *mirror)
-			if err != nil {
-				fmt.Fprintf(e.stderr, "nodary audit verify: %v\n", err)
-				return ExitFailure
-			}
-			report.Comparison = &comparisonReport{
-				Diverged: cmp.Diverged, Behind: cmp.Behind, Ahead: cmp.Ahead,
-			}
-		}
+		chain = db
 	}
 
 	if *mirror != "" {
@@ -124,6 +127,27 @@ func cmdAuditVerify(e env, args []string) int {
 		r := newResultReport(res)
 		r.Path = *mirror
 		report.Mirror = r
+
+		// Compared only once the mirror has been read as a chain. Comparing
+		// first meant one unreadable line — a truncated final append is the
+		// ordinary way a copy pulled from a SIEM is damaged — aborted the whole
+		// command with a bare error, threw away the database report that had
+		// already been computed, and under --format json wrote nothing at all
+		// to stdout. VerifyFile reports the same input as a break at a named
+		// path and line, which is the answer the operator asked for.
+		if chain != nil && res.OK() {
+			cmp, err := audit.Compare(context.Background(), chain, *mirror)
+			if err != nil {
+				fmt.Fprintf(e.stderr, "nodary audit verify: %v\n", err)
+				return ExitFailure
+			}
+			report.Comparison = &comparisonReport{
+				Diverged: cmp.Diverged, Behind: cmp.Behind, Ahead: cmp.Ahead,
+			}
+			if cmp.Installs != nil {
+				report.Comparison.Installs = cmp.Installs.String()
+			}
+		}
 	}
 
 	report.OK = report.sound()
@@ -171,9 +195,12 @@ type problemReport struct {
 }
 
 type comparisonReport struct {
-	Diverged int64 `json:"diverged_at"`
-	Behind   int64 `json:"behind"`
-	Ahead    int64 `json:"ahead"`
+	// Installs is set when the two are not one chain at all, and it makes every
+	// other field here meaningless.
+	Installs string `json:"installs,omitempty"`
+	Diverged int64  `json:"diverged_at"`
+	Behind   int64  `json:"behind"`
+	Ahead    int64  `json:"ahead"`
 }
 
 func newResultReport(res audit.Result) *resultReport {
@@ -191,32 +218,31 @@ func newResultReport(res audit.Result) *resultReport {
 	return r
 }
 
+// verified and failed are nil-safe, and say which of the two questions is being
+// asked: "did this verify" is not the negation of "did this fail" when the
+// result is absent because that half was not checked at all.
+func (r *resultReport) verified() bool { return r != nil && r.OK }
+func (r *resultReport) failed() bool   { return r != nil && !r.OK }
+
 // comparable reports whether both chains verified, which is the only case in
 // which comparing them says anything.
 func (v verifyReport) comparable() bool {
-	for _, r := range []*resultReport{v.Chain, v.Mirror} {
-		if r == nil || !r.OK {
-			return false
-		}
-	}
-	return true
+	return v.Chain.verified() && v.Mirror.verified()
 }
 
 // sound is false if anything verified failed, or if a mirror holds records the
 // database does not — which means the two are not a pair.
 func (v verifyReport) sound() bool {
-	for _, r := range []*resultReport{v.Chain, v.Mirror} {
-		if r != nil && !r.OK {
-			return false
-		}
+	if v.Chain.failed() || v.Mirror.failed() {
+		return false
 	}
-	if v.Comparison != nil && (v.Comparison.Diverged != 0 || v.Comparison.Ahead != 0) {
+	if c := v.Comparison; c != nil && (c.Installs != "" || c.Diverged != 0 || c.Ahead != 0) {
 		return false
 	}
 	return true
 }
 
-func (v verifyReport) writeText(w interface{ Write([]byte) (int, error) }) {
+func (v verifyReport) writeText(w io.Writer) {
 	writeResult := func(label string, r *resultReport) {
 		if r == nil {
 			return
@@ -252,6 +278,8 @@ func (v verifyReport) writeText(w interface{ Write([]byte) (int, error) }) {
 	// recorded at that sequence, not the record the mirror actually holds.
 	if c := v.Comparison; c != nil && v.comparable() {
 		switch {
+		case c.Installs != "":
+			fmt.Fprintf(w, "comparison: these are not the same chain — %s\n", c.Installs)
 		case c.Diverged != 0:
 			fmt.Fprintf(w, "comparison: the database and the mirror disagree from seq %d\n", c.Diverged)
 		case c.Ahead != 0:
@@ -275,10 +303,19 @@ func cmdAuditList(e env, args []string) int {
 	action := fs.String("action", "", "match this action, or the family when it ends in a dot")
 	limit := fs.Int("limit", audit.DefaultLimit,
 		fmt.Sprintf("records to return, at most %d", audit.MaxLimit))
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+
+	if *limit < 1 || *limit > audit.MaxLimit {
+		// Checked here rather than left to Filter, whose Unlimited sentinel is
+		// -1 and is tested before its range guard: --limit -1 was the one
+		// negative value that returned the entire chain, at exit 0, past the
+		// cap this flag's own help advertises.
+		fmt.Fprintf(e.stderr, "nodary audit list: --limit %d is outside 1–%d\n", *limit, audit.MaxLimit)
 		return ExitUsage
 	}
 
@@ -341,6 +378,12 @@ func writeRecordsJSON(e env, verb string, records []audit.Record) int {
 	}
 	enc := json.NewEncoder(e.stdout)
 	enc.SetIndent("", "  ")
+	// Off, or the encoder rewrites <, > and & inside the canonical bytes as
+	// \u003c and friends — so `audit list --format json` printed a record that
+	// did not read the same as the one `audit export --format jsonl` and the
+	// sink emit for the same seq. internal/canonical does not use encoding/json
+	// for output for exactly this reason.
+	enc.SetEscapeHTML(false)
 	out := struct {
 		Count   int               `json:"count"`
 		Records []json.RawMessage `json:"records"`
@@ -390,8 +433,8 @@ func cmdAuditExport(e env, args []string) int {
 	from := fs.String("from", "", "earliest record: a date (2006-01-02) or an RFC3339 instant")
 	to := fs.String("to", "", "latest record; a bare date covers the whole day")
 	fromSeq := fs.Int64("from-seq", 0, "start at this sequence number, to resume a destination that fell behind")
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
 	switch *format {
 	case audit.FormatJSONL, audit.FormatCSV:
@@ -405,6 +448,10 @@ func cmdAuditExport(e env, args []string) int {
 
 	filter, ok := buildFilter(e, "export", *from, *to, "", "", audit.Unlimited)
 	if !ok {
+		return ExitUsage
+	}
+	if *fromSeq < 0 {
+		fmt.Fprintf(e.stderr, "nodary audit export: --from-seq %d is not a sequence number\n", *fromSeq)
 		return ExitUsage
 	}
 	filter.FromSeq = *fromSeq

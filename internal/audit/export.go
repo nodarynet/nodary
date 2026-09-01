@@ -1,12 +1,12 @@
 package audit
 
 import (
+	"bufio"
 	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
 
-	"github.com/nodarynet/nodary/internal/canonical"
 	"github.com/nodarynet/nodary/internal/store"
 )
 
@@ -24,18 +24,29 @@ const (
 // is what lets an operator diff an export against a copy shipped off-box and
 // get an empty result when nothing is wrong.
 func ExportJSONL(ctx context.Context, db *store.DB, f Filter, w io.Writer) (int64, error) {
+	// Buffered, like the CSV writer already is. The caller passes os.Stdout, so
+	// this was one write(2) per record for a whole-chain export — and
+	// canonical.Encode returns a slice whose len equals its cap, so appending
+	// the newline reallocated and copied every line rather than amortising.
+	bw := bufio.NewWriter(w)
 	var n int64
 	err := Walk(ctx, db, exportOrder(f), func(r Record) error {
 		line, err := r.Line()
 		if err != nil {
 			return err
 		}
-		if _, err := w.Write(append(line, '\n')); err != nil {
+		if _, err := bw.Write(line); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
 			return err
 		}
 		n++
 		return nil
 	})
+	if ferr := bw.Flush(); err == nil {
+		err = ferr
+	}
 	return n, err
 }
 
@@ -66,10 +77,14 @@ func ExportCSV(ctx context.Context, db *store.DB, f Filter, w io.Writer) (int64,
 		n++
 		return nil
 	})
+	// Flushed on both paths. csv.Writer buffers, so returning early on a Walk
+	// error dropped the header and every row it had already accepted — stdout
+	// got nothing at all for a small export, or a file severed mid-row for a
+	// large one, while n went on claiming the rows had been written.
+	cw.Flush()
 	if err != nil {
 		return n, err
 	}
-	cw.Flush()
 	return n, cw.Error()
 }
 
@@ -88,14 +103,11 @@ func exportOrder(f Filter) Filter {
 
 // row renders the record as its stored columns, in columnNames order.
 func (r Record) row() ([]string, error) {
-	detail, err := canonical.Encode(r.members()["detail"])
+	detail, err := r.detailJSON()
 	if err != nil {
-		return nil, fmt.Errorf("encoding detail of record %d: %w", r.Seq, err)
+		return nil, err
 	}
-	var targetKind, targetID string
-	if r.Target != nil {
-		targetKind, targetID = r.Target.Kind, r.Target.ID
-	}
+	targetKind, targetID := r.targetFields()
 	row := []string{
 		fmt.Sprint(r.Seq), fmt.Sprint(r.V), r.Install, r.TS.UTC().Format(TimeFormat),
 		r.Actor.ID, r.Actor.Method, r.Actor.Session,

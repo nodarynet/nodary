@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/paths"
@@ -52,6 +53,21 @@ const maxReaders = 8
 // belonging to something else.
 var ErrNotNodaryDatabase = errors.New("file is not a nodary database")
 
+// foreignApplicationID and unstampedDatabase are the two ways a file can fail
+// to be nodary's. They live here rather than at each caller so that a read-only
+// open and a writing open give one diagnosis of one condition: the two had
+// drifted, and `nodary audit verify --db f` explained the same f differently
+// from every other command.
+func foreignApplicationID(id int64) error {
+	return fmt.Errorf("%w: application_id is %#x, want %#x",
+		ErrNotNodaryDatabase, id, applicationID)
+}
+
+func unstampedDatabase(objects int) error {
+	return fmt.Errorf("%w: it has %d objects and no application_id",
+		ErrNotNodaryDatabase, objects)
+}
+
 // DB is a handle to the database: one pool for reads, one for writes.
 type DB struct {
 	write *sql.DB
@@ -71,13 +87,42 @@ const pragmas = "_pragma=busy_timeout(5000)" +
 	"&_pragma=foreign_keys(1)" +
 	"&_pragma=synchronous(FULL)"
 
+// fileURI builds a file: DSN for path, with the path escaped.
+//
+// Concatenating a path into a URI is not safe: both the driver and SQLite split
+// the string at the first '?' and SQLite percent-decodes what precedes it, so a
+// path containing '?', '#' or '%' opens a *different* file than the one the
+// operator named — and silently loses every parameter after it, including the
+// mode that decides whether a missing file is created. `--db no%64ary.db`
+// opened nodary.db and reported its chain under the wrong name; `--db a?b.db`
+// created a file called `a`.
+//
+// Only those three bytes need escaping. Everything else, spaces included, is
+// passed through by both parsers unchanged.
+func fileURI(path, query string) string {
+	var b strings.Builder
+	b.Grow(len(path) + len(query) + 8)
+	b.WriteString("file:")
+	for i := 0; i < len(path); i++ {
+		switch c := path[i]; c {
+		case '?', '#', '%':
+			fmt.Fprintf(&b, "%%%02X", c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('?')
+	b.WriteString(query)
+	return b.String()
+}
+
 func writerDSN(path string) string {
 	// _txlock=immediate takes the write lock at BEGIN rather than at the first
 	// write. Under the default deferred mode a WAL transaction that reads and
 	// then writes returns SQLITE_BUSY_SNAPSHOT *without* invoking the busy
 	// handler, so busy_timeout does not apply and the failure surfaces as a
 	// spurious error under exactly the concurrency this is meant to handle.
-	return "file:" + path + "?_txlock=immediate&" + pragmas
+	return fileURI(path, "_txlock=immediate&"+pragmas)
 }
 
 func readerDSN(path string) string {
@@ -85,7 +130,7 @@ func readerDSN(path string) string {
 	// write on it rather than trusting callers not to try. A stray Exec here
 	// would be a deferred-mode read-then-write — the exact lost-update path
 	// _txlock=immediate exists to prevent.
-	return "file:" + path + "?_query_only=1&" + pragmas
+	return fileURI(path, "_query_only=1&"+pragmas)
 }
 
 // identityDSN deliberately carries no journal_mode. Opening with
@@ -94,7 +139,7 @@ func readerDSN(path string) string {
 // -wal and -shm sidecars behind — damage done in the course of reporting a
 // misconfiguration.
 func identityDSN(path string) string {
-	return "file:" + path + "?_txlock=immediate&_pragma=busy_timeout(5000)"
+	return fileURI(path, "_txlock=immediate&_pragma=busy_timeout(5000)")
 }
 
 // Open opens the database, creating it and its parent directory if absent.
@@ -238,8 +283,7 @@ func establishIdentity(ctx context.Context, path string) error {
 			committed = true
 			return tx.Commit()
 		case id != 0:
-			return fmt.Errorf("%w: application_id is %#x, want %#x",
-				ErrNotNodaryDatabase, id, applicationID)
+			return foreignApplicationID(id)
 		}
 
 		// application_id 0 is either a database nodary has not stamped yet, or
@@ -250,8 +294,7 @@ func establishIdentity(ctx context.Context, path string) error {
 			return fmt.Errorf("inspecting schema: %w", err)
 		}
 		if objects != 0 {
-			return fmt.Errorf("%w: it has %d objects and no application_id",
-				ErrNotNodaryDatabase, objects)
+			return unstampedDatabase(objects)
 		}
 		if _, err := tx.ExecContext(ctx,
 			fmt.Sprintf("PRAGMA application_id = %d", applicationID)); err != nil {

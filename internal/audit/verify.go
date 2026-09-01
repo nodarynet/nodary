@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"os"
@@ -25,6 +27,10 @@ const (
 	KindBroken Kind = "chain broken"
 	// KindGap: sequence numbers skip. Records were deleted.
 	KindGap Kind = "records missing"
+	// KindOutOfOrder: a sequence number repeats or goes backwards. Two records
+	// claim one position, or the source was concatenated out of order — not a
+	// deletion, which is what makes it worth a name of its own.
+	KindOutOfOrder Kind = "records out of order"
 	// KindNotGenesis: the chain does not start at seq 1 with 64 zeros.
 	KindNotGenesis Kind = "chain does not start at genesis"
 	// KindMixedInstalls: the source holds records from more than one
@@ -94,6 +100,10 @@ func verify(records iter.Seq2[Record, error]) Result {
 			res.Break = &Problem{Seq: r.Seq, Kind: KindMixedInstalls, Detail: fmt.Sprintf(
 				"%s appears after %s", r.Install, install)}
 			return res
+		case r.Seq <= prev.Seq:
+			res.Break = &Problem{Seq: r.Seq, Kind: KindOutOfOrder, Detail: fmt.Sprintf(
+				"seq %d is followed by seq %d", prev.Seq, r.Seq)}
+			return res
 		case r.Seq != prev.Seq+1:
 			res.Break = &Problem{Seq: prev.Seq + 1, Kind: KindGap, Detail: fmt.Sprintf(
 				"seq %d is followed by seq %d", prev.Seq, r.Seq)}
@@ -119,7 +129,7 @@ func verify(records iter.Seq2[Record, error]) Result {
 		// record that reports a time the machine was not at would be a worse
 		// defect than one that reports the truth about a machine whose clock
 		// moved, so nothing here clamps it.
-		if started && res.Records > 0 && r.TS.Before(prev.TS) {
+		if res.Records > 0 && r.TS.Before(prev.TS) {
 			res.Warnings = append(res.Warnings, Problem{Seq: r.Seq, Kind: KindClockWentBack,
 				Detail: fmt.Sprintf("%s precedes seq %d at %s",
 					r.TS.Format(TimeFormat), prev.Seq, prev.TS.Format(TimeFormat))})
@@ -150,7 +160,38 @@ func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
 			yield(Record{}, err)
 		}
 	})
+	if res.Break == nil && res.Records == 0 {
+		if err := emptyChainIsGenuine(ctx, db, &res); err != nil {
+			return Result{}, err
+		}
+	}
 	return res, nil
+}
+
+// emptyChainIsGenuine tells a chain that never held a record from one that was
+// emptied.
+//
+// The installation row is minted by the first record's own transaction, so its
+// presence proves records existed. Without this, `DELETE FROM audit` verified
+// as a sound empty chain and exited 0 — so the cheapest move available to
+// anyone holding the file was the one move the verifier could not name, while
+// deleting any *prefix* of the chain was caught as KindNotGenesis. The
+// schema's UNIQUE(prev_hash) stops being a second-genesis guard for the same
+// reason once the genesis row is gone.
+func emptyChainIsGenuine(ctx context.Context, db *store.DB, res *Result) error {
+	var minted string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT created_at FROM installation WHERE singleton = 1`).Scan(&minted)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading the installation record: %w", err)
+	}
+	res.Break = &Problem{Seq: 1, Kind: KindGap, Detail: fmt.Sprintf(
+		"the chain is empty, but this installation was recorded at %s, which only the first record does: every record has been deleted",
+		minted)}
+	return nil
 }
 
 // VerifyFile walks a JSONL file — a sink's output, or a copy retrieved from a
@@ -158,17 +199,36 @@ func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
 // database it came from. That is what makes the off-box copy evidence rather
 // than a backup.
 func VerifyFile(path string) (Result, error) {
+	records, close, err := fileRecords(path)
+	if err != nil {
+		return Result{}, err
+	}
+	defer close()
+	return verify(records), nil
+}
+
+// maxLineBytes bounds one mirror line. A record with a long detail can exceed
+// bufio's default 64 KiB, and maxDetailValue bounds the write path so a record
+// this package produced cannot reach this cap.
+const maxLineBytes = 8 * 1024 * 1024
+
+// fileRecords reads a JSONL mirror as a sequence of records.
+//
+// One reader, because VerifyFile and Compare both need it and the two hand-
+// rolled copies had already drifted: only VerifyFile named the file and the
+// line number in a parse error, so a damaged mirror reported through Compare
+// said "not a JSON object: unexpected EOF" about nothing in particular. The
+// buffer size is load-bearing rather than incidental, and raising it in one
+// copy would have made one command give two verdicts about one file.
+func fileRecords(path string) (iter.Seq2[Record, error], func(), error) {
 	fh, err := os.Open(path)
 	if err != nil {
-		return Result{}, fmt.Errorf("opening %s: %w", path, err)
+		return nil, nil, fmt.Errorf("opening %s: %w", path, err)
 	}
-	defer fh.Close()
-
 	sc := bufio.NewScanner(fh)
-	// A record with a long detail can exceed bufio's default 64 KiB line.
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 
-	res := verify(func(yield func(Record, error) bool) {
+	return func(yield func(Record, error) bool) {
 		line := 0
 		for sc.Scan() {
 			line++
@@ -187,8 +247,7 @@ func VerifyFile(path string) (Result, error) {
 		if err := sc.Err(); err != nil {
 			yield(Record{}, fmt.Errorf("reading %s: %w", path, err))
 		}
-	})
-	return res, nil
+	}, func() { fh.Close() }, nil
 }
 
 // ParseLine reads one canonical JSON record.
@@ -306,6 +365,17 @@ func ParseLine(line []byte) (Record, error) {
 			"record %d does not round-trip; the line holds something this version does not read\n  read: %s\n  line: %s",
 			r.Seq, got, want)
 	}
+
+	// Held to the same shape the table holds a row to. The round-trip check
+	// above proves the line was read faithfully, not that what it says is
+	// well formed — so a mirror line with outcome "redacted", v 0, no actor
+	// method or a half-set target parsed cleanly and `verify --mirror` called
+	// it verified, about a record the database's CHECK constraints could never
+	// have held. The mirror is the copy that outlives the database, so
+	// "verified" has to mean at least as much there.
+	if err := r.Validate(); err != nil {
+		return Record{}, err
+	}
 	return r, nil
 }
 
@@ -368,6 +438,14 @@ func int64Field(m map[string]any, key string) (int64, error) {
 
 // Compare reports how a file's chain relates to the database's.
 type Comparison struct {
+	// Installs is set when the file and the database name different
+	// installations, and it makes every other field here meaningless: the two
+	// are not one chain, so a differing hash at seq 1 is not divergence. Every
+	// chain starts at seq 1 with the same genesis prev_hash, which is why the
+	// records carry an install id at all — and why matching them by sequence
+	// alone reported a reinstall, a restore or a mirror from another appliance
+	// as tampering.
+	Installs *InstallMismatch
 	// Diverged is the first sequence at which both hold a record and the two
 	// disagree, or 0.
 	Diverged int64
@@ -379,44 +457,56 @@ type Comparison struct {
 	Ahead int64
 }
 
+// InstallMismatch names the two installations a comparison found.
+type InstallMismatch struct {
+	Database string
+	File     string
+}
+
+func (m InstallMismatch) String() string {
+	return fmt.Sprintf("the database holds %s and the file holds %s", m.Database, m.File)
+}
+
 // Compare walks both chains by sequence.
 func Compare(ctx context.Context, db *store.DB, path string) (Comparison, error) {
 	stored := map[int64]string{}
-	rows, err := db.Read().QueryContext(ctx, `SELECT seq, hash FROM audit ORDER BY seq`)
+	var dbInstall string
+	rows, err := db.Read().QueryContext(ctx, `SELECT seq, hash, install FROM audit ORDER BY seq`)
 	if err != nil {
 		return Comparison{}, fmt.Errorf("reading the chain: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var seq int64
-		var hash string
-		if err := rows.Scan(&seq, &hash); err != nil {
+		var hash, install string
+		if err := rows.Scan(&seq, &hash, &install); err != nil {
 			return Comparison{}, err
 		}
 		stored[seq] = hash
+		dbInstall = install
 	}
 	if err := rows.Err(); err != nil {
 		return Comparison{}, err
 	}
 
-	fh, err := os.Open(path)
+	records, close, err := fileRecords(path)
 	if err != nil {
-		return Comparison{}, fmt.Errorf("opening %s: %w", path, err)
+		return Comparison{}, err
 	}
-	defer fh.Close()
-	sc := bufio.NewScanner(fh)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	defer close()
 
 	var cmp Comparison
 	seen := map[int64]bool{}
-	for sc.Scan() {
-		raw := bytes.TrimSpace(sc.Bytes())
-		if len(raw) == 0 {
-			continue
-		}
-		r, err := ParseLine(raw)
+	for r, err := range records {
 		if err != nil {
 			return Comparison{}, err
+		}
+		if dbInstall != "" && r.Install != dbInstall {
+			// Not a pair at all. Reporting the seq-1 hashes as divergence here
+			// would say "tampered" about an ordinary reinstall or a mirror
+			// pulled from another appliance, and the wording and exit code were
+			// indistinguishable from the real thing.
+			return Comparison{Installs: &InstallMismatch{Database: dbInstall, File: r.Install}}, nil
 		}
 		seen[r.Seq] = true
 		switch hash, ok := stored[r.Seq]; {
@@ -425,9 +515,6 @@ func Compare(ctx context.Context, db *store.DB, path string) (Comparison, error)
 		case hash != r.Hash && (cmp.Diverged == 0 || r.Seq < cmp.Diverged):
 			cmp.Diverged = r.Seq
 		}
-	}
-	if err := sc.Err(); err != nil {
-		return Comparison{}, fmt.Errorf("reading %s: %w", path, err)
 	}
 	for seq := range stored {
 		if !seen[seq] {
