@@ -160,3 +160,21 @@ func (f *fixture) mustGet(name string) User {
 	}
 	return u
 }
+
+// mintJoin issues a join token and returns it with its plaintext.
+func (f *fixture) mintJoin(uses int, expires time.Time) (JoinToken, string) {
+	f.t.Helper()
+	var (
+		j     JoinToken
+		plain string
+	)
+	if _, err := f.act("token.join", func(m audit.Mutation) error {
+		var err error
+		j, plain, err = MintJoinToken(context.Background(), m, RoleAdmin, f.now, "root",
+			uses, expires)
+		return err
+	}); err != nil {
+		f.t.Fatalf("minting a join token: %v", err)
+	}
+	return j, plain
+}
