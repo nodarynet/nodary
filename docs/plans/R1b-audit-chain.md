@@ -124,7 +124,7 @@ will all end up parsing.
 *Why a string spec rather than a struct now:* R1b has no config file to put a struct in,
 and the parser is forty testable lines that R1d reuses rather than replaces.
 
-### `stdout` is for the server, and the CLI refuses it
+### `stdout` is for the server, and the CLI will refuse it
 
 [10 §4](../specs/10-cli.md#4-output-discipline) reserves stdout for the command's own
 output, and `--format json` promises a stable document and *nothing else*. An audit record
@@ -132,9 +132,14 @@ emitted onto stdout by a one-shot CLI command corrupts that document.
 
 So: the `stdout` sink is legitimate for `nodary server`, whose stdout *is* the log stream
 and which is how a container expects to be read. A CLI command that would write a document
-to stdout refuses to start with a `stdout` sink configured, naming the conflict, rather
+to stdout must refuse to start with a `stdout` sink configured, naming the conflict, rather
 than producing output that parses as neither one thing nor the other. The CLI default is
 the file sink; `stderr` is available for anyone who wants records on a terminal.
+
+**The guard is not written in this slice, because nothing here can trip it.** R1b's three
+verbs are read-only and configure no sinks at all, so the first command that could collide
+with its own output is R1c's `user add`. `Delivery.Sinks()` exposes what a caller needs to
+check; wiring it to a command that does not exist yet would be a guard nothing tests.
 
 ### Two fields have to exist now for a stream to be usable
 
@@ -255,6 +260,11 @@ The remaining hole is a package bypassing the seam by calling `store.WriteTx` di
 Types cannot close it, because `Migrate` needs `WriteTx` and is not a mutation. A test
 fails if any package other than `store` or `audit` names `WriteTx` — a CI gate rather than
 a property of the language, and described here as such.
+
+Test files are outside that gate. They are not a shipped path, and they must be able to
+reach past the seam: a test that proves tampering is detected has to tamper. The gate found
+its first offender the day it was written — a CLI test editing a record — which is a fair
+indication it is looking in the right place.
 
 ### An outcome of `failure` is recorded after the rollback, not with it
 
@@ -459,7 +469,16 @@ Streams the chain in ascending sequence and reports the **first** break, by sequ
 | `prev_hash` ≠ predecessor's `hash` | chain broken at *k* |
 | gap in `seq` | records missing between *j* and *k* |
 | seq 1 `prev_hash` ≠ 64 zeros | chain does not start at genesis |
+| `install` changes mid-chain | records from more than one installation |
 | `ts` earlier than its predecessor's | warning, not a break |
+
+The `install` check earns its place the moment records are shipped anywhere
+central: concatenating two appliances' files produces a sequence that restarts at
+1 and a `prev_hash` that names nothing, which as a bare *chain broken* is an alarm
+nobody can act on. Saying *this file holds two installations* is actionable.
+
+Verification stops at the first break. Everything after one is unverifiable, and
+listing the consequences alongside the cause buries the only line that matters.
 
 `nodary audit verify --mirror PATH` verifies a JSONL file the same way, **with or without a
 database present**, so a copy retrieved from a SIEM or cold storage can be checked months
@@ -503,7 +522,7 @@ more than one that re-nests, and JSONL is there for anything that needs structur
 | `audit` sinks | `ParseSinks` round-trips every form and rejects unknown ones; a failing sink does not fail `Act` under `warn` and refuses the *next* `Act` under `block`, naming the sink; the file sink's line is byte-identical to the JSONL export; `verify --mirror` verifies a file with no database present; a record committed but undelivered is recovered by `--from-seq` |
 | `audit` seam | `Act` records `success`, `failure` and `partial` with the error tail in `detail`; a failed mutation leaves no state change and still leaves a record; no package outside `store` and `audit` names `WriteTx` |
 | `store` | `OpenReadOnly` refuses a missing file, a directory, a foreign or absent `application_id`, a schema behind the binary and a downgrade; the refusal does not migrate the database it refused; `Read().Exec`, `WriteTx` and `Migrate` are all refused; it opens while a writer holds the lock; and the DSN itself is tested, so removing `mode=rw` cannot hide behind the `os.Stat` |
-| `cli` | `list` filters and orders descending; `verify` exits 1 naming the first bad sequence; `export --format text` is rejected naming `jsonl` and `csv`; a `stdout` sink plus a document-producing command is refused; `--format json` writes nothing to stdout but the document |
+| `cli` | `list` filters and orders descending; `verify` exits 1 naming the first bad sequence; `export --format text` is rejected naming `jsonl` and `csv`; `--format json` writes nothing to stdout but the document; a named database that is absent is an error while an absent default one is not, so `verify --mirror` works on a retrieved copy; an unmigrated database is refused rather than migrated |
 
 The chain test that mutates *each field in turn* is the one that matters most: it is the
 only thing that catches a field being added to the record and not to the preimage, which
@@ -518,7 +537,7 @@ One commit per step, citing its task ID.
 - [x] **3.** `0002_audit.sql`; `Append` assigning `seq` and `prev_hash` inside `WriteTx` · **R1-07**
 - [x] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**
 - [x] **5.** `log.go` — `Log`, `Request`, `Mutation`, `Act`, and the bypass test · **R1-12**
-- [ ] **6.** `nodary audit verify`, standalone and against a file · **R1-09**
+- [x] **6.** `nodary audit verify`, standalone and against a file · **R1-09**
 - [ ] **7.** `nodary audit list` · **R1-10**
 - [ ] **8.** `nodary audit export --format jsonl|csv` · **R1-11**
 - [ ] **9.** Correct [07 §3](../specs/07-identity-audit.md#3-the-audit-chain),

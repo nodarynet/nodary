@@ -257,7 +257,12 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" || allowed[filepath.Dir(path)] {
+		// Test files are deliberately out of scope. They are not a shipped
+		// path, and they legitimately reach past the seam — a verification
+		// test has to be able to tamper with the chain in order to prove the
+		// tampering is detected.
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") ||
+			allowed[filepath.Dir(path)] {
 			return nil
 		}
 		b, err := os.ReadFile(path)
@@ -295,7 +300,7 @@ func TestBypassScanFindsAnOffender(t *testing.T) {
 		if d.IsDir() && (d.Name() == ".git" || d.Name() == "vendor") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && filepath.Ext(path) == ".go" {
+		if !d.IsDir() && filepath.Ext(path) == ".go" && !strings.HasSuffix(path, "_test.go") {
 			scanned++
 		}
 		return nil

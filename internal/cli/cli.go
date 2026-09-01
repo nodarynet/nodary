@@ -45,7 +45,6 @@ var planned = map[string]string{
 	"token":     "token issue and revocation",
 	"limits":    "rate and budget limits",
 	"usage":     "usage reporting",
-	"audit":     "audit chain listing and verification",
 	"policy":    "policy profiles",
 	"config":    "configuration revisions",
 	"backup":    "backup and restore",
@@ -74,6 +73,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdVersion(e, args[1:])
 	case "components":
 		return cmdComponents(e, args[1:])
+	case "audit":
+		return cmdAudit(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
@@ -99,6 +100,8 @@ Available in this release:
   components           Inspect the pinned third-party component manifest
                          list    Show components this binary pins
                          verify  Check every pinned artifact resolves
+  audit                Inspect the tamper-evident audit chain
+                         verify  Walk the chain and report the first break
 
 Specified, not yet implemented:
 `, versionString())
