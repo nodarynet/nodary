@@ -92,6 +92,9 @@ func cmdAuditVerify(e env, args []string) int {
 
 	path, explicit := resolveDB(*dbPath)
 	report := verifyReport{}
+	// The judgement is audit's; this function only renders it. The CLI and the
+	// HTTP API have to reach the same answer by the same route.
+	var assessment audit.Assessment
 	var chain *store.DB
 
 	// With --mirror and no database at the default location, the file is
@@ -127,6 +130,7 @@ func cmdAuditVerify(e env, args []string) int {
 			return ExitFailure
 		}
 		report.Chain = newResultReport(res)
+		assessment.Chain = &res
 
 		chain = db
 	}
@@ -149,6 +153,7 @@ func cmdAuditVerify(e env, args []string) int {
 		r := newResultReport(res)
 		r.Path = *mirror
 		report.Mirror = r
+		assessment.Mirror = &res
 
 		// Compared only once the mirror has been read as a chain. Comparing
 		// first meant one unreadable line — a truncated final append is the
@@ -163,6 +168,7 @@ func cmdAuditVerify(e env, args []string) int {
 				fmt.Fprintf(e.stderr, "nodary audit verify: %v\n", err)
 				return ExitFailure
 			}
+			assessment.Comparison = &cmp
 			report.Comparison = &comparisonReport{
 				Diverged: cmp.Diverged, Behind: cmp.Behind, Ahead: cmp.Ahead,
 			}
@@ -172,7 +178,8 @@ func cmdAuditVerify(e env, args []string) int {
 		}
 	}
 
-	report.OK = report.sound()
+	report.OK = assessment.OK()
+	report.comparable = assessment.Comparable()
 	if *format == "json" {
 		enc := json.NewEncoder(e.stdout)
 		enc.SetIndent("", "  ")
@@ -194,6 +201,10 @@ func cmdAuditVerify(e env, args []string) int {
 // than assembled ad hoc. docs/specs/10-cli.md §4 makes that output a stable
 // schema, not a rendering of whatever the internals happen to hold.
 type verifyReport struct {
+	// comparable is audit's judgement, carried through for rendering only. It
+	// is not part of the --format json schema.
+	comparable bool `json:"-"`
+
 	OK         bool              `json:"ok"`
 	Chain      *resultReport     `json:"chain,omitempty"`
 	Mirror     *resultReport     `json:"mirror,omitempty"`
@@ -249,26 +260,6 @@ func newResultReport(res audit.Result) *resultReport {
 // verified and failed are nil-safe, and say which of the two questions is being
 // asked: "did this verify" is not the negation of "did this fail" when the
 // result is absent because that half was not checked at all.
-func (r *resultReport) verified() bool { return r != nil && r.OK }
-func (r *resultReport) failed() bool   { return r != nil && !r.OK }
-
-// comparable reports whether both chains verified, which is the only case in
-// which comparing them says anything.
-func (v verifyReport) comparable() bool {
-	return v.Chain.verified() && v.Mirror.verified()
-}
-
-// sound is false if anything verified failed, or if a mirror holds records the
-// database does not — which means the two are not a pair.
-func (v verifyReport) sound() bool {
-	if v.Chain.failed() || v.Mirror.failed() {
-		return false
-	}
-	if c := v.Comparison; c != nil && (c.Installs != "" || c.Diverged != 0 || c.Ahead != 0) {
-		return false
-	}
-	return true
-}
 
 func (v verifyReport) writeText(w io.Writer) {
 	writeResult := func(label string, r *resultReport) {
@@ -317,7 +308,7 @@ func (v verifyReport) writeText(w io.Writer) {
 	// "the mirror matches the database" underneath "record altered at seq 3"
 	// reads as a contradiction, and it is: what matched was the hash each side
 	// recorded at that sequence, not the record the mirror actually holds.
-	if c := v.Comparison; c != nil && v.comparable() {
+	if c := v.Comparison; c != nil && v.comparable {
 		switch {
 		case c.Installs != "":
 			fmt.Fprintf(w, "comparison: these are not the same chain — %s\n", c.Installs)

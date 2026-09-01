@@ -893,3 +893,46 @@ func bySequence(records iter.Seq2[Record, error], window int) iter.Seq2[Record, 
 		}
 	}
 }
+
+// Assessment is the whole outcome of a verification run: the authoritative
+// chain, an optional file, and how the two relate.
+//
+// It lives here rather than in the CLI because it is the answer, not the
+// rendering of one. docs/tasks/README.md requires the CLI and the HTTP API to
+// call the same core functions and neither to hold business logic, and "did
+// this verify" is exactly the judgement GET /audit/verify has to reach by the
+// same route `nodary audit verify` does. Either may be nil: verifying only a
+// file, or only a database, is an ordinary thing to ask for.
+type Assessment struct {
+	Chain      *Result
+	Mirror     *Result
+	Comparison *Comparison
+}
+
+// OK reports whether everything examined verified and the two sources agree.
+//
+// A mirror that is merely *behind* is not a failure — delivery happens after
+// the commit, so trailing the database is its ordinary state. A mirror that is
+// *ahead*, that diverges, or that names another installation is: in each case
+// the two are not the pair they are being treated as.
+func (a Assessment) OK() bool {
+	for _, r := range []*Result{a.Chain, a.Mirror} {
+		if r != nil && !r.OK() {
+			return false
+		}
+	}
+	if c := a.Comparison; c != nil && (c.Installs != nil || c.Diverged != 0 || c.Ahead != 0) {
+		return false
+	}
+	return true
+}
+
+// Comparable reports whether comparing the two sources says anything.
+//
+// It does not once either has failed to verify: "the mirror matches the
+// database" printed underneath "record altered at seq 3" reads as a
+// contradiction, and is one — what matched was the hash each side recorded at
+// that sequence, not the record the mirror actually holds.
+func (a Assessment) Comparable() bool {
+	return a.Chain != nil && a.Chain.OK() && a.Mirror != nil && a.Mirror.OK()
+}

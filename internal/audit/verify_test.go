@@ -892,3 +892,43 @@ func TestCompareNamesAnInstallMismatch(t *testing.T) {
 		t.Errorf("a mismatch should not also be reported as divergence: %+v", cmp)
 	}
 }
+
+// The judgement belongs here rather than in whichever surface asked for it:
+// docs/tasks/README.md requires the CLI and the HTTP API to reach the same
+// answer by the same route.
+func TestAssessment(t *testing.T) {
+	ok := &Result{Records: 3, FirstSeq: 1, LastSeq: 3}
+	broken := &Result{Break: &Problem{Seq: 2, Kind: KindAltered}}
+
+	for name, tc := range map[string]struct {
+		a          Assessment
+		wantOK     bool
+		wantCompar bool
+	}{
+		"nothing examined": {Assessment{}, true, false},
+		"chain alone":      {Assessment{Chain: ok}, true, false},
+		"mirror alone":     {Assessment{Mirror: ok}, true, false},
+		"both sound":       {Assessment{Chain: ok, Mirror: ok}, true, true},
+		"chain broken":     {Assessment{Chain: broken, Mirror: ok}, false, false},
+		"mirror broken":    {Assessment{Chain: ok, Mirror: broken}, false, false},
+		// Behind is the mirror's ordinary state: delivery happens after the
+		// commit, so trailing the database is not a fault.
+		"mirror behind": {Assessment{Chain: ok, Mirror: ok,
+			Comparison: &Comparison{Behind: 4}}, true, true},
+		"mirror ahead": {Assessment{Chain: ok, Mirror: ok,
+			Comparison: &Comparison{Ahead: 1}}, false, true},
+		"diverged": {Assessment{Chain: ok, Mirror: ok,
+			Comparison: &Comparison{Diverged: 7}}, false, true},
+		"another installation": {Assessment{Chain: ok, Mirror: ok,
+			Comparison: &Comparison{Installs: &InstallMismatch{Database: "ins_a", File: "ins_b"}}}, false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.a.OK(); got != tc.wantOK {
+				t.Errorf("OK() = %v, want %v", got, tc.wantOK)
+			}
+			if got := tc.a.Comparable(); got != tc.wantCompar {
+				t.Errorf("Comparable() = %v, want %v", got, tc.wantCompar)
+			}
+		})
+	}
+}
