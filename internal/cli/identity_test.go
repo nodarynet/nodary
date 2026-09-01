@@ -398,3 +398,22 @@ func TestANamedCredentialsFileThatYieldsNothingSaysSo(t *testing.T) {
 		t.Errorf("the notice survived a working credential: %q", stderr)
 	}
 }
+
+// TestTheDefaultCredentialsPathIsQuiet: an appliance with no credentials file
+// is the ordinary case, and saying so on every command would train operators
+// to ignore the line that matters when they did name a file.
+func TestTheDefaultCredentialsPathIsQuiet(t *testing.T) {
+	a := newAppliance(t)
+	// os.UserHomeDir reads HOME, so the default path lands inside the test's
+	// own directory rather than the developer's.
+	t.Setenv("HOME", a.dir)
+
+	code, _, stderr := run(t, "user", "add", "--db", a.db, "--secret-key", a.key,
+		"alice", "--role", "admin")
+	if code != ExitOK {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	if strings.Contains(stderr, "acting locally") {
+		t.Errorf("the default path reported itself: %q", stderr)
+	}
+}

@@ -77,28 +77,33 @@ front of the same core functions.
 
 ## Identity
 
-- [ ] **R1-18** `user` table, roles, and the states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+- [x] **R1-18** `user` table, roles, and the states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
   - *done:* a deleted user keeps its row, so every audit record naming it still resolves to a name, and gives that name back for reuse
   - *note:* argon2id password hashing was part of this task and is now [R2-42](R2-control-plane.md). Nothing in R1 reads a password hash: the only consumer is `POST /auth/login` ([R2-25](R2-control-plane.md)), the CLI authenticates with a personal token, and [01 §9](../specs/01-install.md) has the first administrator set theirs through a one-time setup URL that does not exist until [R5](R5-install.md). Unlike the audit record's `v` and `install`, nothing hashes a `user` row, so the column is an ordinary forward-only migration · [R1c](../plans/R1c-identity.md)
   - *deps:* R1-03
-- [ ] **R1-19** TOTP enrollment and verification, seed encrypted at rest
+- [x] **R1-19** TOTP enrollment and verification, seed encrypted at rest
   - *done:* the seed is displayed exactly once at enrollment and is never readable back · [10 §4](../specs/10-cli.md#4-output-discipline)
+  - *note:* RFC 6238 is implemented here rather than depended on, and checked against the specification's own published vectors. Enrollment is one command that confirms before it commits, so a mis-scanned QR changes nothing; a code is spent when used, because one that survives its own thirty-second window can be replayed by anyone who watched it typed · [R1c](../plans/R1c-identity.md)
   - *deps:* R1-04, R1-18
-- [ ] **R1-36** Record the active key id, and refuse to start under a key that does not match it · [11 §5](../specs/11-failure-modes.md#5-recovery)
+- [x] **R1-36** Record the active key id, and refuse to start under a key that does not match it · [11 §5](../specs/11-failure-modes.md#5-recovery)
   - *done:* deleting `/etc/nodary/secret.key` and restarting is refused rather than silently minting a fresh key. Today the two are indistinguishable, so the recovery path and the unrecoverable one look identical — every TOTP seed, the LiteLLM key and the CA key become permanently unreadable, with a clean startup to say nothing is wrong. The id belongs in a table, so it lands with the schema rather than in R1a
   - *deps:* R1-03, R1-04
-- [ ] **R1-20** Roles `viewer`, `user`, `operator`, `admin` and the permission checks between them · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+- [x] **R1-20** Roles `viewer`, `user`, `operator`, `admin` and the permission checks between them · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
   - *done:* an `operator` can restart a model and cannot approve a node
+  - *note:* the roles are ranked rather than enumerated per role, because [07 §1](../specs/07-identity-audit.md#1-users-and-roles) defines each as *the above, plus*. A permission with no minimum role is held by nobody, admin included: the other direction hands a newly named capability to whoever the table happens to omit
   - *deps:* R1-18
-- [ ] **R1-21** Token kinds `nodary_jt_`, `nodary_sk_`, `nodary_pt_`: SHA-256 at rest, plaintext shown once at creation · [02 §4](../specs/02-enrollment.md#4-token-types)
+- [x] **R1-21** Token kinds `nodary_jt_`, `nodary_sk_`, `nodary_pt_`: SHA-256 at rest, plaintext shown once at creation · [02 §4](../specs/02-enrollment.md#4-token-types)
   - *done:* the distinct prefixes survive into logs so the kinds stay greppable; no plaintext appears in any list output or `--format json`
   - *deps:* R1-18
-- [ ] **R1-22** Personal-token credentials at `~/.nodary/credentials`, mode 0600 · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+- [x] **R1-22** Personal-token credentials at `~/.nodary/credentials`, mode 0600 · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+  - *done:* a file others can read is refused rather than used, and `token create --save` writes one atomically at 0600 so an interrupted write cannot replace a working credential with a truncated one
   - *deps:* R1-21
-- [ ] **R1-23** `nodary user add|list|show|suspend|delete|passwd|totp` · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R1-23** `nodary user add|list|show|suspend|delete|passwd|totp` · [10 §1](../specs/10-cli.md#1-verbs)
+  - *done:* every mutating verb goes through `audit.Act`, so R1-12's guarantee has its first production callers; a refusal is recorded and the command names the record. `passwd` reports that it is not in this release and points at `token create` — see [R2-42](R2-control-plane.md)
   - *deps:* R1-12, R1-18, R1-19, R1-20
-- [ ] **R1-24** `nodary token create|list|revoke` · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R1-24** `nodary token create|list|revoke` · [10 §1](../specs/10-cli.md#1-verbs)
   - *done:* revocation takes effect immediately and `last_used_at` is recorded, which is what makes stale-credential cleanup possible · [06 §2](../specs/06-gateway.md#2-authentication)
+  - *note:* `last_used_at` is stamped inside the audited act a credential authorised, because nothing outside `internal/audit` may write to the database. A token used only for reads therefore looks unused; the read path that would change that is R2's · [R1c](../plans/R1c-identity.md)
   - *deps:* R1-12, R1-21
 
 ## Policy profiles

@@ -1,7 +1,7 @@
 # R1c — Identity
 
 **Slice of:** [R1](../tasks/R1-core-audit-identity.md) · **Tasks:** R1-18 – R1-24, R1-36 ·
-**Status:** in progress
+**Status:** complete
 
 The third of five slices of R1.
 
