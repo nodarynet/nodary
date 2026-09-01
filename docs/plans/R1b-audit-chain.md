@@ -304,8 +304,8 @@ internal/
     record.go    R1-05  Record, members(), the fourteen fields in one place
     hash.go      R1-06  preimage and hash over canonical bytes
     chain.go     R1-07  Append inside WriteTx; seq and prev_hash
-    sink.go      R1-08  Sink, the spec parser, failure posture
-    file.go      R1-08  file sink; console.go: stdout and stderr
+    sink.go      R1-08  Sink, the spec parser, the file and console sinks,
+                        Delivery and the warn/block posture
     log.go       R1-12  Log, Request, Mutation, Act
     query.go     R1-10  List and Walk, seq descending
     verify.go    R1-09  chain walk, first break by seq
@@ -516,7 +516,7 @@ One commit per step, citing its task ID.
 - [x] **1.** `store.OpenReadOnly` — read-only open that refuses rather than migrates
 - [x] **2.** `internal/audit` record, `members()`, preimage and hash, golden vector · **R1-05**, **R1-06**
 - [x] **3.** `0002_audit.sql`; `Append` assigning `seq` and `prev_hash` inside `WriteTx` · **R1-07**
-- [ ] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**
+- [x] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**
 - [ ] **5.** `log.go` — `Log`, `Request`, `Mutation`, `Act`, and the bypass test · **R1-12**
 - [ ] **6.** `nodary audit verify`, standalone and against a file · **R1-09**
 - [ ] **7.** `nodary audit list` · **R1-10**
