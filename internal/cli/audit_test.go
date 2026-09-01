@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +247,114 @@ func TestAuditUsage(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "frobnicate") {
 		t.Errorf("stderr should name the bad subcommand, got %q", stderr)
+	}
+}
+
+func TestAuditListIsNewestFirstWithAHeader(t *testing.T) {
+	dbPath, _ := chain(t, 4)
+
+	code, stdout, stderr := run(t, "audit", "list", "--db", dbPath)
+	if code != ExitOK {
+		t.Fatalf("exit = %d (stderr %q)", code, stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("got %d lines, want a header and 4 records:\n%s", len(lines), stdout)
+	}
+	if !strings.HasPrefix(lines[0], "SEQ") {
+		t.Errorf("first line = %q, want a header", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "4") || !strings.HasPrefix(lines[4], "1") {
+		t.Errorf("listing is not newest first:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "thing/thg_3") {
+		t.Errorf("the target should be rendered: %q", stdout)
+	}
+}
+
+func TestAuditListFilters(t *testing.T) {
+	dbPath, _ := chain(t, 6)
+
+	code, stdout, _ := run(t, "audit", "list", "--db", dbPath, "--action", "thing.add.2")
+	if code != ExitOK {
+		t.Fatalf("exit = %d", code)
+	}
+	if strings.Count(stdout, "\n") != 2 {
+		t.Errorf("want a header and one record, got:\n%s", stdout)
+	}
+
+	code, stdout, _ = run(t, "audit", "list", "--db", dbPath, "--limit", "2")
+	if code != ExitOK || strings.Count(stdout, "\n") != 3 {
+		t.Errorf("exit %d, --limit 2 gave:\n%s", code, stdout)
+	}
+
+	code, stdout, _ = run(t, "audit", "list", "--db", dbPath, "--actor", "nobody")
+	if code != ExitOK {
+		t.Errorf("exit = %d; no matches is not a failure", code)
+	}
+	if !strings.Contains(stdout, "no audit records match") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+// A filter the operator got wrong is a usage error, not a general failure:
+// exit 2 says "fix your command line", exit 1 says "something went wrong".
+func TestAuditListRejectsABadFilterAsUsage(t *testing.T) {
+	dbPath, _ := chain(t, 2)
+
+	for _, args := range [][]string{
+		{"audit", "list", "--db", dbPath, "--from", "last tuesday"},
+		{"audit", "list", "--db", dbPath, "--to", "31/08/2026"},
+		{"audit", "list", "--db", dbPath, "--limit", "5000"},
+	} {
+		code, stdout, stderr := run(t, args...)
+		if code != ExitUsage {
+			t.Errorf("%v: exit = %d, want 2 (stderr %q)", args, code, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("%v: errors belong on stderr, stdout had %q", args, stdout)
+		}
+	}
+}
+
+// The listing's records are the same objects the mirror holds. They are not the
+// same bytes — the envelope is indented for reading — so this compares the
+// decoded objects. Byte-identity is `audit export --format jsonl`'s job.
+func TestAuditListJSONRecordsAreTheMirrorRecords(t *testing.T) {
+	dbPath, mirror := chain(t, 3)
+
+	code, stdout, stderr := run(t, "audit", "list", "--db", dbPath, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d (stderr %q)", code, stderr)
+	}
+	var got struct {
+		Count   int               `json:"count"`
+		Records []json.RawMessage `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout)
+	}
+	if got.Count != 3 || len(got.Records) != 3 {
+		t.Fatalf("count = %d, records = %d", got.Count, len(got.Records))
+	}
+
+	b, err := os.ReadFile(mirror)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileLines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	// The listing is newest first; the file is oldest first.
+	for i, raw := range got.Records {
+		want := fileLines[len(fileLines)-1-i]
+		var fromList, fromFile map[string]any
+		if err := json.Unmarshal(raw, &fromList); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(want), &fromFile); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(fromList, fromFile) {
+			t.Errorf("record %d differs\n  list %s\n  file %s", i, raw, want)
+		}
 	}
 }

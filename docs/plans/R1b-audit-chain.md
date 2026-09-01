@@ -538,7 +538,7 @@ One commit per step, citing its task ID.
 - [x] **4.** `sink.go`, file and console sinks, spec parser, failure posture · **R1-08**
 - [x] **5.** `log.go` — `Log`, `Request`, `Mutation`, `Act`, and the bypass test · **R1-12**
 - [x] **6.** `nodary audit verify`, standalone and against a file · **R1-09**
-- [ ] **7.** `nodary audit list` · **R1-10**
+- [x] **7.** `nodary audit list` · **R1-10**
 - [ ] **8.** `nodary audit export --format jsonl|csv` · **R1-11**
 - [ ] **9.** Correct [07 §3](../specs/07-identity-audit.md#3-the-audit-chain),
       [08 §1](../specs/08-data-model.md#1-schema) and

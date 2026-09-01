@@ -101,6 +101,7 @@ Available in this release:
                          list    Show components this binary pins
                          verify  Check every pinned artifact resolves
   audit                Inspect the tamper-evident audit chain
+                         list    Show records, newest first
                          verify  Walk the chain and report the first break
 
 Specified, not yet implemented:

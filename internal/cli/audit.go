@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"text/tabwriter"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -15,14 +16,16 @@ import (
 
 func cmdAudit(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary audit: expected a subcommand (verify)\n")
+		fmt.Fprintf(e.stderr, "nodary audit: expected a subcommand (list, verify)\n")
 		return ExitUsage
 	}
 	switch args[0] {
+	case "list":
+		return cmdAuditList(e, args[1:])
 	case "verify":
 		return cmdAuditVerify(e, args[1:])
 	default:
-		fmt.Fprintf(e.stderr, "nodary audit: unknown subcommand %q (want verify)\n", args[0])
+		fmt.Fprintf(e.stderr, "nodary audit: unknown subcommand %q (want list or verify)\n", args[0])
 		return ExitUsage
 	}
 }
@@ -242,4 +245,120 @@ func (v verifyReport) writeText(w interface{ Write([]byte) (int, error) }) {
 			fmt.Fprintf(w, "comparison: the mirror matches the database\n")
 		}
 	}
+}
+
+func cmdAuditList(e env, args []string) int {
+	fs := newFlagSet(e, "audit list")
+	format := formatFlag(fs)
+	dbPath := dbFlag(fs)
+	from := fs.String("from", "", "earliest record: a date (2006-01-02) or an RFC3339 instant")
+	to := fs.String("to", "", "latest record; a bare date covers the whole day")
+	actor := fs.String("actor", "", "match this actor id exactly")
+	action := fs.String("action", "", "match this action, or the family when it ends in a dot")
+	limit := fs.Int("limit", audit.DefaultLimit,
+		fmt.Sprintf("records to return, at most %d", audit.MaxLimit))
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+
+	filter, ok := buildFilter(e, "list", *from, *to, *actor, *action, *limit)
+	if !ok {
+		return ExitUsage
+	}
+
+	path, _ := resolveDB(*dbPath)
+	db, ok := openForReading(e, "list", path)
+	if !ok {
+		return ExitFailure
+	}
+	defer db.Close()
+
+	records, err := audit.List(context.Background(), db, filter)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary audit list: %v\n", err)
+		if errors.Is(err, audit.ErrBadFilter) {
+			return ExitUsage
+		}
+		return ExitFailure
+	}
+
+	if *format == "json" {
+		return writeRecordsJSON(e, "list", records)
+	}
+	writeRecordsText(e, records)
+	return ExitOK
+}
+
+func buildFilter(e env, verb, from, to, actor, action string, limit int) (audit.Filter, bool) {
+	f := audit.Filter{Actor: actor, Action: action, Limit: limit}
+	var err error
+	if f.From, err = audit.ParseBound(from, false); err != nil {
+		fmt.Fprintf(e.stderr, "nodary audit %s: --from %v\n", verb, err)
+		return f, false
+	}
+	if f.To, err = audit.ParseBound(to, true); err != nil {
+		fmt.Fprintf(e.stderr, "nodary audit %s: --to %v\n", verb, err)
+		return f, false
+	}
+	return f, true
+}
+
+// writeRecordsJSON emits each record as the object a sink delivers, inside a
+// counted envelope. The envelope is indented for reading, so these are not the
+// sink's exact bytes — `audit export --format jsonl` is what produces those,
+// and is what an operator diffs against a shipped copy. What is guaranteed here
+// is that the record objects are the same objects, built by the same code.
+func writeRecordsJSON(e env, verb string, records []audit.Record) int {
+	lines := make([]json.RawMessage, 0, len(records))
+	for _, r := range records {
+		line, err := r.Line()
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary audit %s: %v\n", verb, err)
+			return ExitFailure
+		}
+		lines = append(lines, json.RawMessage(line))
+	}
+	enc := json.NewEncoder(e.stdout)
+	enc.SetIndent("", "  ")
+	out := struct {
+		Count   int               `json:"count"`
+		Records []json.RawMessage `json:"records"`
+	}{len(lines), lines}
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintf(e.stderr, "nodary audit %s: %v\n", verb, err)
+		return ExitFailure
+	}
+	return ExitOK
+}
+
+func writeRecordsText(e env, records []audit.Record) {
+	if len(records) == 0 {
+		fmt.Fprintln(e.stdout, "no audit records match")
+		return
+	}
+	tw := tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SEQ\tTS\tACTOR\tACTION\tTARGET\tOUTCOME")
+	for _, r := range records {
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n",
+			r.Seq, r.TS.Format(audit.TimeFormat), orDash(r.Actor.ID),
+			r.Action, targetOf(r), r.Outcome)
+	}
+	tw.Flush()
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func targetOf(r audit.Record) string {
+	if r.Target == nil {
+		return "-"
+	}
+	return r.Target.Kind + "/" + r.Target.ID
 }
