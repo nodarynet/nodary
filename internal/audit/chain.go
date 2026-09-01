@@ -160,12 +160,21 @@ func installID(tx *sql.Tx, now time.Time) (string, error) {
 	return id, nil
 }
 
-// columns is the row as stored, in schema order. Shared by every read path so
-// the CSV export, the chain walk and a single lookup cannot disagree about
-// which column is which.
-const columns = `seq, v, install, ts, actor_id, actor_method, actor_session,
-	source_ip, source_version, action, target_kind, target_id,
-	intent_hash, justification, outcome, detail_json, prev_hash, hash`
+// columnNames is the row as stored, in schema order.
+//
+// One list, because three things depend on this order agreeing: the SELECT,
+// scanRecord's argument order, and the CSV export's header. Two of those
+// disagreeing produces data under the wrong heading rather than an error.
+var columnNames = []string{
+	"seq", "v", "install", "ts",
+	"actor_id", "actor_method", "actor_session",
+	"source_ip", "source_version",
+	"action", "target_kind", "target_id",
+	"intent_hash", "justification", "outcome", "detail_json",
+	"prev_hash", "hash",
+}
+
+var columns = strings.Join(columnNames, ", ")
 
 // scanRecord reads one row back into a Record.
 //

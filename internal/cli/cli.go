@@ -103,6 +103,7 @@ Available in this release:
   audit                Inspect the tamper-evident audit chain
                          list    Show records, newest first
                          verify  Walk the chain and report the first break
+                         export  Write the chain as jsonl or csv
 
 Specified, not yet implemented:
 `, versionString())

@@ -16,7 +16,7 @@ import (
 
 func cmdAudit(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary audit: expected a subcommand (list, verify)\n")
+		fmt.Fprintf(e.stderr, "nodary audit: expected a subcommand (list, verify, export)\n")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -24,8 +24,11 @@ func cmdAudit(e env, args []string) int {
 		return cmdAuditList(e, args[1:])
 	case "verify":
 		return cmdAuditVerify(e, args[1:])
+	case "export":
+		return cmdAuditExport(e, args[1:])
 	default:
-		fmt.Fprintf(e.stderr, "nodary audit: unknown subcommand %q (want list or verify)\n", args[0])
+		fmt.Fprintf(e.stderr,
+			"nodary audit: unknown subcommand %q (want list, verify or export)\n", args[0])
 		return ExitUsage
 	}
 }
@@ -188,6 +191,17 @@ func newResultReport(res audit.Result) *resultReport {
 	return r
 }
 
+// comparable reports whether both chains verified, which is the only case in
+// which comparing them says anything.
+func (v verifyReport) comparable() bool {
+	for _, r := range []*resultReport{v.Chain, v.Mirror} {
+		if r == nil || !r.OK {
+			return false
+		}
+	}
+	return true
+}
+
 // sound is false if anything verified failed, or if a mirror holds records the
 // database does not — which means the two are not a pair.
 func (v verifyReport) sound() bool {
@@ -232,7 +246,11 @@ func (v verifyReport) writeText(w interface{ Write([]byte) (int, error) }) {
 	writeResult("chain", v.Chain)
 	writeResult("mirror", v.Mirror)
 
-	if c := v.Comparison; c != nil {
+	// A comparison is only meaningful between two chains that verified. Saying
+	// "the mirror matches the database" underneath "record altered at seq 3"
+	// reads as a contradiction, and it is: what matched was the hash each side
+	// recorded at that sequence, not the record the mirror actually holds.
+	if c := v.Comparison; c != nil && v.comparable() {
 		switch {
 		case c.Diverged != 0:
 			fmt.Fprintf(w, "comparison: the database and the mirror disagree from seq %d\n", c.Diverged)
@@ -296,11 +314,11 @@ func buildFilter(e env, verb, from, to, actor, action string, limit int) (audit.
 	f := audit.Filter{Actor: actor, Action: action, Limit: limit}
 	var err error
 	if f.From, err = audit.ParseBound(from, false); err != nil {
-		fmt.Fprintf(e.stderr, "nodary audit %s: --from %v\n", verb, err)
+		fmt.Fprintf(e.stderr, "nodary audit %s: --from: %v\n", verb, err)
 		return f, false
 	}
 	if f.To, err = audit.ParseBound(to, true); err != nil {
-		fmt.Fprintf(e.stderr, "nodary audit %s: --to %v\n", verb, err)
+		fmt.Fprintf(e.stderr, "nodary audit %s: --to: %v\n", verb, err)
 		return f, false
 	}
 	return f, true
@@ -361,4 +379,55 @@ func targetOf(r audit.Record) string {
 		return "-"
 	}
 	return r.Target.Kind + "/" + r.Target.ID
+}
+
+func cmdAuditExport(e env, args []string) int {
+	fs := newFlagSet(e, "audit export")
+	// Not formatFlag: on this verb the value is the export encoding, per
+	// docs/specs/09-api.md §1, not docs/specs/10-cli.md §2's rendering style.
+	format := fs.String("format", audit.FormatJSONL, "export encoding: jsonl|csv")
+	dbPath := dbFlag(fs)
+	from := fs.String("from", "", "earliest record: a date (2006-01-02) or an RFC3339 instant")
+	to := fs.String("to", "", "latest record; a bare date covers the whole day")
+	fromSeq := fs.Int64("from-seq", 0, "start at this sequence number, to resume a destination that fell behind")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	switch *format {
+	case audit.FormatJSONL, audit.FormatCSV:
+	default:
+		// Named explicitly, because the global flag table advertises text,
+		// json and yaml and this is the one verb where they do not apply.
+		fmt.Fprintf(e.stderr,
+			"nodary audit export: --format %q is not an export encoding (want jsonl or csv)\n", *format)
+		return ExitUsage
+	}
+
+	filter, ok := buildFilter(e, "export", *from, *to, "", "", audit.Unlimited)
+	if !ok {
+		return ExitUsage
+	}
+	filter.FromSeq = *fromSeq
+
+	path, _ := resolveDB(*dbPath)
+	db, ok := openForReading(e, "export", path)
+	if !ok {
+		return ExitFailure
+	}
+	defer db.Close()
+
+	var err error
+	if *format == audit.FormatCSV {
+		_, err = audit.ExportCSV(context.Background(), db, filter, e.stdout)
+	} else {
+		_, err = audit.ExportJSONL(context.Background(), db, filter, e.stdout)
+	}
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary audit export: %v\n", err)
+		if errors.Is(err, audit.ErrBadFilter) {
+			return ExitUsage
+		}
+		return ExitFailure
+	}
+	return ExitOK
 }

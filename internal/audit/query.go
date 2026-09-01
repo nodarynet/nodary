@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -44,8 +45,18 @@ type Filter struct {
 	Ascending bool
 }
 
-// ErrBadFilter is returned for a filter that cannot be honoured.
-var ErrBadFilter = fmt.Errorf("audit filter is not valid")
+// ErrBadFilter is returned for a filter that cannot be honoured. It is matched
+// with errors.Is and never printed: a caller knows which flag it passed, and
+// prefixing "audit filter is not valid" onto a message that already says what
+// is wrong produces a sentence nobody would write.
+var ErrBadFilter = errors.New("audit filter is not valid")
+
+// filterError carries a message of its own while still matching ErrBadFilter.
+type filterError struct{ msg string }
+
+func (e filterError) Error() string           { return e.msg }
+func (e filterError) Is(target error) bool    { return target == ErrBadFilter }
+func badFilter(format string, a ...any) error { return filterError{fmt.Sprintf(format, a...)} }
 
 // ParseBound reads a --from or --to value: a date, or a full RFC3339 instant.
 //
@@ -66,7 +77,7 @@ func ParseBound(s string, upper bool) (string, error) {
 	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		return "", fmt.Errorf("%w: %q is neither a date (2006-01-02) nor an RFC3339 instant", ErrBadFilter, s)
+		return "", badFilter("%q is neither a date (2006-01-02) nor an RFC3339 instant", s)
 	}
 	return t.UTC().Truncate(time.Millisecond).Format(TimeFormat), nil
 }
@@ -122,7 +133,7 @@ func (f Filter) limit() (n int, bounded bool, err error) {
 	case f.Limit == 0:
 		return DefaultLimit, true, nil
 	case f.Limit < 0 || f.Limit > MaxLimit:
-		return 0, false, fmt.Errorf("%w: limit %d is outside 1–%d", ErrBadFilter, f.Limit, MaxLimit)
+		return 0, false, badFilter("limit %d is outside 1–%d", f.Limit, MaxLimit)
 	}
 	return f.Limit, true, nil
 }
