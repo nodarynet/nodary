@@ -374,3 +374,27 @@ func enrollTOTP(t *testing.T, a *appliance, name string) string {
 	}
 	return strings.TrimSpace(line)
 }
+
+// TestANamedCredentialsFileThatYieldsNothingSaysSo: a typo in --credentials
+// would otherwise be silent. It changes attribution rather than authority —
+// the record says "local" either way — but silence is the wrong answer when an
+// operator asked to act as somebody.
+func TestANamedCredentialsFileThatYieldsNothingSaysSo(t *testing.T) {
+	a := newAppliance(t)
+	code, _, stderr := a.run("user", "add", "alice", "--role", "admin")
+	if code != ExitOK {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "acting locally") {
+		t.Errorf("stderr should say the named file yielded nothing: %q", stderr)
+	}
+
+	// Once a credential is there, the notice stops.
+	if code, _, stderr := a.run("token", "create", "--user", "alice", "--save"); code != ExitOK {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	_, _, stderr = a.run("user", "add", "bob", "--role", "viewer")
+	if strings.Contains(stderr, "acting locally") {
+		t.Errorf("the notice survived a working credential: %q", stderr)
+	}
+}

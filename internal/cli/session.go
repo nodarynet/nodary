@@ -178,8 +178,8 @@ func (s *session) key() (*secret.Key, error) {
 // a credential the same access could mint would buy nothing.
 func resolvePrincipal(e env, verb string, db *store.DB, credsPath string,
 	now time.Time) (identity.Principal, bool) {
-	path := credsPath
-	if path == "" {
+	path, explicit := credsPath, credsPath != ""
+	if !explicit {
 		var err error
 		if path, err = paths.Credentials(); err != nil {
 			// No home directory: there is nowhere for a credential to be, so
@@ -198,6 +198,16 @@ func resolvePrincipal(e env, verb string, db *store.DB, credsPath string,
 	}
 	cred, err := creds.Token(identity.LocalServer)
 	if err != nil {
+		// Acting locally is right — an appliance with no credentials is the
+		// ordinary case — but an operator who named a file and got nothing
+		// from it should be told, because a typo in that path is otherwise
+		// silent. It changes attribution rather than authority: the record
+		// says method "local" either way, and opening the database for
+		// writing already granted what local grants.
+		if explicit {
+			fmt.Fprintf(e.stderr, "nodary %s: no credential in %s; acting locally\n",
+				verb, path)
+		}
 		return localPrincipal(), true
 	}
 
