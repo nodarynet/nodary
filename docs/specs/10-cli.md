@@ -47,6 +47,10 @@ nodary status
 | `--server URL` | Target control plane. Defaults to the local one |
 | `-v`, `-vv` | Verbosity |
 
+One verb does not take those `--format` values: `nodary audit export` writes `jsonl` or
+`csv`, because there the flag selects an export encoding rather than a rendering style
+([09 §1](09-api.md#1-surface)). It refuses `text`, `json` and `yaml` naming what it accepts.
+
 ## 3. `nodary doctor`
 
 The diagnostic entry point, and the first thing to tell anyone to run.

@@ -1,7 +1,7 @@
 # R1b — Audit chain
 
 **Slice of:** [R1](../tasks/R1-core-audit-identity.md) · **Tasks:** R1-05 – R1-12 ·
-**Status:** in progress
+**Status:** complete
 
 The second of five slices of R1.
 
@@ -539,23 +539,35 @@ One commit per step, citing its task ID.
 - [x] **5.** `log.go` — `Log`, `Request`, `Mutation`, `Act`, and the bypass test · **R1-12**
 - [x] **6.** `nodary audit verify`, standalone and against a file · **R1-09**
 - [x] **7.** `nodary audit list` · **R1-10**
-- [ ] **8.** `nodary audit export --format jsonl|csv` · **R1-11**
-- [ ] **9.** Correct [07 §3](../specs/07-identity-audit.md#3-the-audit-chain),
+- [x] **8.** `nodary audit export --format jsonl|csv` · **R1-11**
+- [x] **9.** Correct [07 §3](../specs/07-identity-audit.md#3-the-audit-chain),
       [08 §1](../specs/08-data-model.md#1-schema) and
       [10 §2](../specs/10-cli.md#2-global-flags) (below)
 
+## Resolved items
+
+Three spec defects, all corrected rather than worked around.
+
+**[07 §3](../specs/07-identity-audit.md#3-the-audit-chain) listed twelve record fields.**
+The record carries fourteen: `v` and `install`, both inside the hash preimage, so R1b was the
+last moment either could be added. The section now lists them and
+[explains why they exist from the first record](../specs/07-identity-audit.md#v-and-install)
+rather than from the release that first needs them.
+
+**[07 §3](../specs/07-identity-audit.md#storage-and-delivery) made the JSONL mirror a fixed,
+mandatory path.** It is now *Storage and delivery*: SQLite is authoritative, the destination
+is configuration, delivery is post-commit so it can never block or roll back a change, and
+the default on a failure is to report rather than halt. This is the correction that came out
+of asking who the mirror is actually for.
+
+**[08 §1](../specs/08-data-model.md#1-schema) showed `audit` with composite columns.**
+`actor`, `source` and `target` each hold more than one value. Flattened, with the `UNIQUE`
+constraints and the `installation` table recorded alongside.
+
+**[10 §2](../specs/10-cli.md#2-global-flags) presented `--format text|json|yaml` as global.**
+`audit export` takes `jsonl|csv`, and the flag table now says so.
+
 ## Open items
-
-**[07 §3](../specs/07-identity-audit.md#3-the-audit-chain) lists twelve record fields.**
-The record carries fourteen: `v` and `install`, both inside the hash preimage, so this is
-the last moment either could be added. Corrected in step 9.
-
-**[08 §1](../specs/08-data-model.md#1-schema) shows `audit` with composite columns.**
-`actor`, `source` and `target` each hold more than one value. Flattened above; corrected in
-step 9.
-
-**[10 §2](../specs/10-cli.md#2-global-flags) presents `--format text|json|yaml` as global.**
-`audit export` takes `jsonl|csv`. The flag table gains the exception.
 
 **A network sink for Elastic, Splunk HEC or a generic NDJSON endpoint.** The `Sink` seam
 makes it additive, and the case for it is real — CMMC deployments ship to a SIEM with WORM

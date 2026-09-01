@@ -46,8 +46,10 @@ limits(subject_kind, subject_id, rpm, tpm, daily_tokens, max_concurrent,
        PRIMARY KEY (subject_kind, subject_id))
 
 revision(seq PK, ts, actor, justification, snapshot_json, prev_hash, hash)
-audit(seq PK, ts, actor, source, action, target, intent_hash, justification,
-      outcome, detail_json, prev_hash, hash)
+audit(seq PK, v, install, ts, actor_id, actor_method, actor_session,
+      source_ip, source_version, action, target_kind, target_id,
+      intent_hash, justification, outcome, detail_json, prev_hash, hash)
+installation(singleton PK, id, created_at)
 usage(id PK, ts, user_id, token_id, route, model_id, deployment_id, node_name,
       request_id, prompt_tokens, completion_tokens, latency_ms, status, streamed, partial)
 usage_daily(day, user_id, model_id, requests, prompt_tokens, completion_tokens,
@@ -56,6 +58,16 @@ usage_daily(day, user_id, model_id, requests, prompt_tokens, completion_tokens,
 policy(name PK, body_toml, active, applied_by, applied_at)
 join_token(id PK, hash, uses_left, expires_at, created_by, created_at)
 ```
+
+The `audit` row is the record of [07 §3](07-identity-audit.md#3-the-audit-chain)
+decomposed: that section gives `actor` three contents, `source` two, and `target` a kind plus
+an identity, so each becomes its own column and the record keeps them as objects. `prev_hash`
+and `hash` are both `UNIQUE`, which puts "two records cannot claim the same predecessor" in
+the schema rather than only in the write path — it then holds against a writer that never
+goes through the audit layer.
+
+`installation` holds exactly one row, minted on first write. See
+[07 §3](07-identity-audit.md#v-and-install) for why the identifier is inside the hash.
 
 ## 2. Revisions replace version control
 

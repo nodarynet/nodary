@@ -37,6 +37,8 @@ when policy sets `allow_unattended_tokens = false`.
 
 | Field | Contents |
 | :--- | :--- |
+| `v` | Record schema version |
+| `install` | Which installation wrote it |
 | `seq` | Monotonic integer |
 | `ts` | RFC3339 UTC |
 | `actor` | User id, authentication method, session id |
@@ -49,6 +51,29 @@ when policy sets `allow_unattended_tokens = false`.
 | `detail` | Exit status, error tail, objects changed |
 | `prev_hash` | SHA-256 of the previous record |
 | `hash` | SHA-256 over canonical JSON of this record, including `prev_hash` |
+
+`actor`, `source` and `target` are objects, since each carries more than one value; `target`
+is null for an action that has none. Every field is present in every record — an unset
+optional is `null`, never absent and never an empty string, because absent, null and empty
+are three different hashes.
+
+### `v` and `install`
+
+Both are inside the hash preimage, which is why they exist from the first record rather than
+being added when they are first needed.
+
+`install` is what lets records from several appliances be told apart once they are shipped
+somewhere central. Every chain starts at `seq` 1 with the same all-zero `prev_hash`, so
+without it they interleave indistinguishably, and a `prev_hash` that is unique per
+installation reads as a fork. A shipper can tag by host, but a tag added outside the record
+is one that whoever controls the shipper can change; inside the preimage it is bound to the
+hash.
+
+`v` is what allows the field set to grow. A set that can never change will eventually be
+wrong; one that changes without a version is unverifiable, because re-encoding an older
+record under a newer shape changes its hash and reports tampering that never happened. It is
+`1`, and it is what will let the per-node sequence number below be added without
+invalidating anything already written.
 
 ### `intent_hash`
 
@@ -70,9 +95,30 @@ plane can rewrite the whole chain consistently. Shipping the JSONL mirror off-bo
 turns detection into something an attacker cannot quietly undo, and deployments that care
 should do so.
 
-### Storage
+### Storage and delivery
 
-SQLite (WAL) plus an append-only JSONL mirror at `/var/log/nodary/audit.jsonl` for shipping.
+SQLite (WAL) is authoritative. The record exists when its transaction commits, in the same
+transaction as the change it describes.
+
+**Where records go afterwards is configuration.** A file — `/var/log/nodary/audit.jsonl` by
+default — plus `stdout` for a container, `stderr` for a terminal, `none`, or any combination.
+Delivery happens after the commit, so a destination can never block or roll back a change,
+and a destination that fell behind is resynchronised from the database with
+`nodary audit export --from-seq`. Each record carries `seq` and `hash`, so a receiver dedupes
+and detects gaps without having to trust the sender.
+
+Shipping off-box is what turns detection into something an attacker cannot quietly undo, and
+a deployment that must demonstrate control should do it — to a SIEM with WORM retention, by
+pointing a log shipper at the file. Records are not pushed by nodary itself: a serving
+deployment has no outbound path by design ([03](03-agent.md#5-egress-isolation)), and a
+shipper already solves retry, backpressure and credentials. `nodary audit verify --mirror`
+validates any such copy, on a machine that has never seen the database it came from.
+
+When a destination fails, the default is to report it and carry on
+([NIST SP 800-171](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final) 3.3.4 asks for an
+alert on an audit logging failure, not a halt). A deployment may instead refuse further
+mutations until delivery recovers. What is never configurable is whether the record is
+written.
 
 Agents generate records locally and forward them; they are chained on arrival at the server,
 and node-local ordering is preserved by a per-node sequence number so a disconnected agent does

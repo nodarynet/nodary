@@ -30,26 +30,30 @@ front of the same core functions.
 
 ## Audit chain
 
-- [ ] **R1-05** `audit` record type carrying every field in the table · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
-  - *done:* `seq`, `ts`, `actor`, `source`, `action`, `target`, `intent_hash`, `justification`, `outcome`, `detail`, `prev_hash`, `hash` all populated on write
+- [x] **R1-05** `audit` record type carrying every field in the table · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
+  - *done:* `v`, `install`, `seq`, `ts`, `actor`, `source`, `action`, `target`, `intent_hash`, `justification`, `outcome`, `detail`, `prev_hash`, `hash` all populated on write. `v` and `install` were added to [07 §3](../specs/07-identity-audit.md#v-and-install) during [R1b](../plans/R1b-audit-chain.md): both live inside the hash preimage, so neither could be added later
   - *deps:* R1-03
-- [ ] **R1-06** Record hashing: SHA-256 over canonical JSON of the record including `prev_hash`
+- [x] **R1-06** Record hashing: SHA-256 over canonical JSON of the record including `prev_hash`
   - *done:* re-hashing a stored record reproduces its stored `hash`
   - *deps:* R1-01, R1-05
-- [ ] **R1-07** Chain records by `prev_hash` on insert, under a monotonic `seq`
+- [x] **R1-07** Chain records by `prev_hash` on insert, under a monotonic `seq`
   - *done:* concurrent writers cannot interleave to produce two records claiming the same `seq` or the same predecessor
   - *deps:* R1-06
-- [ ] **R1-08** Append-only JSONL mirror at `/var/log/nodary/audit.jsonl` · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
-  - *done:* the mirror is written on every record and survives loss of the database, which is what makes it independent evidence · [11 §5](../specs/11-failure-modes.md#5-recovery)
+- [x] **R1-08** Configurable delivery of every record — a JSONL file by default, `stdout`, `stderr` or `none` · [07 §3](../specs/07-identity-audit.md#storage-and-delivery)
+  - *done:* every committed record is delivered, the file survives loss of the database and verifies on a machine that never held it, and a destination that fell behind resynchronises with `audit export --from-seq` · [11 §5](../specs/11-failure-modes.md#5-recovery)
+  - *note:* the task previously specified the mirror as a fixed, mandatory path. [07 §3](../specs/07-identity-audit.md#storage-and-delivery) now makes the destination configuration and delivery post-commit, so a log destination can never block or roll back a change; the task follows the spec. A native SIEM exporter is [R2-41](R2-control-plane.md)
   - *deps:* R1-07
-- [ ] **R1-09** `nodary audit verify` walks the chain and reports the first break by sequence number
-  - *done:* mutating record *k* in a chain of *N* makes verify name *k*, not "chain invalid"; the server keeps running and raises a critical alert rather than repairing the chain · [11 §3](../specs/11-failure-modes.md#3-security-controls)
+- [x] **R1-09** `nodary audit verify` walks the chain and reports the first break by sequence number
+  - *done:* mutating record *k* in a chain of *N* makes verify name *k*, not "chain invalid", and nothing repairs the chain · [11 §3](../specs/11-failure-modes.md#3-security-controls)
+  - *note:* the same row's "the server keeps running and raises a critical alert" is R2's half — R1 has no server to keep running. Tracked against R2-33
   - *deps:* R1-07
-- [ ] **R1-10** `nodary audit list` with `--from`, `--to`, `--actor`, `--action`, ordered by sequence descending · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R1-10** `nodary audit list` with `--from`, `--to`, `--actor`, `--action`, ordered by sequence descending · [10 §1](../specs/10-cli.md#1-verbs)
+  - *done:* `--action` matches a family when it ends in a dot, and matches literally otherwise — a filter that quietly returns more than it was asked for is worse than one that errors
   - *deps:* R1-07
-- [ ] **R1-11** `nodary audit export --format jsonl|csv` · [09 §1](../specs/09-api.md#1-surface)
+- [x] **R1-11** `nodary audit export --format jsonl|csv` · [09 §1](../specs/09-api.md#1-surface)
+  - *done:* the JSONL output is byte-identical to what a sink delivered for the same records, so an export diffed against a copy shipped off-box is empty when nothing is wrong
   - *deps:* R1-07
-- [ ] **R1-12** The audit layer: one seam every mutating call passes through · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R1-12** The audit layer: one seam every mutating call passes through · [10 §1](../specs/10-cli.md#1-verbs)
   - *done:* a mutating core function cannot be reached without producing a record — enforced structurally, not by convention, because R2 through R8 all depend on this holding
   - *deps:* R1-07
 
