@@ -576,13 +576,61 @@ can dedupe and detect gaps without trusting nodary. It is not in this slice beca
 URL, credentials and TLS settings have nowhere to live until R1d, and its credentials want
 [R1-04](../tasks/R1-core-audit-identity.md)'s sealing. Needs a task.
 
+**Rotation and `--from-seq` produce fragments, and verification now says so.**
+A rotated live file and an `export --from-seq` catch-up file both start partway
+through the chain. Verification called that *chain does not start at genesis* and
+refused them — a tamper detector crying tamper on its own documented recovery
+artefacts, which is the worst false positive available. A source that does not
+begin at genesis is now reported as a **fragment**: its records are proved
+consistent with each other and nothing more, said in different words from a whole
+chain because it proves strictly less. With the database that produced it, or
+with `--anchor SEQ:HASH`, the join is checked too and the fragment proves as much
+as a whole chain from the anchor onward. A database may still not be a fragment:
+it holds the whole chain, so a partial one there means records were deleted.
+
+**A concurrently written mirror is not in sequence order, and that is fine.**
+Delivery happens after the commit and several processes append to one path.
+Measured: twelve processes writing 480 records produced inversions in three runs
+of six, and reading the file in file order reported *records missing* while the
+comparison proved every record present and byte-exact. Verification reconstructs
+the chain by sequence, holding early arrivals in a bounded buffer, so a file is
+treated as the bag of at-least-once deliveries it actually is. Identical repeats
+are dropped; a second, *different* record claiming one sequence is still a break
+— and that is decided by re-hashing, not by trusting the hash the line carries,
+because a forgery copying a genuine record's seq and hash would otherwise be
+accepted as a repeat and silently discarded.
+
+**CSV defuses spreadsheet formulas; JSONL stays byte-faithful.** A justification
+of `=HYPERLINK(…)` — free text an operator types, and the field most likely to be
+hostile in an audit log — executes when an auditor opens the export, because a
+spreadsheet strips the CSV quoting and then evaluates any cell starting with
+`=`, `+`, `-` or `@` (CWE-1236). Quoting does not help. Such cells now carry a
+leading apostrophe. This deliberately alters the exported bytes, and the trade is
+the point: CSV exists here because a spreadsheet opens it, so that is its whole
+purpose and its whole attack surface, while `--format jsonl` stays identical to
+what a sink delivered and is what a verifier reads. Fidelity is kept where
+fidelity matters, safety added where safety matters.
+
+**Comparing a mirror to its chain holds neither in memory.** Both sides are
+walked in sequence order. The first version built a map of every sequence to
+every hash plus a second set of every sequence seen, so comparing cost memory
+proportional to the whole chain — in the one tool that has to work against
+evidence of any size, on a machine that need not be the one that produced it.
+
+**The verification judgement lives in `audit`, not in the CLI.** *Did this
+verify* is the answer, not a rendering of one, and
+[the tracker](../tasks/README.md) requires the CLI and the HTTP API to reach it
+by the same route. `Assessment` carries it; the CLI only prints it.
+
 **Rotation of the file sink.** Rename-and-create is safe against this implementation and
 `copytruncate` is not, so the choice cannot be left to whoever writes the packaging: either
 a `logrotate` fragment in the correct mode ships with the package, or nodary rotates on
 size itself. Not in this slice — R1b has no packaging work — but written down so it is
 decided deliberately rather than by a distribution default.
 
-**Retention will have to teach `verify` about a pruned prefix.**
+**Retention still has to teach `verify` about a pruned prefix.** The mechanism
+now exists — an anchor, and the fragment outcome — and the prune writes a record
+naming the range it removed, so the anchor can come from the chain itself.
 [08 §3](../specs/08-data-model.md#3-retention) prunes `audit` past
 `audit_retention_days`, which deletes the genesis record and leaves a chain whose first
 record has a `prev_hash` naming something no longer present. As specified here that reads as
