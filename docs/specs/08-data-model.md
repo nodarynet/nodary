@@ -57,7 +57,7 @@ usage_daily(day, user_id, model_id, requests, prompt_tokens, completion_tokens,
             PRIMARY KEY (day, user_id, model_id))
 
 policy(name PK, body_toml, active, applied_by, applied_at)
-join_token(id PK, hash, uses_left, expires_at, created_by, created_at)
+join_token(id PK, hash, prefix, uses_left, expires_at, created_by, created_at)
 ```
 
 The `audit` row is the record of [07 §3](07-identity-audit.md#3-the-audit-chain)

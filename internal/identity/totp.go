@@ -90,6 +90,30 @@ func URI(issuer, account string, seed []byte) string {
 	return "otpauth://totp/" + label + "?" + q.Encode()
 }
 
+// DecodeSeed reads a seed back from the form EncodeSeed produced.
+func DecodeSeed(s string) ([]byte, error) {
+	seed, err := seedEncoding.DecodeString(strings.ToUpper(strings.TrimSpace(s)))
+	if err != nil {
+		return nil, fmt.Errorf("%w: the seed is not base32", ErrBadCode)
+	}
+	if len(seed) != totpSeedBytes {
+		return nil, fmt.Errorf("%w: a seed is %d bytes, this is %d",
+			ErrBadCode, totpSeedBytes, len(seed))
+	}
+	return seed, nil
+}
+
+// Code is the code an authenticator holding this seed shows at a given moment.
+//
+// Exported because enrollment is a conversation — the seed is displayed, and
+// only a code computed from it confirms that it arrived — so anything that has
+// to exercise that flow end to end must be able to stand in for the
+// authenticator. Nothing in nodary calls it to authorise anything: verification
+// goes through VerifyTOTP, which spends the step.
+func Code(seed []byte, at time.Time) string {
+	return codeAt(seed, stepAt(at), totpDigits)
+}
+
 // stepAt is the counter a time falls in.
 func stepAt(t time.Time) int64 { return t.UTC().Unix() / totpStepSeconds }
 

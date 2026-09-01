@@ -199,3 +199,40 @@ func TestVerifyRejectsAnotherSeedsCode(t *testing.T) {
 		t.Fatal("a code from a different seed verified")
 	}
 }
+
+func TestSeedRoundTripsThroughItsEncoding(t *testing.T) {
+	seed, err := NewSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := DecodeSeed(EncodeSeed(seed))
+	if err != nil {
+		t.Fatalf("DecodeSeed: %v", err)
+	}
+	if string(back) != string(seed) {
+		t.Fatal("the seed did not survive its encoding")
+	}
+	// Whitespace and case are what an operator pastes.
+	if _, err := DecodeSeed("  " + strings.ToLower(EncodeSeed(seed)) + "\n"); err != nil {
+		t.Errorf("a pasted seed was refused: %v", err)
+	}
+	for _, bad := range []string{"", "not base32!", EncodeSeed(seed)[:16]} {
+		if _, err := DecodeSeed(bad); err == nil {
+			t.Errorf("DecodeSeed(%q) was accepted", bad)
+		}
+	}
+}
+
+// TestCodeAgreesWithVerification keeps the exported generator and the
+// verification path from drifting: one standing in for an authenticator is only
+// useful if the other accepts it.
+func TestCodeAgreesWithVerification(t *testing.T) {
+	seed, err := NewSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1767225600, 0)
+	if _, ok := verifyCode(seed, Code(seed, at), at, -1); !ok {
+		t.Fatal("Code produced something verifyCode refuses")
+	}
+}

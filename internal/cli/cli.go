@@ -25,9 +25,10 @@ const (
 	ExitUnreachable  = 6
 )
 
-// env carries the streams a command writes to, so every command is testable
-// without touching os.Stdout.
+// env carries the streams a command reads and writes, so every command is
+// testable without touching the process's own.
 type env struct {
+	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 }
@@ -42,8 +43,6 @@ var planned = map[string]string{
 	"backend":   "backend descriptor registration",
 	"model":     "catalog, staging and deployment",
 	"route":     "public model routing",
-	"user":      "user accounts",
-	"token":     "token issue and revocation",
 	"limits":    "rate and budget limits",
 	"usage":     "usage reporting",
 	"policy":    "policy profiles",
@@ -58,8 +57,11 @@ var planned = map[string]string{
 }
 
 // Main runs one invocation and returns its exit code.
-func Main(args []string, stdout, stderr io.Writer) int {
-	e := env{stdout: stdout, stderr: stderr}
+//
+// stdin is a parameter because one verb reads from it: TOTP enrollment asks for
+// a code back before it writes anything (docs/specs/07-identity-audit.md §1).
+func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	e := env{stdin: stdin, stdout: stdout, stderr: stderr}
 
 	if len(args) == 0 {
 		usage(stdout)
@@ -76,12 +78,16 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdComponents(e, args[1:])
 	case "audit":
 		return cmdAudit(e, args[1:])
+	case "user":
+		return cmdUser(e, args[1:])
+	case "token":
+		return cmdToken(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components` and `audit`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user` and `token`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -105,6 +111,10 @@ Available in this release:
                          list    Show records, newest first
                          verify  Walk the chain and report the first break
                          export  Write the chain as jsonl or csv
+  user                 Accounts, roles and TOTP enrollment
+                         add | list | show | suspend | delete | totp
+  token                Personal tokens, service keys and join tokens
+                         create | list | revoke | join
 
 Specified, not yet implemented:
 `, versionString())
@@ -161,7 +171,7 @@ func parseFlags(e env, fs *flag.FlagSet, args []string) int {
 	// error says which stream the text belongs on.
 	var out strings.Builder
 	fs.SetOutput(&out)
-	err := fs.Parse(args)
+	err := fs.Parse(permute(fs, args))
 	fs.SetOutput(e.stderr)
 
 	switch {
@@ -173,6 +183,58 @@ func parseFlags(e env, fs *flag.FlagSet, args []string) int {
 	}
 	io.WriteString(e.stderr, out.String())
 	return ExitUsage
+}
+
+// permute moves positional arguments after the flags, so `nodary user add
+// alice --role admin` works.
+//
+// Go's flag package stops parsing at the first argument that is not a flag,
+// which is a defensible rule and not the one anybody types. Without this,
+// --role above is not a flag at all: it becomes a second positional, the role
+// silently stays at its default, and the only symptom is an error about
+// argument counts. Getting that wrong on `user add --role admin` would create
+// an account with the wrong authority and report success.
+//
+// Whether a flag consumes the next argument is asked of the FlagSet rather than
+// guessed: a bool flag does not, everything else does unless it was written as
+// --flag=value. An unknown flag is left in place for Parse to complain about,
+// with its message rather than an invented one.
+func permute(fs *flag.FlagSet, args []string) []string {
+	flags := make([]string, 0, len(args))
+	rest := make([]string, 0, len(args))
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// "--" ends the flags. Everything after it is positional, verbatim,
+		// which is what lets a value that looks like a flag be passed.
+		if a == "--" {
+			rest = append(rest, args[i+1:]...)
+			break
+		}
+		if len(a) < 2 || a[0] != '-' {
+			rest = append(rest, a)
+			continue
+		}
+		flags = append(flags, a)
+
+		name := strings.TrimLeft(a, "-")
+		if _, _, found := strings.Cut(name, "="); found {
+			// --flag=value carries its own value.
+			continue
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			continue
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			continue
+		}
+		if i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, rest...)
 }
 
 func versionString() string {

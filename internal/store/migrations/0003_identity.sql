@@ -90,15 +90,21 @@ CREATE INDEX token_user ON token (user_id);
 
 -- Join tokens enroll a node and nothing else (docs/specs/02-enrollment.md 4).
 -- They are minted here; redeeming one is node enrollment, in R2 and R4.
+--
+-- prefix is here for the same reason it is on the token row: it is what lets a
+-- credential pasted into a chat window or found in a log be matched to a row
+-- without holding anything that authenticates as one.
 CREATE TABLE join_token (
     id         TEXT    PRIMARY KEY,
     hash       TEXT    NOT NULL UNIQUE,
+    prefix     TEXT    NOT NULL,
     uses_left  INTEGER NOT NULL,
     expires_at TEXT    NOT NULL,
     created_by TEXT    NOT NULL,
     created_at TEXT    NOT NULL,
 
     CHECK (id GLOB 'jt_*'),
+    CHECK (length(prefix) > 0),
     CHECK (uses_left >= 0),
     CHECK (length(hash) = 64)
 ) STRICT;

@@ -248,7 +248,15 @@ func Authenticate(ctx context.Context, q Querier, now time.Time, presented strin
 
 // Touch records that a token was used. It runs inside the act it authorised,
 // so a credential's last use and the change it made commit together.
+//
+// An empty id is an error rather than a no-op. A caller reaching here without a
+// credential has confused a local invocation with an authenticated one, and an
+// UPDATE matching no rows would let that pass silently — leaving last_used_at
+// permanently blank for every credential and nothing to say why.
 func Touch(ctx context.Context, m audit.Mutation, now time.Time, id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: recording a use with no credential", ErrNoTokens)
+	}
 	if _, err := m.Tx().ExecContext(ctx,
 		`UPDATE token SET last_used_at = ? WHERE id = ?`, formatTime(truncateTime(now)), id,
 	); err != nil {
@@ -463,9 +471,9 @@ func MintJoinToken(ctx context.Context, m audit.Mutation, by Role, now time.Time
 		CreatedAt: truncateTime(now),
 	}
 	if _, err := m.Tx().ExecContext(ctx,
-		`INSERT INTO join_token (id, hash, uses_left, expires_at, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		j.ID, hashToken(plaintext), j.UsesLeft, formatTime(j.ExpiresAt), j.CreatedBy,
+		`INSERT INTO join_token (id, hash, prefix, uses_left, expires_at, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		j.ID, hashToken(plaintext), j.Prefix, j.UsesLeft, formatTime(j.ExpiresAt), j.CreatedBy,
 		formatTime(j.CreatedAt),
 	); err != nil {
 		return JoinToken{}, "", fmt.Errorf("issuing a join token: %w", err)
@@ -481,7 +489,7 @@ func MintJoinToken(ctx context.Context, m audit.Mutation, by Role, now time.Time
 // ListJoinTokens returns the join tokens, newest first.
 func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, uses_left, expires_at, created_by, created_at
+		`SELECT id, prefix, uses_left, expires_at, created_by, created_at
 		 FROM join_token ORDER BY created_at DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing join tokens: %w", err)
@@ -494,7 +502,8 @@ func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 			j                JoinToken
 			expires, created string
 		)
-		if err := rows.Scan(&j.ID, &j.UsesLeft, &expires, &j.CreatedBy, &created); err != nil {
+		if err := rows.Scan(&j.ID, &j.Prefix, &j.UsesLeft, &expires, &j.CreatedBy,
+			&created); err != nil {
 			return nil, fmt.Errorf("reading a join token row: %w", err)
 		}
 		for _, f := range []struct {

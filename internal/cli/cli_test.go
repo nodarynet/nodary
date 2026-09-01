@@ -3,14 +3,20 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"strings"
 	"testing"
 )
 
 func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
+	return runWithStdin(t, "", args...)
+}
+
+func runWithStdin(t *testing.T, stdin string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
 	var out, errb bytes.Buffer
-	code = Main(args, &out, &errb)
+	code = Main(args, strings.NewReader(stdin), &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -185,5 +191,62 @@ func TestComponentsSubcommandErrors(t *testing.T) {
 	}
 	if code, _, _ := run(t, "components", "nonesuch"); code != ExitUsage {
 		t.Errorf("unknown subcommand exit = %d, want %d", code, ExitUsage)
+	}
+}
+
+// TestPermuteMovesPositionalsAfterFlags covers the cases no verb combines
+// today and every verb would meet the moment one does: a boolean flag, which
+// takes no value, and the -- terminator.
+func TestPermuteMovesPositionalsAfterFlags(t *testing.T) {
+	newSet := func() *flag.FlagSet {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.String("role", "", "")
+		fs.Bool("all", false, "")
+		return fs
+	}
+	for _, tc := range []struct {
+		in   []string
+		want []string
+	}{
+		{[]string{"alice", "--role", "admin"}, []string{"--role", "admin", "alice"}},
+		{[]string{"--role", "admin", "alice"}, []string{"--role", "admin", "alice"}},
+		{[]string{"--role=admin", "alice"}, []string{"--role=admin", "alice"}},
+		// A bool flag takes no value, so the name after it stays a positional.
+		{[]string{"--all", "alice"}, []string{"--all", "alice"}},
+		{[]string{"alice", "--all"}, []string{"--all", "alice"}},
+		{[]string{"--all", "alice", "--role", "admin"},
+			[]string{"--all", "--role", "admin", "alice"}},
+		// After --, everything is positional, which is what lets a name that
+		// looks like a flag be passed.
+		{[]string{"--role", "admin", "--", "--all"}, []string{"--role", "admin", "--all"}},
+		{[]string{"--", "--role", "admin"}, []string{"--role", "admin"}},
+		// An unknown flag is left where it is, for Parse to report.
+		{[]string{"alice", "--nope"}, []string{"--nope", "alice"}},
+		{[]string{}, []string{}},
+	} {
+		got := permute(newSet(), tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("permute(%v) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("permute(%v) = %v, want %v", tc.in, got, tc.want)
+				break
+			}
+		}
+	}
+
+	// And the value of a non-bool flag is never mistaken for a positional,
+	// even when it looks like a name.
+	fs := newSet()
+	if err := fs.Parse(permute(fs, []string{"alice", "--role", "admin"})); err != nil {
+		t.Fatal(err)
+	}
+	if got := fs.Lookup("role").Value.String(); got != "admin" {
+		t.Errorf("role = %q, want admin", got)
+	}
+	if got := fs.Args(); len(got) != 1 || got[0] != "alice" {
+		t.Errorf("positionals = %v, want [alice]", got)
 	}
 }

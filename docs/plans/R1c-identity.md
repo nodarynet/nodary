@@ -254,18 +254,74 @@ credential into a log.
 
 One commit per step, citing its task ID.
 
-- [ ] **1.** Spec corrections to [08 §1](../specs/08-data-model.md#1-schema); narrow R1-18; add R2-42
-- [ ] **2.** `0003_identity.sql` · **R1-18**
-- [ ] **3.** `identity` roles and permissions · **R1-20**
-- [ ] **4.** `identity` users through the audit seam · **R1-18**
-- [ ] **5.** TOTP: RFC 6238, then enrollment against the sealed seed · **R1-19**
-- [ ] **6.** `secret.Bind` — the key id and the refusal · **R1-36**
-- [ ] **7.** Tokens: mint, authenticate, revoke · **R1-21**
-- [ ] **8.** `~/.nodary/credentials` and the principal · **R1-22**
-- [ ] **9.** `nodary user` · **R1-23**
-- [ ] **10.** `nodary token` · **R1-24**
+- [x] **1.** Spec corrections to [08 §1](../specs/08-data-model.md#1-schema); narrow R1-18; add R2-42
+- [x] **2.** `0003_identity.sql` · **R1-18**
+- [x] **3.** `identity` roles and permissions · **R1-20**
+- [x] **4.** `identity` users through the audit seam · **R1-18**
+- [x] **5.** TOTP: RFC 6238, then enrollment against the sealed seed · **R1-19**
+- [x] **6.** The key binding and its refusal · **R1-36** — landed with step 5, because
+      the first seal is where a database starts depending on a key
+- [x] **7.** Tokens: mint, authenticate, revoke · **R1-21**
+- [x] **8.** `~/.nodary/credentials` and the principal · **R1-22**
+- [x] **9.** `nodary user` · **R1-23**
+- [x] **10.** `nodary token` · **R1-24**
+
+### Arguments are permuted so a flag after a name still works
+
+Go's `flag` package stops parsing at the first argument that is not a flag, so
+`nodary user add alice --role admin` leaves the role at its default and reports
+an argument-count error. That is a defensible rule and not the one anybody
+types, and getting it wrong here creates an account with the wrong authority and
+says it succeeded. Positional arguments are moved after the flags before
+parsing, asking the `FlagSet` whether each flag consumes a value rather than
+guessing, and `--` still ends the flags.
+
+*Rejected:* living with the convention and improving the error message. The
+failure it produces is silent in the one case that matters.
+
+### A join token carries a display prefix too
+
+[08](../specs/08-data-model.md#1-schema) gave `join_token` no `prefix` column.
+It has one now, for the same reason the `token` row does: it is what lets a
+credential found in a log or pasted into a chat window be matched to a row
+without holding anything that authenticates as one. The spec is corrected.
+
+### A key mismatch refuses a mutation and not a read
+
+The binding is checked when a session opens, and a session is what a mutating
+verb opens. A read-only command is how an operator diagnoses a key problem, so
+blocking one would remove the tool at the moment it is needed. Refusing the
+mutation is the half that carries the weight: it stops a new secret being sealed
+under a key that cannot read the existing ones.
+
+### `Code` and `DecodeSeed` are exported for the enrollment conversation
+
+Enrollment displays a seed and accepts only a code computed from it, so nothing
+can confirm an enrollment without standing in for the authenticator — including
+a test of the command. The two functions are the public face of a public
+standard; neither authorises anything, because verification goes through
+`VerifyTOTP`, which spends the step.
 
 ## Open items
+
+**The key binding lives in `identity`, and moves when a second subsystem seals
+something.** It needs both the keyring and audit's installation row, and neither
+`secret` nor `audit` can import the other without putting the crypto downstream
+of the log or the log downstream of the crypto. This package imports both, and
+in R1 the only sealed value is a TOTP seed. [R2-40](../tasks/R2-control-plane.md)'s
+CA key is the first thing that would make a package of its own worth creating.
+
+**Nothing reports a key mismatch until somebody mutates.** A read-only command
+is deliberately not blocked by one, so an operator whose appliance is only read
+from would not learn about a missing key until the next change.
+`nodary doctor` ([R2](../tasks/R2-control-plane.md)) is where that belongs.
+
+**`last_used_at` records mutating use only.** It is stamped by `Touch` inside
+the act a credential authorised, because nothing outside `internal/audit` may
+write to the database — the seam working as intended. A token used only for
+reads therefore looks unused, which understates it for stale-credential cleanup.
+R1 has no read path worth auditing and no server; when R2 puts an API in front,
+where reads are the bulk of the traffic, the stamp belongs on the request path.
 
 **Can a `user` mint their own personal token?**
 [07 §1](../specs/07-identity-audit.md#1-users-and-roles) puts *user and token management*
