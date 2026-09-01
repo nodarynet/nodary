@@ -74,7 +74,7 @@ func TestExportIsAscendingAndVerifiesAsAChain(t *testing.T) {
 	}
 	fh.Close()
 
-	res, err := VerifyFile(path)
+	res, err := VerifyFile(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

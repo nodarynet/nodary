@@ -33,6 +33,9 @@ const (
 	KindOutOfOrder Kind = "records out of order"
 	// KindNotGenesis: the chain does not start at seq 1 with 64 zeros.
 	KindNotGenesis Kind = "chain does not start at genesis"
+	// KindNotAnchored: a fragment does not join the record the caller said it
+	// should follow.
+	KindNotAnchored Kind = "fragment does not join its anchor"
 	// KindMixedInstalls: the source holds records from more than one
 	// installation, so it is an aggregate rather than one chain.
 	KindMixedInstalls Kind = "records from more than one installation"
@@ -68,50 +71,213 @@ type Result struct {
 	Break *Problem
 	// Warnings are things worth saying that are not breaks.
 	Warnings []Problem
+	// Fragment reports that the source does not begin at genesis: its records
+	// verify among themselves, and nothing in them proves the records before
+	// them ever existed.
+	//
+	// This is an ordinary state, not a defect. `audit export --from-seq` and a
+	// rotated sink file are both fragments by design, and a verifier that
+	// called its own documented recovery artefacts tampered would be worse than
+	// useless.
+	Fragment bool
+	// Anchored reports that a fragment was checked against a caller-supplied
+	// predecessor and joins it. A fragment that is anchored proves as much as a
+	// whole chain from the anchor onwards.
+	Anchored bool
+	// FirstPrevHash is what the first record claims to follow. For a fragment
+	// it is the only handle on where the fragment belongs, which is what lets a
+	// caller anchor it after the fact instead of reading the source twice.
+	FirstPrevHash string
 }
 
 // OK reports whether the chain verified.
 func (r Result) OK() bool { return r.Break == nil }
 
 // verify walks records in ascending sequence and stops at the first break.
-func verify(records iter.Seq2[Record, error]) Result {
+// Anchor names the record immediately before a source's first one.
+//
+// It is what turns "these records are consistent with each other" into "these
+// records continue the chain I already know", which is the whole difference
+// between a fragment and evidence.
+type Anchor struct {
+	Seq  int64
+	Hash string
+}
+
+// reorderWindow bounds how far out of sequence a record may arrive before
+// verification calls it missing.
+//
+// Delivery happens after the commit and several processes append to one path,
+// so a concurrently written file interleaves. Measured: twelve processes
+// writing 480 records produced an inversion in one run of six, and reading the
+// file in file order then reported "records missing — seq 165 is followed by
+// seq 167" while Compare proved every record present and byte-exact. That is
+// the worst false positive a tamper detector can have, so verification
+// reconstructs the chain by sequence and holds early arrivals until their
+// predecessor turns up.
+//
+// The bound is what stops that from meaning "read the whole file into memory".
+// Reordering is limited in practice by how many writers can be in flight at
+// once; a thousand records is far past that.
+const reorderWindow = 1024
+
+// verifyOpts says what the source is expected to be.
+type verifyOpts struct {
+	// requireGenesis rejects a source that does not begin at seq 1. A database
+	// holds the whole chain, so a partial one there means records were deleted.
+	requireGenesis bool
+	// anchor is the record the first one must follow. Nil means a fragment is
+	// accepted and reported as one.
+	anchor *Anchor
+}
+
+func verify(records iter.Seq2[Record, error], opts verifyOpts) Result {
 	var (
 		res     Result
 		prev    Record
 		install string
 		started bool
+		next    int64
+		// sourceErr is held rather than raised. Read-ahead means an unreadable
+		// line is met before the records in front of it have been checked, and
+		// a truncated final append is the ordinary way a copy pulled from a
+		// SIEM is damaged — so stop reading, verify everything that did arrive,
+		// and report the damage at the sequence the source failed to supply.
+		sourceErr error
 	)
+	pull, stop := iter.Pull2(records)
+	defer stop()
 
-	for r, err := range records {
-		if err != nil {
-			res.Break = &Problem{Seq: prev.Seq + 1, Kind: KindUnreadable, Detail: err.Error()}
+	pending := make(map[int64]Record, reorderWindow)
+
+	// fill reads until pending holds n records or the source is exhausted. It
+	// returns false once a problem has been recorded.
+	fill := func(n int) bool {
+		for len(pending) < n {
+			r, err, ok := pull()
+			if !ok {
+				return true
+			}
+			if err != nil {
+				sourceErr = err
+				return true
+			}
+			// Delivery is at-least-once, so the same record arriving twice is
+			// ordinary. Two *different* records claiming one sequence is not.
+			if held, dup := pending[r.Seq]; dup {
+				// Two appliances' files concatenated collide at seq 1, and
+				// naming that is far more use than "two records claim seq 1".
+				if held.Install != r.Install {
+					res.Break = &Problem{Seq: r.Seq, Kind: KindMixedInstalls, Detail: fmt.Sprintf(
+						"%s and %s both claim seq %d", held.Install, r.Install, r.Seq)}
+					return false
+				}
+				same, problem := sameRecord(held, r)
+				if problem != nil {
+					res.Break = problem
+					return false
+				}
+				if same {
+					continue
+				}
+				res.Break = &Problem{Seq: r.Seq, Kind: KindOutOfOrder, Detail: fmt.Sprintf(
+					"two records claim seq %d: %s and %s", r.Seq, held.Hash, r.Hash)}
+				return false
+			}
+			if started && r.Seq < next {
+				if r.Seq == prev.Seq {
+					same, problem := sameRecord(prev, r)
+					if problem != nil {
+						res.Break = problem
+						return false
+					}
+					if same {
+						continue // the same record again, just late
+					}
+				}
+				res.Break = &Problem{Seq: r.Seq, Kind: KindOutOfOrder, Detail: fmt.Sprintf(
+					"seq %d arrived after seq %d, further back than %d records",
+					r.Seq, prev.Seq, reorderWindow)}
+				return false
+			}
+			pending[r.Seq] = r
+		}
+		return true
+	}
+
+	if !fill(reorderWindow) {
+		return res
+	}
+	if len(pending) == 0 {
+		if sourceErr != nil {
+			res.Break = &Problem{Seq: 1, Kind: KindUnreadable, Detail: sourceErr.Error()}
+		}
+		return res // an empty source; the caller decides what that means
+	}
+
+	// The lowest sequence in the window is the start: a file written by
+	// concurrent processes need not begin with its own first record.
+	start := int64(0)
+	for seq := range pending {
+		if start == 0 || seq < start {
+			start = seq
+		}
+	}
+	first := pending[start]
+
+	switch {
+	case opts.anchor != nil:
+		if first.Seq != opts.anchor.Seq+1 || first.PrevHash != opts.anchor.Hash {
+			res.Break = &Problem{Seq: first.Seq, Kind: KindNotAnchored, Detail: fmt.Sprintf(
+				"it starts at seq %d after %s, and the anchor is seq %d with hash %s",
+				first.Seq, first.PrevHash, opts.anchor.Seq, opts.anchor.Hash)}
 			return res
 		}
+		res.Anchored = true
+		res.Fragment = first.Seq != 1
+	case first.Seq == 1 || opts.requireGenesis:
+		// A source claiming to start at the beginning must actually do so, and
+		// a forged genesis is a break rather than a fragment.
+		if first.Seq != 1 || first.PrevHash != GenesisPrevHash {
+			res.Break = &Problem{Seq: first.Seq, Kind: KindNotGenesis, Detail: fmt.Sprintf(
+				"the first record is seq %d with prev_hash %s", first.Seq, first.PrevHash)}
+			return res
+		}
+	default:
+		res.Fragment = true
+	}
 
-		switch {
-		case !started:
-			res.FirstSeq, install, started = r.Seq, r.Install, true
-			if r.Seq != 1 || r.PrevHash != GenesisPrevHash {
-				res.Break = &Problem{Seq: r.Seq, Kind: KindNotGenesis, Detail: fmt.Sprintf(
-					"the first record is seq %d with prev_hash %s", r.Seq, r.PrevHash)}
+	next = start
+	res.FirstSeq = start
+	res.FirstPrevHash = first.PrevHash
+
+	for {
+		r, ok := pending[next]
+		if !ok {
+			switch {
+			case sourceErr != nil:
+				res.Break = &Problem{Seq: next, Kind: KindUnreadable, Detail: sourceErr.Error()}
+			case len(pending) > 0:
+				res.Break = &Problem{Seq: next, Kind: KindGap, Detail: fmt.Sprintf(
+					"seq %d is followed by seq %d", prev.Seq, lowest(pending))}
+			}
+			return res // every record accounted for, or the first thing missing
+		}
+		delete(pending, next)
+
+		if started {
+			switch {
+			case r.Install != install:
+				res.Break = &Problem{Seq: r.Seq, Kind: KindMixedInstalls, Detail: fmt.Sprintf(
+					"%s appears after %s", r.Install, install)}
+				return res
+			case r.PrevHash != prev.Hash:
+				res.Break = &Problem{Seq: r.Seq, Kind: KindBroken, Detail: fmt.Sprintf(
+					"it chains to %s but seq %d hashes to %s", r.PrevHash, prev.Seq, prev.Hash)}
 				return res
 			}
-		case r.Install != install:
-			res.Break = &Problem{Seq: r.Seq, Kind: KindMixedInstalls, Detail: fmt.Sprintf(
-				"%s appears after %s", r.Install, install)}
-			return res
-		case r.Seq <= prev.Seq:
-			res.Break = &Problem{Seq: r.Seq, Kind: KindOutOfOrder, Detail: fmt.Sprintf(
-				"seq %d is followed by seq %d", prev.Seq, r.Seq)}
-			return res
-		case r.Seq != prev.Seq+1:
-			res.Break = &Problem{Seq: prev.Seq + 1, Kind: KindGap, Detail: fmt.Sprintf(
-				"seq %d is followed by seq %d", prev.Seq, r.Seq)}
-			return res
-		case r.PrevHash != prev.Hash:
-			res.Break = &Problem{Seq: r.Seq, Kind: KindBroken, Detail: fmt.Sprintf(
-				"it chains to %s but seq %d hashes to %s", r.PrevHash, prev.Seq, prev.Hash)}
-			return res
+		} else {
+			install, started = r.Install, true
 		}
 
 		computed, err := r.Compute()
@@ -138,8 +304,45 @@ func verify(records iter.Seq2[Record, error]) Result {
 		res.Records++
 		res.LastSeq = r.Seq
 		prev = r
+		next++
+
+		if !fill(reorderWindow) {
+			return res
+		}
 	}
-	return res
+}
+
+// sameRecord reports whether b is a redelivery of a rather than a second
+// record claiming a's sequence.
+//
+// Comparing the two carried hashes is not enough, and that gap was real: a line
+// that keeps a genuine record's seq and hash while changing a field is accepted
+// as a repeat and silently dropped, so verification passes over a forgery
+// without naming it. Delivery is at-least-once, and a redelivery is the same
+// bytes — so it hashes to the hash it carries, exactly as the original did. A
+// line that does not is a forgery whatever it claims.
+func sameRecord(a, b Record) (bool, *Problem) {
+	computed, err := b.Compute()
+	switch {
+	case err != nil:
+		return false, &Problem{Seq: b.Seq, Kind: KindUnreadable, Detail: err.Error()}
+	case computed != b.Hash:
+		return false, &Problem{Seq: b.Seq, Kind: KindAltered, Detail: fmt.Sprintf(
+			"a second line claims seq %d, carries %s and hashes to %s",
+			b.Seq, b.Hash, computed)}
+	}
+	return a.Hash == b.Hash, nil
+}
+
+// lowest is the smallest sequence still held, for naming what a gap runs to.
+func lowest(pending map[int64]Record) int64 {
+	var out int64
+	for seq := range pending {
+		if out == 0 || seq < out {
+			out = seq
+		}
+	}
+	return out
 }
 
 // VerifyDB walks the chain in the database.
@@ -159,7 +362,7 @@ func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
 		if err := rows.Err(); err != nil {
 			yield(Record{}, err)
 		}
-	})
+	}, verifyOpts{requireGenesis: true})
 	if res.Break == nil && res.Records == 0 {
 		if err := emptyChainIsGenuine(ctx, db, &res); err != nil {
 			return Result{}, err
@@ -198,13 +401,63 @@ func emptyChainIsGenuine(ctx context.Context, db *store.DB, res *Result) error {
 // SIEM or cold storage months later on a machine that has never seen the
 // database it came from. That is what makes the off-box copy evidence rather
 // than a backup.
-func VerifyFile(path string) (Result, error) {
+// VerifyMirror verifies a JSONL file and, when it turns out to be a fragment,
+// anchors it to the database that should hold its predecessor.
+//
+// This is the ordinary case: a rotated sink file or an `export --from-seq`
+// catch-up file is a fragment, and the appliance it came from can say whether
+// it joins. An auditor with no database uses VerifyFile with an anchor they
+// supply, or accepts the weaker claim a bare fragment makes.
+func VerifyMirror(ctx context.Context, db *store.DB, path string) (Result, error) {
+	res, err := VerifyFile(path, nil)
+	if err != nil || db == nil || res.Break != nil || !res.Fragment {
+		return res, err
+	}
+	hash, ok, err := hashAt(ctx, db, res.FirstSeq-1)
+	switch {
+	case err != nil:
+		return res, err
+	case !ok:
+		// The database does not hold the predecessor either, so there is
+		// nothing here to anchor against. The fragment stands on its own.
+		return res, nil
+	case hash != res.FirstPrevHash:
+		res.Break = &Problem{Seq: res.FirstSeq, Kind: KindNotAnchored, Detail: fmt.Sprintf(
+			"it follows %s, and seq %d in the database hashes to %s",
+			res.FirstPrevHash, res.FirstSeq-1, hash)}
+		return res, nil
+	}
+	res.Anchored = true
+	return res, nil
+}
+
+// hashAt reads one record's hash.
+func hashAt(ctx context.Context, db *store.DB, seq int64) (string, bool, error) {
+	if seq < 1 {
+		return "", false, nil
+	}
+	var hash string
+	err := db.Read().QueryRowContext(ctx, `SELECT hash FROM audit WHERE seq = ?`, seq).Scan(&hash)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("reading seq %d: %w", seq, err)
+	}
+	return hash, true, nil
+}
+
+// A file may be a fragment. `audit export --from-seq` and a rotated sink file
+// both are, by design, so a fragment is reported as one rather than refused.
+// Pass an anchor to check that it joins the chain you already know; without
+// one, the records are proved consistent with each other and nothing more.
+func VerifyFile(path string, anchor *Anchor) (Result, error) {
 	records, close, err := fileRecords(path)
 	if err != nil {
 		return Result{}, err
 	}
 	defer close()
-	return verify(records), nil
+	return verify(records, verifyOpts{anchor: anchor}), nil
 }
 
 // maxLineBytes bounds one mirror line. A record with a long detail can exceed

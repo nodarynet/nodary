@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -60,7 +61,7 @@ func TestVerifyAcceptsAWholeChain(t *testing.T) {
 	}
 
 	// The same records, read from the file alone.
-	fileRes, err := VerifyFile(path)
+	fileRes, err := VerifyFile(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +232,7 @@ func TestMirrorVerifiesWithoutItsDatabase(t *testing.T) {
 		os.Remove(dbPath + suffix)
 	}
 
-	res, err := VerifyFile(path)
+	res, err := VerifyFile(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ func TestMirrorTamperingIsNamed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := VerifyFile(path)
+	res, err := VerifyFile(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +284,7 @@ func TestMirrorFromTwoInstallationsIsNamedAsSuch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := VerifyFile(merged)
+	res, err := VerifyFile(merged, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestMirrorRecordsAreHeldToTheSameShapeAsRows(t *testing.T) {
 			if err := os.WriteFile(forged, []byte(line), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			res, err := VerifyFile(forged)
+			res, err := VerifyFile(forged, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -518,5 +519,267 @@ func TestCompareNamesADifferentInstallationRatherThanDivergence(t *testing.T) {
 	}
 	if cmp.Diverged != 0 || cmp.Ahead != 0 || cmp.Behind != 0 {
 		t.Errorf("counts were reported for chains that are not a pair: %+v", cmp)
+	}
+}
+
+// writeLines is the mirror rewritten in a given order.
+func writeLines(t *testing.T, lines []string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "reordered.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func mirrorLines(t *testing.T, path string) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+}
+
+// Delivery happens after the commit and several processes append to one path,
+// so a concurrently written mirror interleaves. Measured before this was
+// handled: twelve processes writing 480 records produced an inversion in one
+// run of six, and verification reported "records missing" on a file that had
+// lost nothing — the worst false positive a tamper detector can have.
+func TestAReorderedMirrorStillVerifies(t *testing.T) {
+	_, mirror := chainOf(t, 12)
+	lines := mirrorLines(t, mirror)
+
+	for name, order := range map[string][]int{
+		"one inversion":  {0, 1, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11},
+		"reversed":       {11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
+		"late genesis":   {5, 3, 8, 0, 1, 2, 4, 6, 7, 9, 10, 11},
+		"last one first": {11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+	} {
+		t.Run(name, func(t *testing.T) {
+			shuffled := make([]string, 0, len(order))
+			for _, i := range order {
+				shuffled = append(shuffled, lines[i])
+			}
+			res, err := VerifyFile(writeLines(t, shuffled), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !res.OK() {
+				t.Fatalf("a reordered but complete mirror did not verify: %v", res.Break)
+			}
+			if res.Records != 12 || res.FirstSeq != 1 || res.LastSeq != 12 {
+				t.Errorf("result = %+v", res)
+			}
+			if res.Fragment {
+				t.Error("a complete chain was reported as a fragment")
+			}
+		})
+	}
+}
+
+// Tolerating reordering must not tolerate deletion: the record simply never
+// arrives, and the gap is still named.
+func TestAReorderedMirrorStillDetectsADeletion(t *testing.T) {
+	_, mirror := chainOf(t, 12)
+	lines := mirrorLines(t, mirror)
+
+	shuffled := []string{lines[3], lines[0], lines[2], lines[5], lines[4]}
+	for i := 6; i < len(lines); i++ {
+		shuffled = append(shuffled, lines[i])
+	}
+	// lines[1] — seq 2 — is never written.
+	res, err := VerifyFile(writeLines(t, shuffled), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() {
+		t.Fatal("a deletion hid behind the reordering")
+	}
+	if res.Break.Kind != KindGap || res.Break.Seq != 2 {
+		t.Errorf("break = %v, want a gap at seq 2", res.Break)
+	}
+}
+
+// Delivery is at-least-once, so the same record arriving twice is ordinary.
+func TestADuplicatedRecordIsTolerated(t *testing.T) {
+	_, mirror := chainOf(t, 6)
+	lines := mirrorLines(t, mirror)
+	doubled := append([]string{lines[0], lines[0], lines[1]}, lines[1:]...)
+
+	res, err := VerifyFile(writeLines(t, doubled), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() {
+		t.Fatalf("a repeated record was treated as damage: %v", res.Break)
+	}
+	if res.Records != 6 {
+		t.Errorf("records = %d, want each counted once", res.Records)
+	}
+}
+
+// Two *different* records claiming one sequence is a fork, not a duplicate.
+func TestTwoRecordsClaimingOneSequenceIsABreak(t *testing.T) {
+	_, mirror := chainOf(t, 4)
+	lines := mirrorLines(t, mirror)
+	forged := strings.Replace(lines[2], `"thing.add.2"`, `"thing.add.Z"`, 1)
+	if forged == lines[2] {
+		t.Fatal("the fixture did not change")
+	}
+
+	res, err := VerifyFile(writeLines(t, append(append([]string{}, lines...), forged)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() {
+		t.Fatal("two records claiming one sequence verified")
+	}
+	if res.Break.Seq != 3 {
+		t.Errorf("break = %v, want seq 3", res.Break)
+	}
+}
+
+// `audit export --from-seq` is the documented way a destination that fell
+// behind catches up, and a rotated sink file is what the FileSink is written to
+// support. Both are fragments. A verifier that called its own recovery
+// artefacts tampered would be worse than useless — measured before this was
+// handled: "chain does not start at genesis", 0 records verified, exit 1.
+func TestAFragmentVerifiesAsAFragment(t *testing.T) {
+	db, mirror := chainOf(t, 6)
+
+	var out bytes.Buffer
+	if _, err := ExportJSONL(context.Background(), db, Filter{FromSeq: 4}, &out); err != nil {
+		t.Fatal(err)
+	}
+	rotated := mirrorLines(t, mirror)[3:]
+
+	for name, path := range map[string]string{
+		"export --from-seq": writeLines(t, strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")),
+		"rotated sink file": writeLines(t, rotated),
+	} {
+		t.Run(name, func(t *testing.T) {
+			res, err := VerifyFile(path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !res.OK() {
+				t.Fatalf("a fragment was reported as damage: %v", res.Break)
+			}
+			if !res.Fragment {
+				t.Error("a fragment was reported as a whole chain, which claims more than it proves")
+			}
+			if res.Anchored {
+				t.Error("nothing anchored it")
+			}
+			if res.Records != 3 || res.FirstSeq != 4 || res.LastSeq != 6 {
+				t.Errorf("result = %+v", res)
+			}
+		})
+	}
+}
+
+// With the database that produced it, a fragment is anchored automatically:
+// the appliance can say whether the fragment joins its chain.
+func TestAFragmentAnchorsToItsDatabase(t *testing.T) {
+	db, mirror := chainOf(t, 6)
+	frag := writeLines(t, mirrorLines(t, mirror)[3:])
+
+	res, err := VerifyMirror(context.Background(), db, frag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() || !res.Fragment || !res.Anchored {
+		t.Errorf("result = %+v break=%v", res, res.Break)
+	}
+}
+
+// A fragment that does not join is the thing anchoring exists to catch.
+func TestAFragmentThatDoesNotJoinIsRefused(t *testing.T) {
+	_, mirror := chainOf(t, 6)
+	frag := writeLines(t, mirrorLines(t, mirror)[3:])
+
+	// Someone else's chain, at the same sequence.
+	other, _ := chainOf(t, 6)
+	res, err := VerifyMirror(context.Background(), other, frag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() {
+		t.Fatal("a fragment from another chain was accepted")
+	}
+	if res.Break.Kind != KindNotAnchored || res.Break.Seq != 4 {
+		t.Errorf("break = %v, want a refusal to join at seq 4", res.Break)
+	}
+
+	// And explicitly, with a hash the caller supplies.
+	res, err = VerifyFile(frag, &Anchor{Seq: 3, Hash: strings.Repeat("a", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() || res.Break.Kind != KindNotAnchored {
+		t.Errorf("break = %v, want KindNotAnchored", res.Break)
+	}
+}
+
+func TestAnAnchoredFragmentIsAccepted(t *testing.T) {
+	db, mirror := chainOf(t, 6)
+	lines := mirrorLines(t, mirror)
+	third, err := ParseLine([]byte(lines[2]))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := VerifyFile(writeLines(t, lines[3:]), &Anchor{Seq: 3, Hash: third.Hash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() || !res.Fragment || !res.Anchored {
+		t.Errorf("result = %+v break=%v", res, res.Break)
+	}
+	_ = db
+}
+
+// A whole chain is not a fragment, and a forged genesis is not one either: a
+// record claiming seq 1 has to carry the genesis hash.
+func TestSeqOneMustStillCarryGenesis(t *testing.T) {
+	_, mirror := chainOf(t, 4)
+	lines := mirrorLines(t, mirror)
+	forged := strings.Replace(lines[0], GenesisPrevHash, strings.Repeat("b", 64), 1)
+	if forged == lines[0] {
+		t.Fatal("the fixture did not change")
+	}
+
+	res, err := VerifyFile(writeLines(t, append([]string{forged}, lines[1:]...)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() {
+		t.Fatal("a forged genesis was accepted as a fragment")
+	}
+	if res.Break.Kind != KindNotGenesis {
+		t.Errorf("break = %v, want KindNotGenesis", res.Break)
+	}
+}
+
+// A database holds the whole chain, so a partial one there means records were
+// deleted — the fragment allowance is for files, not for the authority.
+func TestADatabaseMayNotBeAFragment(t *testing.T) {
+	db, _ := chainOf(t, 5)
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DELETE FROM audit WHERE seq = 1`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := VerifyDB(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK() || res.Break.Kind != KindNotGenesis {
+		t.Errorf("break = %v, want the database refused as incomplete", res.Break)
+	}
+	if res.Fragment {
+		t.Error("a database was excused as a fragment")
 	}
 }

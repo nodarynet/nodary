@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/nodarynet/nodary/internal/audit"
@@ -70,10 +72,21 @@ func cmdAuditVerify(e env, args []string) int {
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
 	mirror := fs.String("mirror", "", "also verify this JSONL file, with or without a database")
+	anchorSpec := fs.String("anchor", "",
+		"SEQ:HASH the mirror's first record must follow, for checking a fragment "+
+			"against a chain this machine does not hold")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+	anchor, ok := parseAnchor(e, *anchorSpec)
+	if !ok {
+		return ExitUsage
+	}
+	if anchor != nil && *mirror == "" {
+		fmt.Fprintf(e.stderr, "nodary audit verify: --anchor applies to --mirror, which was not given\n")
 		return ExitUsage
 	}
 
@@ -119,7 +132,16 @@ func cmdAuditVerify(e env, args []string) int {
 	}
 
 	if *mirror != "" {
-		res, err := audit.VerifyFile(*mirror)
+		// An anchor the operator supplied wins over the database: they are
+		// asserting what this fragment should follow, and checking it against
+		// the same machine's own chain would answer a different question.
+		var res audit.Result
+		var err error
+		if anchor != nil {
+			res, err = audit.VerifyFile(*mirror, anchor)
+		} else {
+			res, err = audit.VerifyMirror(context.Background(), chain, *mirror)
+		}
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary audit verify: %v\n", err)
 			return ExitFailure
@@ -186,6 +208,11 @@ type resultReport struct {
 	LastSeq  int64           `json:"last_seq"`
 	Break    *problemReport  `json:"break"`
 	Warnings []problemReport `json:"warnings"`
+	// Fragment and Anchored are what stop "verified" meaning two things. A
+	// fragment proves its own records consistent; anchored means it also joins
+	// a chain that was known independently.
+	Fragment bool `json:"fragment"`
+	Anchored bool `json:"anchored"`
 }
 
 type problemReport struct {
@@ -208,6 +235,7 @@ func newResultReport(res audit.Result) *resultReport {
 		OK: res.OK(), Records: res.Records,
 		FirstSeq: res.FirstSeq, LastSeq: res.LastSeq,
 		Warnings: []problemReport{},
+		Fragment: res.Fragment, Anchored: res.Anchored,
 	}
 	if res.Break != nil {
 		r.Break = &problemReport{Seq: res.Break.Seq, Kind: string(res.Break.Kind), Detail: res.Break.Detail}
@@ -260,6 +288,19 @@ func (v verifyReport) writeText(w io.Writer) {
 			fmt.Fprintf(w, "  %d records verified before the break\n", r.Records)
 		case r.Records == 0:
 			fmt.Fprintf(w, "%s: empty\n", where)
+		case r.Fragment && r.Anchored:
+			fmt.Fprintf(w, "%s: verified as a fragment, %d records, seq %d–%d, joined to seq %d\n",
+				where, r.Records, r.FirstSeq, r.LastSeq, r.FirstSeq-1)
+		case r.Fragment:
+			// Said differently from a whole chain on purpose. A fragment is an
+			// ordinary artefact — `export --from-seq` and a rotated sink file
+			// are both fragments — but it proves strictly less, and reporting
+			// the two in the same words would be the useful half of a lie.
+			fmt.Fprintf(w, "%s: verified as a fragment, %d records, seq %d–%d\n",
+				where, r.Records, r.FirstSeq, r.LastSeq)
+			fmt.Fprintf(w, "  it starts at seq %d, so nothing in it shows what came before;\n"+
+				"  pass --anchor %d:HASH to check that it joins a chain you know\n",
+				r.FirstSeq, r.FirstSeq-1)
 		default:
 			fmt.Fprintf(w, "%s: verified, %d records, seq %d–%d\n",
 				where, r.Records, r.FirstSeq, r.LastSeq)
@@ -477,4 +518,49 @@ func cmdAuditExport(e env, args []string) int {
 		return ExitFailure
 	}
 	return ExitOK
+}
+
+// parseAnchor reads SEQ:HASH.
+func parseAnchor(e env, spec string) (*audit.Anchor, bool) {
+	if spec == "" {
+		return nil, true
+	}
+	seqText, hash, found := strings.Cut(spec, ":")
+	if !found {
+		fmt.Fprintf(e.stderr, "nodary audit verify: --anchor %q is not SEQ:HASH\n", spec)
+		return nil, false
+	}
+	seq, err := strconv.ParseInt(seqText, 10, 64)
+	if err != nil || seq < 0 {
+		fmt.Fprintf(e.stderr, "nodary audit verify: --anchor %q has no usable sequence number\n", spec)
+		return nil, false
+	}
+	if seq == 0 {
+		// Anchoring to "nothing" is anchoring to genesis, and saying so beats
+		// silently accepting a hash that can never match.
+		if hash != audit.GenesisPrevHash {
+			fmt.Fprintf(e.stderr,
+				"nodary audit verify: --anchor seq 0 is the start of a chain, whose hash is 64 zeros\n")
+			return nil, false
+		}
+		return &audit.Anchor{Seq: 0, Hash: hash}, true
+	}
+	if !isHex64(hash) {
+		fmt.Fprintf(e.stderr,
+			"nodary audit verify: --anchor %q has no usable hash (want 64 lowercase hex characters)\n", spec)
+		return nil, false
+	}
+	return &audit.Anchor{Seq: seq, Hash: hash}, true
+}
+
+func isHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

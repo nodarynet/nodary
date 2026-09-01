@@ -611,3 +611,78 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A fragment is an ordinary artefact — `export --from-seq` and a rotated sink
+// file are both fragments — but it proves strictly less than a whole chain, so
+// it must not be reported in the same words.
+func TestAuditVerifyNamesAFragmentAsOne(t *testing.T) {
+	dbPath, mirror := chain(t, 6)
+	lines := strings.Split(strings.TrimSuffix(readFile(t, mirror), "\n"), "\n")
+	frag := filepath.Join(t.TempDir(), "frag.jsonl")
+	writeFile(t, frag, strings.Join(lines[3:], "\n")+"\n")
+
+	// Alone: verified, but said to be a fragment, and exit 0 — it is not damage.
+	code, stdout, stderr := run(t, "audit", "verify", "--mirror", frag)
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 — a fragment is not damage (stderr %q, stdout %q)", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "verified as a fragment") {
+		t.Errorf("stdout = %q, want it to say fragment", stdout)
+	}
+	if !strings.Contains(stdout, "--anchor 3:HASH") {
+		t.Errorf("stdout should say how to strengthen the claim: %q", stdout)
+	}
+
+	// With the database that produced it, it is anchored automatically.
+	code, stdout, stderr = run(t, "audit", "verify", "--db", dbPath, "--mirror", frag)
+	if code != ExitOK {
+		t.Fatalf("exit = %d (stderr %q, stdout %q)", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "joined to seq 3") {
+		t.Errorf("stdout = %q, want the join reported", stdout)
+	}
+}
+
+func TestAuditVerifyAnchorFlag(t *testing.T) {
+	_, mirror := chain(t, 6)
+	lines := strings.Split(strings.TrimSuffix(readFile(t, mirror), "\n"), "\n")
+	frag := filepath.Join(t.TempDir(), "frag.jsonl")
+	writeFile(t, frag, strings.Join(lines[3:], "\n")+"\n")
+
+	var third struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal([]byte(lines[2]), &third); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run(t, "audit", "verify", "--mirror", frag, "--anchor", "3:"+third.Hash)
+	if code != ExitOK {
+		t.Fatalf("exit = %d (stderr %q, stdout %q)", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "joined to seq 3") {
+		t.Errorf("stdout = %q", stdout)
+	}
+
+	// A wrong anchor is a refusal, not a pass.
+	code, _, _ = run(t, "audit", "verify", "--mirror", frag, "--anchor", "3:"+strings.Repeat("a", 64))
+	if code != ExitFailure {
+		t.Errorf("exit = %d, want 1 for a fragment that does not join", code)
+	}
+
+	// Malformed anchors are usage errors, and --anchor without --mirror is one.
+	for _, args := range [][]string{
+		{"audit", "verify", "--mirror", frag, "--anchor", "nonsense"},
+		{"audit", "verify", "--mirror", frag, "--anchor", "3:short"},
+		{"audit", "verify", "--mirror", frag, "--anchor", "-1:" + third.Hash},
+		{"audit", "verify", "--anchor", "3:" + third.Hash},
+	} {
+		code, stdout, stderr := run(t, args...)
+		if code != ExitUsage {
+			t.Errorf("%v: exit = %d, want 2 (stderr %q)", args[2:], code, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("%v: stdout had %q", args[2:], stdout)
+		}
+	}
+}
