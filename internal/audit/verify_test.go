@@ -783,3 +783,112 @@ func TestADatabaseMayNotBeAFragment(t *testing.T) {
 		t.Error("a database was excused as a fragment")
 	}
 }
+
+// Compare walks both sides in sequence order and holds neither in memory, so
+// the reordering a concurrently written mirror carries must not disturb it
+// either.
+func TestCompareToleratesAReorderedMirror(t *testing.T) {
+	db, mirror := chainOf(t, 12)
+	lines := mirrorLines(t, mirror)
+	shuffled := []string{lines[11], lines[0], lines[2], lines[1], lines[3], lines[6], lines[4], lines[5]}
+	shuffled = append(shuffled, lines[7], lines[8], lines[10], lines[9])
+
+	cmp, err := Compare(context.Background(), db, writeLines(t, shuffled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmp.Diverged != 0 || cmp.Behind != 0 || cmp.Ahead != 0 || cmp.Installs != nil {
+		t.Errorf("comparison = %+v, want a clean match", cmp)
+	}
+}
+
+func TestCompareCountsAndDivergence(t *testing.T) {
+	t.Run("behind at the end", func(t *testing.T) {
+		db, mirror := chainOf(t, 8)
+		cmp := compareTo(t, db, writeLines(t, mirrorLines(t, mirror)[:5]))
+		if cmp.Behind != 3 || cmp.Ahead != 0 || cmp.Diverged != 0 {
+			t.Errorf("comparison = %+v, want three behind", cmp)
+		}
+	})
+
+	// A hole in the middle exercises the merge itself rather than the drain
+	// that runs once one side is exhausted — a different arm, and one the
+	// end-of-file cases leave untouched.
+	t.Run("behind in the middle", func(t *testing.T) {
+		db, mirror := chainOf(t, 8)
+		lines := mirrorLines(t, mirror)
+		holed := append(append([]string{}, lines[:2]...), lines[3:]...) // seq 3 absent
+		cmp := compareTo(t, db, writeLines(t, holed))
+		if cmp.Behind != 1 || cmp.Ahead != 0 || cmp.Diverged != 0 {
+			t.Errorf("comparison = %+v, want one behind", cmp)
+		}
+	})
+
+	t.Run("ahead at the end", func(t *testing.T) {
+		db, mirror := chainOf(t, 8)
+		lines := mirrorLines(t, mirror)
+		deleteSeq(t, db, "seq > 5")
+		cmp := compareTo(t, db, writeLines(t, lines))
+		if cmp.Ahead != 3 || cmp.Behind != 0 {
+			t.Errorf("comparison = %+v, want three ahead", cmp)
+		}
+	})
+
+	t.Run("ahead in the middle", func(t *testing.T) {
+		db, mirror := chainOf(t, 8)
+		lines := mirrorLines(t, mirror)
+		deleteSeq(t, db, "seq = 4")
+		cmp := compareTo(t, db, writeLines(t, lines))
+		if cmp.Ahead != 1 || cmp.Behind != 0 {
+			t.Errorf("comparison = %+v, want one ahead", cmp)
+		}
+	})
+
+	t.Run("a repeat is not a difference", func(t *testing.T) {
+		db, mirror := chainOf(t, 4)
+		l := mirrorLines(t, mirror)
+		doubled := []string{l[0], l[1], l[1], l[2], l[0], l[3]}
+		cmp := compareTo(t, db, writeLines(t, doubled))
+		if cmp.Behind != 0 || cmp.Ahead != 0 || cmp.Diverged != 0 {
+			t.Errorf("comparison = %+v, want a clean match", cmp)
+		}
+	})
+}
+
+func compareTo(t *testing.T, db *store.DB, path string) Comparison {
+	t.Helper()
+	cmp, err := Compare(context.Background(), db, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cmp
+}
+
+func deleteSeq(t *testing.T, db *store.DB, where string) {
+	t.Helper()
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DELETE FROM audit WHERE ` + where)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A mirror left over from a previous installation is an ordinary state after a
+// reinstall or a restore, and saying "tampered" about it would be the same
+// wording and the same exit code as the real thing.
+func TestCompareNamesAnInstallMismatch(t *testing.T) {
+	db, _ := chainOf(t, 4)
+	_, otherMirror := chainOf(t, 4)
+
+	cmp, err := Compare(context.Background(), db, otherMirror)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmp.Installs == nil {
+		t.Fatalf("comparison = %+v, want an install mismatch", cmp)
+	}
+	if cmp.Diverged != 0 || cmp.Behind != 0 || cmp.Ahead != 0 {
+		t.Errorf("a mismatch should not also be reported as divergence: %+v", cmp)
+	}
+}

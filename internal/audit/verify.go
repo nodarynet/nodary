@@ -722,57 +722,174 @@ func (m InstallMismatch) String() string {
 
 // Compare walks both chains by sequence.
 func Compare(ctx context.Context, db *store.DB, path string) (Comparison, error) {
-	stored := map[int64]string{}
-	var dbInstall string
 	rows, err := db.Read().QueryContext(ctx, `SELECT seq, hash, install FROM audit ORDER BY seq`)
 	if err != nil {
 		return Comparison{}, fmt.Errorf("reading the chain: %w", err)
 	}
 	defer rows.Close()
-	for rows.Next() {
-		var seq int64
-		var hash, install string
-		if err := rows.Scan(&seq, &hash, &install); err != nil {
-			return Comparison{}, err
-		}
-		stored[seq] = hash
-		dbInstall = install
-	}
-	if err := rows.Err(); err != nil {
-		return Comparison{}, err
-	}
 
-	records, close, err := fileRecords(path)
+	records, closeFile, err := fileRecords(path)
 	if err != nil {
 		return Comparison{}, err
 	}
-	defer close()
+	defer closeFile()
 
-	var cmp Comparison
-	seen := map[int64]bool{}
-	for r, err := range records {
-		if err != nil {
-			return Comparison{}, err
-		}
-		if dbInstall != "" && r.Install != dbInstall {
-			// Not a pair at all. Reporting the seq-1 hashes as divergence here
-			// would say "tampered" about an ordinary reinstall or a mirror
-			// pulled from another appliance, and the wording and exit code were
-			// indistinguishable from the real thing.
-			return Comparison{Installs: &InstallMismatch{Database: dbInstall, File: r.Install}}, nil
-		}
-		seen[r.Seq] = true
-		switch hash, ok := stored[r.Seq]; {
-		case !ok:
-			cmp.Ahead++
-		case hash != r.Hash && (cmp.Diverged == 0 || r.Seq < cmp.Diverged):
-			cmp.Diverged = r.Seq
+	// Both sides are walked in sequence order and neither is held in memory.
+	// The earlier version built a map of every seq to every hash and a second
+	// set of every seq seen, so comparing a chain cost memory proportional to
+	// the whole chain — in a tool whose whole job is to be usable against
+	// evidence of any size, on a machine that is not necessarily the one that
+	// produced it.
+	file, stopFile := iter.Pull2(bySequence(records, reorderWindow))
+	defer stopFile()
+
+	var (
+		cmp       Comparison
+		dbInstall string
+		fileSeq   int64
+		fileHash  string
+		haveFile  bool
+		lastFile  int64
+	)
+
+	nextFile := func() error {
+		for {
+			r, err, ok := file()
+			if err != nil {
+				return err
+			}
+			if !ok {
+				haveFile = false
+				return nil
+			}
+			if dbInstall != "" && r.Install != dbInstall {
+				// Not a pair at all. Reporting the hashes as divergence would
+				// say "tampered" about an ordinary reinstall or a mirror pulled
+				// from another appliance, in the same words and with the same
+				// exit code as the real thing.
+				return &installMismatch{db: dbInstall, file: r.Install}
+			}
+			if r.Seq <= lastFile {
+				continue // a repeat; bySequence already dropped the identical ones
+			}
+			fileSeq, fileHash, haveFile, lastFile = r.Seq, r.Hash, true, r.Seq
+			return nil
 		}
 	}
-	for seq := range stored {
-		if !seen[seq] {
+
+	var (
+		dbSeq  int64
+		dbHash string
+		haveDB bool
+	)
+	nextDB := func() error {
+		if !rows.Next() {
+			haveDB = false
+			return rows.Err()
+		}
+		var install string
+		if err := rows.Scan(&dbSeq, &dbHash, &install); err != nil {
+			return err
+		}
+		dbInstall, haveDB = install, true
+		return nil
+	}
+
+	if err := nextDB(); err != nil {
+		return Comparison{}, err
+	}
+	if err := nextFile(); err != nil {
+		return mismatchOrError(err)
+	}
+
+	for haveDB && haveFile {
+		switch {
+		case dbSeq < fileSeq:
 			cmp.Behind++
+			if err := nextDB(); err != nil {
+				return Comparison{}, err
+			}
+		case dbSeq > fileSeq:
+			cmp.Ahead++
+			if err := nextFile(); err != nil {
+				return mismatchOrError(err)
+			}
+		default:
+			if dbHash != fileHash && cmp.Diverged == 0 {
+				cmp.Diverged = dbSeq
+			}
+			if err := nextDB(); err != nil {
+				return Comparison{}, err
+			}
+			if err := nextFile(); err != nil {
+				return mismatchOrError(err)
+			}
+		}
+	}
+	for haveDB {
+		cmp.Behind++
+		if err := nextDB(); err != nil {
+			return Comparison{}, err
+		}
+	}
+	for haveFile {
+		cmp.Ahead++
+		if err := nextFile(); err != nil {
+			return mismatchOrError(err)
 		}
 	}
 	return cmp, nil
+}
+
+// installMismatch is carried as an error so it can unwind the merge, and is
+// turned back into an outcome rather than a failure at the boundary.
+type installMismatch struct{ db, file string }
+
+func (m *installMismatch) Error() string {
+	return fmt.Sprintf("the file was written by %s and the database is %s", m.file, m.db)
+}
+
+func mismatchOrError(err error) (Comparison, error) {
+	var m *installMismatch
+	if errors.As(err, &m) {
+		return Comparison{Installs: &InstallMismatch{Database: m.db, File: m.file}}, nil
+	}
+	return Comparison{}, err
+}
+
+// bySequence yields records in ascending sequence, absorbing with a bounded
+// buffer the local disorder that concurrent delivery produces. Identical
+// repeats — at-least-once delivery — are dropped.
+func bySequence(records iter.Seq2[Record, error], window int) iter.Seq2[Record, error] {
+	return func(yield func(Record, error) bool) {
+		pull, stop := iter.Pull2(records)
+		defer stop()
+
+		pending := make(map[int64]Record, window)
+		for {
+			for len(pending) < window {
+				r, err, ok := pull()
+				if err != nil {
+					yield(Record{}, err)
+					return
+				}
+				if !ok {
+					break
+				}
+				if held, dup := pending[r.Seq]; dup && held.Hash == r.Hash {
+					continue
+				}
+				pending[r.Seq] = r
+			}
+			if len(pending) == 0 {
+				return
+			}
+			next := lowest(pending)
+			r := pending[next]
+			delete(pending, next)
+			if !yield(r, nil) {
+				return
+			}
+		}
+	}
 }
