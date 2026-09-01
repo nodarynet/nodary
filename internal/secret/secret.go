@@ -378,6 +378,23 @@ func (k keyMaterial) subkey(salt []byte) (cipher.AEAD, error) {
 // keyring seals.
 func (k *Key) ID() string { return hex.EncodeToString(k.primary.id[:]) }
 
+// Knows reports whether this keyring can open a ciphertext sealed under the
+// given key id -- the primary, or any retired key passed to Load.
+//
+// It is what lets a caller distinguish "sealed under a key we still hold" from
+// "sealed under a key that is gone", which are recoverable and unrecoverable
+// respectively and otherwise look identical.
+func (k *Key) Knows(id string) bool {
+	raw, err := hex.DecodeString(id)
+	if err != nil || len(raw) != keyIDBytes {
+		return false
+	}
+	var want [keyIDBytes]byte
+	copy(want[:], raw)
+	_, ok := k.byID[want]
+	return ok
+}
+
 // additionalData binds a ciphertext to its header and to the row it belongs in.
 //
 // The label binding is the part that carries weight: without it, an attacker

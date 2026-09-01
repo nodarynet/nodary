@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/secret"
 	"github.com/nodarynet/nodary/internal/store"
 )
 
@@ -18,13 +19,16 @@ type fixture struct {
 	t   *testing.T
 	db  *store.DB
 	log *audit.Log
+	key *secret.Key
+	dir string
 	now time.Time
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "nodary.db"))
 	if err != nil {
 		t.Fatalf("opening: %v", err)
 	}
@@ -32,7 +36,13 @@ func newFixture(t *testing.T) *fixture {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
-	f := &fixture{t: t, db: db, now: time.Date(2026, 9, 1, 12, 0, 0, 123456789, time.UTC)}
+	f := &fixture{
+		t:   t,
+		db:  db,
+		dir: dir,
+		key: newKey(t, filepath.Join(dir, "secret.key")),
+		now: time.Date(2026, 9, 1, 12, 0, 0, 123456789, time.UTC),
+	}
 	f.log = audit.New(db, audit.NewDelivery(nil, audit.Warn, io.Discard),
 		audit.WithClock(func() time.Time { return f.now }))
 	return f
@@ -84,4 +94,69 @@ func names(us []User) []string {
 		out[i] = u.Name + "/" + string(u.State)
 	}
 	return out
+}
+
+// newKey creates a keyring at path. secret.Create checks that the file is owned
+// by the reader rather than by root specifically, so this works in a test.
+func newKey(t *testing.T, path string) *secret.Key {
+	t.Helper()
+	k, err := secret.Create(path)
+	if err != nil {
+		t.Fatalf("creating a key at %s: %v", path, err)
+	}
+	return k
+}
+
+// enroll puts a user through TOTP enrollment and returns the seed, so a test
+// can generate codes the way an authenticator would.
+func (f *fixture) enroll(name string) []byte {
+	f.t.Helper()
+	seed, err := NewSeed()
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	code := codeAt(seed, stepAt(f.now), totpDigits)
+	if _, err := f.act("user.totp", func(m audit.Mutation) error {
+		_, err := Enroll(context.Background(), m, RoleAdmin, f.now, f.key, name, seed, code)
+		return err
+	}); err != nil {
+		f.t.Fatalf("enrolling %q: %v", name, err)
+	}
+	return seed
+}
+
+// sealedSeed returns the ciphertext stored for a user.
+func (f *fixture) sealedSeed(id string) []byte {
+	f.t.Helper()
+	var blob []byte
+	if err := f.db.Read().QueryRowContext(context.Background(),
+		`SELECT totp_secret_enc FROM user WHERE id = ?`, id).Scan(&blob); err != nil {
+		f.t.Fatalf("reading the sealed seed for %s: %v", id, err)
+	}
+	return blob
+}
+
+// boundKey is the key id this database records, or "".
+func (f *fixture) boundKey() string {
+	f.t.Helper()
+	id, err := BoundKeyID(context.Background(), f.db.Read())
+	if err != nil {
+		f.t.Fatalf("reading the bound key: %v", err)
+	}
+	return id
+}
+
+func (f *fixture) checkKey(k *secret.Key) error {
+	f.t.Helper()
+	return CheckKey(context.Background(), f.db.Read(), k)
+}
+
+// mustGet reads a user or fails the test.
+func (f *fixture) mustGet(name string) User {
+	f.t.Helper()
+	u, err := f.get(name)
+	if err != nil {
+		f.t.Fatalf("Get(%q): %v", name, err)
+	}
+	return u
 }

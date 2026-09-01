@@ -160,6 +160,17 @@ func installID(tx *sql.Tx, now time.Time) (string, error) {
 	return id, nil
 }
 
+// Install returns this appliance's identifier, minting one if the installation
+// row does not exist yet.
+//
+// Exported for one caller: the key binding of
+// docs/specs/08-data-model.md §4 lives on the same singleton row, and it is
+// written inside the mutation that performs the first seal -- which runs before
+// AppendTx and so before this row would otherwise exist. Two minting paths for
+// one identifier would be worse than one exported function, because the id is
+// inside every record's hash preimage.
+func Install(tx *sql.Tx, now time.Time) (string, error) { return installID(tx, now) }
+
 // columnNames is the row as stored, in schema order.
 //
 // One list, because three things depend on this order agreeing: the SELECT,
