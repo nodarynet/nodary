@@ -469,7 +469,9 @@ func cmdAuditExport(e env, args []string) int {
 	fs := newFlagSet(e, "audit export")
 	// Not formatFlag: on this verb the value is the export encoding, per
 	// docs/specs/09-api.md §1, not docs/specs/10-cli.md §2's rendering style.
-	format := fs.String("format", audit.FormatJSONL, "export encoding: jsonl|csv")
+	format := fs.String("format", audit.FormatJSONL,
+		"export encoding: jsonl is byte-identical to what a sink delivered; "+
+			"csv is for a spreadsheet and defuses formula cells with a leading apostrophe")
 	dbPath := dbFlag(fs)
 	from := fs.String("from", "", "earliest record: a date (2006-01-02) or an RFC3339 instant")
 	to := fs.String("to", "", "latest record; a bare date covers the whole day")

