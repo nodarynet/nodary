@@ -39,3 +39,12 @@ A plan carries three things the tracker cannot:
 | [R1a — Storage foundation](R1a-storage-foundation.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-01 – R1-04 | complete |
 | [R1b — Audit chain](R1b-audit-chain.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-05 – R1-12 | complete |
 | [R1c — Identity](R1c-identity.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-18 – R1-24, R1-36 | complete |
+
+## Not a slice
+
+One file here is not a slice of a milestone.
+[Pivot — SMB CMMC as the primary market](pivot-cmmc.md) re-aims the product at a buyer
+and records what the specifications owe as a result. It is the one plan that changes what
+the authoritative documents say rather than describing how to build what they already
+said, and it is finished when [§7](pivot-cmmc.md#7-spec-corrections-this-plan-owes) is
+empty.
