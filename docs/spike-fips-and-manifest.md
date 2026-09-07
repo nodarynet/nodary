@@ -1,18 +1,20 @@
 # Spike — FIPS and the manifest
 
-**Answers:** [pivot §10](plans/pivot-cmmc.md#10-the-spike) questions 2, 3 and 4 ·
-**Question 1 is unanswered** · **Measured on:** go1.27.0, linux/amd64, commit `906ee5a`
+**Answers:** all four [pivot §10](plans/pivot-cmmc.md#10-the-spike) questions ·
+**Measured on:** go1.27.0, linux/amd64, commit `906ee5a`; question 1 on an RTX 5090 /
+driver 610.88 / WSL2 / systemd 255 host
 
 Throwaway work, kept as a memo. Everything below was run, not reasoned about; the
 commands are given so each result can be reproduced or contradicted.
 
-## What was not measured
+## What was measured with what
 
-**Question 1 — unit rendering and containerd GPU binding — was not attempted.** The
-machine had containerd and systemd 255 and **no GPU and no NVIDIA driver**. Binding a GPU
-into a container is the entire question, so a CPU-only rehearsal would have answered a
-question nobody asked. It needs one real GPU host and remains
-[the MVP's stated risk](plans/mvp.md#7-the-risk).
+Questions 2–4 ran on a CPU-only container. Question 1 ran later on a GPU host, and **that
+host had no containerd**: Docker Desktop's WSL2 integration keeps containerd inside its own
+distro, so there is no socket or binary on the node, and `nvidia-ctk` is not on `PATH`
+either. What follows therefore measures **docker with the `nvidia` runtime**, not
+containerd. Every finding in §5 is about namespaces, cgroups and systemd, which both
+runtimes share — but the substitution is real and §6 says where it still bites.
 
 ## 1. The FIPS build works, and that was the easy half
 
@@ -146,3 +148,90 @@ The current [`Manifest`](../internal/components/manifest.go) carries `schema`,
 - **`on` or `only` is a product decision, not an implementation one.** `only` costs the TOTP
   algorithm and a sealing-format migration. `on` costs nothing today and claims less. The
   ADR that picks one is ADR 0006, and it should pick explicitly rather than inherit a default.
+
+## 5. Question 1 — the unit is trivial; the network is where it goes wrong
+
+A `nodary-model@.service` template, an `%i.env` file and one GPU container, started and
+stopped through `systemctl`. What it needed was unremarkable: `Type=exec`,
+`EnvironmentFile=%h/…/%i.env`, an `ExecStartPre=-docker rm -f`, `docker run --rm --name`
+in the foreground, `ExecStop=docker stop -t 10`, `Restart=on-failure`. `Restart` was
+exercised by killing the container out from under it — `NRestarts` went 0 → 1 and the unit
+returned to `active`. [R4-19](tasks/R4-agent.md) is the size it looks.
+
+Three things were not what the specifications assume.
+
+### WSL2 binds a GPU through `/dev/dxg`, and there is no `/dev/nvidia*`
+
+`nvidia-smi -L` inside the container reports the 5090 correctly, and `ls /dev/nvidia*`
+fails: the only device node is `/dev/dxg`. WSL2's paravirtualised GPU has no per-device
+char nodes, so **anything that identifies a GPU by `/dev/nvidia<index>` is wrong on a WSL2
+node** — which matters for [R4-23](tasks/R4-agent.md), the pre-start check that a
+deployment's assigned GPU is the one it gets.
+
+The index itself is still enforced by the runtime, and loudly: `--gpus device=1` on a
+one-GPU host fails the container at creation with `error: 1: unknown device`. R4-23 has a
+real signal to check; it just cannot be a device-node test. (The hook also logs
+`Auto-detected mode as 'legacy'` on WSL2, which is worth not being surprised by.)
+
+### The cgroup warning in 03 §5 is correct, and truer than written
+
+[03 §5](specs/03-agent.md#5-egress-isolation) warns that `IPAddressDeny=` filters the
+launcher rather than the workload because containerd parents the container elsewhere.
+Confirmed, for docker too: the unit's cgroup held one process — the `docker run` client —
+while the container was parented outside it entirely.
+
+A second reason was found on top of that one. This ran as a **user** unit, and a user
+manager is delegated `cpu memory pids` and no network controller at all, so
+`IPAddressDeny=` in a user unit is not merely aimed at the wrong process — it has nothing
+to attach to. [R4-28](tasks/R4-agent.md) keeps it as documented defence in depth, which
+remains the right call, and the documentation should say both reasons.
+
+### `--internal` silently breaks ingress — this is the finding
+
+[03 §5](specs/03-agent.md#5-egress-isolation) requires two properties of the same network:
+no default route off-box, **and** the port published on `127.0.0.1` so the gateway can
+reach it. Docker's `--internal` network is the obvious way to get the first, and it
+destroys the second **without a warning**:
+
+```
+docker run --network nodary-isolated -p 127.0.0.1:18080:8000 …
+  NetworkSettings.Ports → {"8000/tcp":[]}      # no binding
+  ss -ltn | grep 18080  → nothing               # no listener
+```
+
+The identical publish on a normal bridge binds correctly, so the failure is entirely the
+network mode, and nothing on the success path tells you. A deployment would come up
+`active`, hold its GPU, pass a `docker exec` health probe, and be unreachable by the
+gateway — with `verify-egress` **passing**, because egress really is blocked.
+
+The specification's own mechanism, tested as written, does the right thing. A normal
+bridge with the default route deleted inside the namespace gives all four:
+
+| | |
+| :--- | :--- |
+| default route inside | none |
+| DNS lookup | fails |
+| TCP to `1.1.1.1:443` | fails |
+| TCP to the bridge gateway | fails |
+| `curl 127.0.0.1:18082` | **succeeds**, and `ss` shows the listener bound to `127.0.0.1` only |
+
+All three [R4-29](tasks/R4-agent.md) assertions pass while the port still serves. **The
+mechanism is right and the shortcut is wrong**, which is the same shape as the
+`IPAddressDeny` trap 03 §5 already documents — a thing that looks correct, reviews clean,
+and is silently not what was asked for.
+
+[R4-26](tasks/R4-agent.md) should therefore say bridge-plus-route-removal explicitly, and
+**its `done:` must include that a published port is listening after the network exists.**
+An isolation test alone passes in the broken configuration.
+
+## 6. Open, after question 1
+
+- **containerd was never exercised.** Cgroup parenting, namespaces and systemd behave the
+  same, but `nerdctl`'s CNI plumbing is where `nodary-isolated` actually gets built, and
+  03 §5 specifies a CNI bridge rather than a docker network. The `--internal` trap above is
+  docker's; CNI will have its own, and the test that catches both is the same one.
+- **Multi-GPU assignment is untested.** One card, so nothing here says whether two
+  deployments can be held to separate indices on a host with no `/dev/nvidia*` nodes.
+- **No model was served.** The image on the host wanted an artifact format the spike had no
+  weights for, so the container held the GPU and answered a probe rather than doing work.
+  Throughput, `ready_timeout_s` and crash-loop behaviour under real load are unmeasured.
