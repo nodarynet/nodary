@@ -297,3 +297,23 @@ func tail(out []byte) string {
 	}
 	return s
 }
+
+// RunningDeployments is the deployment ids with a live unit.
+//
+// Exported because `nodary doctor` asserts egress against exactly the set the
+// reconcile loop would: a diagnostic that checked a different set from the one
+// the agent manages would be answering a different question.
+func RunningDeployments(ctx context.Context, h Host) ([]string, error) {
+	units, err := h.runningInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(units))
+	for _, u := range units {
+		id := strings.TrimSuffix(strings.TrimPrefix(u, "nodary-model@"), ".service")
+		if id != "" {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}

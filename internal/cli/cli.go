@@ -91,7 +91,6 @@ var planned = map[string]string{
 	"bundle":    "offline bundle creation",
 	"upgrade":   "in-place upgrade",
 	"uninstall": "uninstall",
-	"doctor":    "diagnostics",
 	"restart":   "restart local units",
 	"status":    "local status",
 }
@@ -151,12 +150,14 @@ func dispatch(e env, args []string) int {
 		return cmdLimits(e, args[1:])
 	case "usage":
 		return cmdUsage(e, args[1:])
+	case "doctor":
+		return cmdDoctor(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits` and `usage`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -208,6 +209,7 @@ Available in this release:
                          show | set
   usage                Metered requests — counts, never content
                          show [--user] [--model] [--node] [--group_by]
+  doctor               Diagnose this host: preflight, plus what needs a running system
 
 Specified, not yet implemented:
 `, versionString())
