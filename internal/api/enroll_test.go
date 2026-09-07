@@ -1,16 +1,23 @@
 package api_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/nodarynet/nodary/internal/agent"
+	"github.com/nodarynet/nodary/internal/api"
 )
 
 // csrFor generates a node keypair and its certificate request.
@@ -158,5 +165,88 @@ func TestEnrollRefusesACSRWithABorrowedPublicKey(t *testing.T) {
 
 	if status, body := f.enroll("gpu-01", f.joinToken(1), tampered); status != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for an unverifiable certificate request (%v)", status, body)
+	}
+}
+
+// The two halves against each other, with nothing hand-rolled in between: the
+// node's own enrolment code, the real endpoint, and the pin as the only thing
+// establishing trust.
+func TestTheNodeEnrollsAgainstTheRealControlPlane(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+	pin := agent.Fingerprint(f.srv.Certificate().Raw)
+
+	res, err := agent.Enroll(context.Background(), agent.EnrollOptions{
+		Server: f.srv.URL, Token: f.joinToken(1), CAFingerprint: pin,
+		Name: "gpu-01", Dir: dir,
+	})
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	if res.Node != "gpu-01" || res.State != "pending" {
+		t.Errorf("result = %+v, want gpu-01 pending", res)
+	}
+
+	// The private key stayed here, at 0600, and the certificate it was issued
+	// for actually matches it — which is the only proof that the key the node
+	// holds is the key the control plane signed.
+	info, err := os.Stat(res.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("node.key is %o, want 0600", perm)
+	}
+	keyPEM, err := os.ReadFile(res.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tls.X509KeyPair([]byte(res.Certificate), keyPEM); err != nil {
+		t.Errorf("the issued certificate does not match the key that requested it: %v", err)
+	}
+
+	// And the certificate works: the node can reach an endpoint that only a
+	// node can reach.
+	pair, err := tls.X509KeyPair([]byte(res.Certificate), keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := agent.Client(pin, &pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Get(f.srv.URL + api.Prefix + "/agent/desired")
+	if err != nil {
+		t.Fatalf("the enrolled node cannot reach the agent protocol: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("desired: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// A node pointed at the right address with the wrong fingerprint must not
+// enroll, because that is exactly the case the pin exists for.
+func TestEnrollmentRefusesAnUnpinnedControlPlane(t *testing.T) {
+	f := newFixture(t)
+	right := agent.Fingerprint(f.srv.Certificate().Raw)
+	wrong := right[:len(right)-1] + "0"
+	if strings.HasSuffix(right, "0") {
+		wrong = right[:len(right)-1] + "1"
+	}
+
+	_, err := agent.Enroll(context.Background(), agent.EnrollOptions{
+		Server: f.srv.URL, Token: f.joinToken(1), CAFingerprint: wrong,
+		Name: "gpu-01", Dir: t.TempDir(),
+	})
+	if !errors.Is(err, agent.ErrPin) {
+		t.Fatalf("error = %v, want ErrPin", err)
+	}
+
+	// And nothing was enrolled: the token is spent by the server, and the
+	// handshake never reached it.
+	_, listed := f.do(http.MethodGet, "/nodes", f.admin, nil, nil)
+	if nodes, _ := listed["nodes"].([]any); len(nodes) != 0 {
+		t.Errorf("a refused enrolment created %v", listed)
 	}
 }

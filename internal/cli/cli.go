@@ -84,7 +84,6 @@ func isTerminal(r io.Reader) bool {
 // error says "not in this release" instead of "unknown command", which is the
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
-	"node":      "GPU node install and fleet operations",
 	"backend":   "backend descriptor registration",
 	"model":     "catalog, staging and deployment",
 	"route":     "public model routing",
@@ -144,12 +143,14 @@ func dispatch(e env, args []string) int {
 		return cmdConfig(e, args[1:])
 	case "server":
 		return cmdServer(e, args[1:])
+	case "node":
+		return cmdNode(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config` and `server`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server` and `node enroll`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -187,6 +188,8 @@ Available in this release:
                          show | list | diff | export | apply | rollback | verify
   server               Control plane lifecycle
                          install | start | status
+  node                 GPU nodes
+                         enroll  Join a control plane with a join token
 
 Specified, not yet implemented:
 `, versionString())

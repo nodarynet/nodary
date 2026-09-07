@@ -251,10 +251,3 @@ func rawOrDefault(raw json.RawMessage, empty string) string {
 	}
 	return string(raw)
 }
-
-func rawOrEmpty(raw json.RawMessage) any {
-	if len(raw) == 0 || !json.Valid(raw) {
-		return map[string]any{}
-	}
-	return raw
-}
