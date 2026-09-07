@@ -1,7 +1,7 @@
 # R4a — Enrolment and the agent protocol
 
 **Slice of:** [R4](../tasks/R4-agent.md) ·
-**Tasks:** R4-01 – R4-04, R4-07 – R4-09 · **Status:** in progress
+**Tasks:** R4-01 – R4-04, R4-07 – R4-09 · **Status:** complete
 
 The control plane's half of [S5](mvp.md#4-the-route). Everything here is server-side plus
 the smallest client that proves it: a node that enrols, is refused a workload until somebody
@@ -94,6 +94,22 @@ the bus — an event [R4-25](../tasks/R4-agent.md) already handles properly — 
 inside the seam is a rule about when not to record, which is exactly the kind of rule this
 product does not want anywhere near the audit chain.
 
+### The gate that had to be widened, and by how much
+
+`TestNothingBypassesTheSeam` in [internal/audit](../../internal/audit) scans every non-test
+file for `.WriteTx(` outside a short list of directories, and it caught the heartbeat
+immediately — correctly. The fix is not an exemption for `internal/api`, which would put
+every handler in the product outside the gate in order to let one write through. It is
+[`internal/observed`](../../internal/observed): one directory, on the list, whose package
+comment carries the rule it is allowed to exist under and whose every statement names its
+columns explicitly, so the rule can be checked by reading it.
+
+`node.state`, `approved_by` and `approved_at` appear in none of those statements. A node
+cannot promote itself by reporting that it has.
+
+R3's usage rows belong there too, for the same reason — which is the evidence this is a
+category rather than a convenience carved out for one endpoint.
+
 ## 5. Staleness is derived at read time, never stored
 
 **Decided.** `node.state` keeps its five values. A node whose `last_seen` is older than 60
@@ -166,7 +182,27 @@ puts an administrator in the loop. The administrator is already in the loop: the
 the token. It also makes routine certificate expiry — which happens on a schedule, unattended,
 possibly while nobody is watching — into an incident.
 
-## 9. The shape
+## 9. A deployment's image joins the configuration snapshot now
+
+**Decided.** `config.Deployment` gains `Image` — the pinned `repo@sha256:…` the deployment
+runs — mapped to the `image_digest` column that [08 §1](../specs/08-data-model.md) already
+had.
+
+**Why.** [03 §2](../specs/03-agent.md#2-desired-state-document)'s desired-state document
+carries `image`, and R4-08 says the document is a *complete* end state. Without this the
+document has a hole in it that nothing before R6 could fill.
+
+The timing is not incidental. `config.Snapshot` is a hash preimage, and
+[mvp §2](mvp.md#2-the-rule-that-decides-what-gets-built) puts preimages in the column that
+cannot be retrofitted: adding a field to it later invalidates every revision chain a
+customer already holds. Doing it now costs a struct field. Doing it after the first customer
+export costs their history.
+
+**Rejected — leave `image` empty until the backend catalog (R6) resolves it.** Correct in
+the end state, and it defers a decision. It defers the *one* decision the plan says must not
+be deferred, and it leaves the MVP unable to start a model at all.
+
+## 10. The shape
 
 | | |
 | :--- | :--- |
@@ -185,22 +221,38 @@ R4c and R5. Enrolment is separately runnable regardless, because
 and that is not a reinstall. The specification gains the verb rather than the verb pretending
 to be the installer.
 
-## 10. Steps
+## 11. Steps
 
-- [ ] `RedeemJoinToken` — burned in one statement, replay refused
-- [ ] Migration 0009: `cert_expires_at` on `node`
-- [ ] `LoadAgentCA` and `SignAgentCertificate`
-- [ ] `POST /api/v1/enroll`
-- [ ] mTLS on the listener; node identity from the verified client certificate
-- [ ] `internal/agent`: the pinned client, `agent.toml`, `Enroll`
-- [ ] `nodary node enroll`
-- [ ] `GET /api/v1/agent/desired?rev=N`
-- [ ] `POST /api/v1/agent/status`
-- [ ] Approval records the offer, and the transitions record a revision
-- [ ] The end-to-end test: mint → enrol → poll empty → approve → poll populated → heartbeat
+- [x] `RedeemJoinToken` — burned in one statement, replay refused
+- [x] Migration 0009: `cert_expires_at` on `node`
+- [x] `LoadAgentCA` and `SignAgentCertificate`
+- [x] `POST /api/v1/enroll`
+- [x] mTLS on the listener; node identity from the verified client certificate
+- [x] `internal/agent`: the pinned client, `agent.toml`, `Enroll`
+- [x] `nodary node enroll`
+- [x] `GET /api/v1/agent/desired?rev=N`
+- [x] `POST /api/v1/agent/status`
+- [x] Approval records the offer, and the transitions record a revision
+- [x] The end-to-end test: mint → enrol → poll empty → approve → poll populated → heartbeat
 
-## 11. Open items
+## 12. What this slice changed outside itself
 
-- [10 §1](../specs/10-cli.md#1-surface) gains `node enroll` — done in this slice.
-- R4-04 is closed here; the remainder of the guardrail group (R4-14 – R4-17) is not in the
-  MVP and stays open · [mvp §6](mvp.md#6-what-an-mvp-install-cannot-claim)
+- [10 §1](../specs/10-cli.md#1-verbs) gains `node enroll`, and
+  [01 §5](../specs/01-install.md#5-node-install) says why it is separately runnable.
+- [02 §3](../specs/02-enrollment.md#3-certificate-lifecycle) gains the re-enrolment
+  condition and the supersession rule — §8 above.
+- [08 §1](../specs/08-data-model.md) gains `cert_expires_at` on `node`.
+- **A defect found on the way through.** `GET /api/v1/audit` returned Go's exported field
+  names — `Seq`, `TS`, `IntentHash` — while `GET /api/v1/audit/export` returned the
+  canonical `seq`, `ts`, `intent_hash` that the hash is taken over. Same server, same
+  records, two vocabularies, and a client reading one could not match a field in the other.
+  `Record` now marshals through `members()`, which is already documented as the only place
+  those names exist.
+
+## 13. Open items
+
+- R4-04 is closed here; the guardrail group (R4-13 – R4-17) is R4b, and R4-14 – R4-17 are
+  not in the MVP at all · [mvp §6](mvp.md#6-what-an-mvp-install-cannot-claim)
+- `probeGPUs` shells out to `nvidia-smi` and has no test, because a test would either need a
+  GPU or would assert against a stub of our own writing. The reasoning for asking the driver
+  rather than the filesystem is in the code, and the spike measured it.

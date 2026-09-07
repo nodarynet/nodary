@@ -17,7 +17,7 @@ genuinely static ([ADR 0002](../adr/0002-go-with-package-manager-wrappers.md)).
 ```sql
 node(name PK, fingerprint, state, arch, os, driver_version, gpus_json, topology_json,
      offer_json, constraints_json, reboot_policy, agent_version, protocol,
-     last_seen, approved_by, approved_at, departed_at, created_at)
+     last_seen, cert_expires_at, approved_by, approved_at, departed_at, created_at)
 
 refusal(id PK, node_name, rev, deployment_id, reason, detail_json, ts)
 

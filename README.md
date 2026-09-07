@@ -110,8 +110,8 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 ## Status
 
 **R0 and R1 are complete. R2 is complete to the extent the control plane can be without an
-agent, and R9's evidence bundle is built.** Nothing serves inference yet: that is the gateway
-and the agent, and neither has started.
+agent, R9's evidence bundle is built, and a node now enrols and speaks the agent protocol.**
+Nothing serves inference yet: no model is started and no request is routed.
 
 | | | |
 | :--- | :--- | :--- |
@@ -119,15 +119,19 @@ and the agent, and neither has started.
 | **R1** Core, audit, identity | done | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 28 of 42 | schema, revisions, the HTTP API, the shared core, TLS and the PKI |
 | **R9** Evidence | 12 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone |
-| **R3** Gateway · **R4** Agent · **R5** Install | not started | |
+| **R4** Agent | 7 of 37 | enrolment, certificate pinning, mTLS, desired state, heartbeat |
+| **R3** Gateway · **R5** Install | not started | |
 
 What works today: `nodary server install && nodary server start` brings up a TLS control
 plane; users, tokens, policy profiles and configuration revisions are administered from the
 CLI or the API, and every mutation is previewed, justified, hash-chained and exportable as an
-evidence bundle an assessor can verify without nodary installed.
+evidence bundle an assessor can verify without nodary installed. A GPU host runs `nodary node
+enroll`, pins the control plane by a fingerprint carried out of band, receives a client
+certificate, and long-polls its desired state — and receives nothing until an administrator
+approves it.
 
-What does not: no node enrols, no model is staged, and nothing is served. The route from here
-is [docs/plans/mvp.md](docs/plans/mvp.md).
+What does not: no model is staged, no unit is written, nothing is isolated and nothing is
+served. The route from here is [docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests

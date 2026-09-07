@@ -28,7 +28,8 @@ justification.
 ## 3. Certificate lifecycle
 
 - Agents renew at two-thirds of certificate lifetime over the existing mTLS channel.
-- A node offline past expiry must re-enroll with a fresh token — which requires an administrator, by design.
+- A node offline past expiry must re-enroll with a fresh token — which requires an administrator, by design. Re-enrolling a name that already exists is **refused while the recorded certificate is still valid**, and permitted once it has expired; the node then keeps its state and its approval. Without that condition a leaked token plus a guessed name replaces a live node's certificate and inherits its approval, which defeats §2 entirely.
+- Issuing a certificate supersedes the previous one **immediately**. The server records the fingerprint it issued and refuses any other, so a superseded certificate stops working at the next request rather than when it eventually expires.
 - `nodary node revoke <name>` invalidates the certificate immediately, stops scheduling, and instructs the agent to stop all deployments. If the agent is unreachable the revocation still takes effect at the server, and the node's certificate is refused on next contact.
 - `nodary node leave` is the node-side counterpart, run on the machine itself, and does not require the control plane to be reachable ([12](12-node-guardrails.md#5-decommissioning)).
 

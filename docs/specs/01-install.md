@@ -126,7 +126,7 @@ pip install nodary && nodary node install --server … --token … --ca-fingerpr
 1. **Preflight** (§11).
 2. Fetch components from the control plane's mirror — containerd, `nerdctl`, CNI plugins, the NVIDIA container toolkit — digest-verified against the embedded manifest. Skip anything already present at an acceptable version.
 3. Create the `nodary-isolated` CNI network ([03](03-agent.md#5-egress-isolation)).
-4. Enroll ([02](02-enrollment.md)). Obtain a client certificate.
+4. Enroll ([02](02-enrollment.md)). Obtain a client certificate. This step is also `nodary node enroll` on its own, because a node past certificate expiry must re-enroll ([02 §3](02-enrollment.md#3-certificate-lifecycle)) and that is not a reinstall — the components, the network and the units are all still in place, and only the identity has lapsed.
 5. Write `/etc/nodary/agent.toml`; install and start `nodary-agent` and `dcgm-exporter`.
 6. Report inventory. The machine appears in the control plane as a **pending** node.
 

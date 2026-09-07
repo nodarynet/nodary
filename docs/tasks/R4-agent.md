@@ -14,11 +14,14 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 
 ## Enrollment and trust
 
-- [ ] **R4-01** `POST /api/v1/enroll` — CSR plus join token returns a 90-day client certificate; the only unauthenticated agent endpoint · [02 §1](../specs/02-enrollment.md#1-flow)
-- [ ] **R4-02** CA fingerprint pinning: the agent fetches the CA certificate on first contact and refuses it unless the fingerprint matches; `--ca-fingerprint` is required for a network install · [02 §1](../specs/02-enrollment.md#1-flow)
-- [ ] **R4-03** Join tokens: `nodary token join --ttl --uses`, single-use by default, burned on success, minting audited · [02 §4](../specs/02-enrollment.md#4-token-types)
+- [x] **R4-01** `POST /api/v1/enroll` — CSR plus join token returns a 90-day client certificate; the only unauthenticated agent endpoint · [02 §1](../specs/02-enrollment.md#1-flow)
+- [x] **R4-02** CA fingerprint pinning: the agent fetches the CA certificate on first contact and refuses it unless the fingerprint matches; `--ca-fingerprint` is required for a network install · [02 §1](../specs/02-enrollment.md#1-flow)
+  - *done:* the pin is checked **inside the handshake** (`VerifyPeerCertificate`), not by fetching the certificate over an unverified connection and reconnecting. Same guarantee, one connection, and no window between the check and the use. A mismatch surfaces as `agent.ErrPin` rather than a transport error, because a connection that succeeded to the wrong server is an incident and not something to retry
+- [x] **R4-03** Join tokens: `nodary token join --ttl --uses`, single-use by default, burned on success, minting audited · [02 §4](../specs/02-enrollment.md#4-token-types)
   - *done:* a replayed token is rejected · [11 §3](../specs/11-failure-modes.md#3-security-controls)
-- [ ] **R4-04** Approval as a separate step: a `pending` node receives an empty desired state — it can heartbeat, it cannot serve · [02 §2](../specs/02-enrollment.md#2-why-approval-is-a-separate-step)
+  - the redemption is one `UPDATE … WHERE uses_left > 0 AND expires_at > ?`; the decrement **is** the check. A SELECT-then-UPDATE would be safe today only because `store.WriteTx` serialises writers, which is safety by accident
+- [x] **R4-04** Approval as a separate step: a `pending` node receives an empty desired state — it can heartbeat, it cannot serve · [02 §2](../specs/02-enrollment.md#2-why-approval-is-a-separate-step)
+  - the offer is carried in the **preview**, which `core.Act` hashes into `intent_hash` and writes into the record. Terms recorded beside the record rather than inside its hash would not be covered by anything
   - *done:* the approval record names the administrator, carries their justification, and records the node's advertised offer and constraints in the same record. Neither side can later claim terms the other did not see
 - [ ] **R4-05** Certificate lifecycle: renewal at two-thirds of lifetime over the existing mTLS channel; a node offline past expiry must re-enroll · [02 §3](../specs/02-enrollment.md#3-certificate-lifecycle)
 - [ ] **R4-06** `nodary node revoke` and node-side `nodary node leave` · [12 §5](../specs/12-node-guardrails.md#5-decommissioning)
@@ -26,9 +29,11 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 
 ## Protocol
 
-- [ ] **R4-07** `GET /api/v1/agent/desired?rev=N` long-poll, blocking up to 60s · [03 §1](../specs/03-agent.md#1-transport)
-- [ ] **R4-08** The desired-state document: a complete end state, with no imperative commands anywhere in the protocol · [03 §2](../specs/03-agent.md#2-desired-state-document)
-- [ ] **R4-09** `POST /api/v1/agent/status` every 15s — inventory, unit states, staging progress; node marked `stale` after 60s of silence · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
+- [x] **R4-07** `GET /api/v1/agent/desired?rev=N` long-poll, blocking up to 60s · [03 §1](../specs/03-agent.md#1-transport)
+- [x] **R4-08** The desired-state document: a complete end state, with no imperative commands anywhere in the protocol · [03 §2](../specs/03-agent.md#2-desired-state-document)
+- [x] **R4-09** `POST /api/v1/agent/status` every 15s — inventory, unit states, staging progress; node marked `stale` after 60s of silence · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
+  - *done:* `stale` is **derived at read time and never stored**. Storing it needs a sweeper, and a sweeper leaves a window where the database says `ready` about a node gone for a minute. It also keeps staleness out of the configuration snapshot, where a missed heartbeat would otherwise show up as a configuration change
+  - the heartbeat writes through `internal/observed` and produces **no audit record**. That package is the one directory besides `store` and `audit` that `TestNothingBypassesTheSeam` allows, and its package comment carries the rule it exists under · [R4a §4](../plans/R4a-agent-protocol.md)
 - [ ] **R4-10** `POST /api/v1/agent/events` with a bounded queue that spills to disk; an overflow is itself recorded · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
 - [ ] **R4-11** Protocol version handling: an agent outside the server's supported range stops reconciling, keeps running what is already up, and reports `incompatible` · [03 §4](../specs/03-agent.md#4-version-skew)
   - *done:* it does not guess
