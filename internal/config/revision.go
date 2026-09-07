@@ -241,6 +241,7 @@ func Changes(from, to *Snapshot) []string {
 	out = append(out, diffKeyed("deployment", keyDeployments(from), keyDeployments(to))...)
 	out = append(out, diffKeyed("route", keyRoutes(from), keyRoutes(to))...)
 	out = append(out, diffKeyed("limits", keyLimits(from), keyLimits(to))...)
+	out = append(out, diffKeyed("grant", keyGrants(from), keyGrants(to))...)
 
 	fp, tp := "none", "none"
 	if from != nil && from.Policy != nil {
@@ -332,6 +333,17 @@ func keyRoutes(s *Snapshot) map[string]string {
 	}
 	for _, r := range s.Routes {
 		m[r.Name] = render(r)
+	}
+	return m
+}
+
+func keyGrants(s *Snapshot) map[string]string {
+	m := map[string]string{}
+	if s == nil {
+		return m
+	}
+	for _, g := range s.Grants {
+		m[g.User+" → "+g.Route] = "granted"
 	}
 	return m
 }

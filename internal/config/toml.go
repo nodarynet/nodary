@@ -80,6 +80,9 @@ func normalise(s *Snapshot) {
 	if s.Limits == nil {
 		s.Limits = []Limit{}
 	}
+	if s.Grants == nil {
+		s.Grants = []Grant{}
+	}
 	for i := range s.Nodes {
 		if s.Nodes[i].RebootPolicy == "" {
 			s.Nodes[i].RebootPolicy = "manual-console"

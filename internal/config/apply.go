@@ -82,6 +82,10 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 	if err := applyLimits(ctx, tx, want, have, opt, &res); err != nil {
 		return res, err
 	}
+	// Grants last: they reference routes, which applyRoutes has just created.
+	if err := applyGrants(ctx, tx, now, want, &res); err != nil {
+		return res, err
+	}
 	slices.Sort(res.Orphans)
 	return res, nil
 }
@@ -154,6 +158,35 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 	}
 	return prune(ctx, tx, "deployment", "id", names(have.Deployments, func(d Deployment) string { return d.ID }),
 		names(want.Deployments, func(d Deployment) string { return d.ID }), opt, res)
+}
+
+// applyGrants replaces the per-user route allowlist wholesale.
+//
+// Wholesale, and not a merge: this is an allowlist, and the operation an
+// administrator most needs to be able to perform on one is *removal*. A merge
+// that only ever added would make revoking access something `config apply`
+// could not express, which is the one direction that has to work.
+func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want *Snapshot, res *Result) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_route`); err != nil {
+		return err
+	}
+	for _, g := range want.Grants {
+		var userID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM user WHERE name = ?`, g.User).Scan(&userID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("grant names user %q, which does not exist", g.User)
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO user_route (user_id, route_name, granted_at) VALUES (?, ?, ?)
+			 ON CONFLICT (user_id, route_name) DO NOTHING`,
+			userID, g.Route, stamp(now)); err != nil {
+			return fmt.Errorf("granting %s access to %s: %w", g.User, g.Route, err)
+		}
+	}
+	return nil
 }
 
 func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Snapshot, opt Options, res *Result) error {

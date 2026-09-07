@@ -33,7 +33,20 @@ type Snapshot struct {
 	Deployments []Deployment `json:"deployments" toml:"deployment"`
 	Routes      []Route      `json:"routes" toml:"route"`
 	Limits      []Limit      `json:"limits" toml:"limits"`
-	Policy      *Policy      `json:"policy" toml:"policy,omitempty"`
+	// Grants are docs/specs/06-gateway.md §2's per-user model allowlist. They
+	// are in the snapshot because they are a decision an administrator made,
+	// and they are here *now* rather than when throttling lands because this
+	// struct is a hash preimage — docs/plans/mvp.md §2 makes adding a field to
+	// it later the change that invalidates every revision chain a customer
+	// already holds.
+	Grants []Grant `json:"grants" toml:"grant"`
+	Policy *Policy `json:"policy" toml:"policy,omitempty"`
+}
+
+// Grant is one user's permission to call one route.
+type Grant struct {
+	User  string `json:"user" toml:"user"`
+	Route string `json:"route" toml:"route"`
 }
 
 // Node carries only what an administrator decided. Reported inventory,
@@ -130,12 +143,14 @@ func Read(ctx context.Context, q Querier) (*Snapshot, error) {
 		Deployments: []Deployment{},
 		Routes:      []Route{},
 		Limits:      []Limit{},
+		Grants:      []Grant{},
 	}
 	for _, step := range []struct {
 		what string
 		fn   func(context.Context, Querier, *Snapshot) error
 	}{
 		{"nodes", readNodes},
+		{"grants", readGrants},
 		{"models", readModels},
 		{"deployments", readDeployments},
 		{"routes", readRoutes},
@@ -309,4 +324,31 @@ func readPolicy(ctx context.Context, q Querier, s *Snapshot) error {
 	}
 	s.Policy = &p
 	return nil
+}
+
+// readGrants reads the per-user route allowlist, by user *name* rather than id.
+//
+// A snapshot is what `config export` writes and `config apply` reads, and an
+// operator editing that file has names in front of them, not `usr_` ids. It is
+// also what makes an export portable: restoring onto a rebuilt control plane
+// where the same people have different ids is docs/specs/08-data-model.md §2's
+// "canonical, for provisioning and DR", and an id-keyed grant would not survive
+// it.
+func readGrants(ctx context.Context, q Querier, s *Snapshot) error {
+	rows, err := q.QueryContext(ctx,
+		`SELECT u.name, g.route_name FROM user_route g
+		 JOIN user u ON u.id = g.user_id
+		 ORDER BY u.name, g.route_name`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var g Grant
+		if err := rows.Scan(&g.User, &g.Route); err != nil {
+			return err
+		}
+		s.Grants = append(s.Grants, g)
+	}
+	return rows.Err()
 }
