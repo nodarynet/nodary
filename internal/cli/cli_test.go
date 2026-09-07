@@ -20,6 +20,17 @@ func runWithStdin(t *testing.T, stdin string, args ...string) (code int, stdout,
 	return code, out.String(), errb.String()
 }
 
+// runInteractive drives the paths that only exist when somebody is at a
+// terminal: the TOTP prompt and the confirmation. Main decides that from
+// stdin's file mode, which a test reader can never satisfy, so the env is built
+// here instead.
+func runInteractive(t *testing.T, stdin string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	e := env{stdin: strings.NewReader(stdin), stdout: &out, stderr: &errb, tty: true}
+	return dispatch(e, args), out.String(), errb.String()
+}
+
 func TestVersionText(t *testing.T) {
 	code, stdout, _ := run(t, "version")
 	if code != ExitOK {

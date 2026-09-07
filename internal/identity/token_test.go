@@ -24,7 +24,7 @@ func (f *fixture) mint(user string, kind Kind, name string, expires time.Time) (
 	if _, err := f.act("token.create", func(m audit.Mutation) error {
 		var err error
 		tok, plain, err = MintToken(context.Background(), m, RoleAdmin, f.now, user, kind,
-			name, expires)
+			name, expires, false)
 		return err
 	}); err != nil {
 		f.t.Fatalf("minting a %s for %q: %v", kind, user, err)
@@ -230,7 +230,7 @@ func TestMintRefusesAnExpiryAlreadyPast(t *testing.T) {
 	f.add("alice", RoleOperator)
 	_, err := f.act("token.create", func(m audit.Mutation) error {
 		_, _, err := MintToken(context.Background(), m, RoleAdmin, f.now, "alice",
-			KindPersonal, "", f.now.Add(-time.Second))
+			KindPersonal, "", f.now.Add(-time.Second), false)
 		return err
 	})
 	if !errors.Is(err, ErrBadName) {
@@ -303,7 +303,7 @@ func TestOnlyAnAdminMintsAndRevokes(t *testing.T) {
 	for _, by := range []Role{RoleViewer, RoleUser, RoleOperator} {
 		_, err := f.act("token.create", func(m audit.Mutation) error {
 			_, _, err := MintToken(context.Background(), m, by, f.now, "alice",
-				KindPersonal, "", time.Time{})
+				KindPersonal, "", time.Time{}, false)
 			return err
 		})
 		if !errors.Is(err, ErrDenied) {
@@ -341,7 +341,7 @@ func TestMintRefusesTheWrongKindForAUser(t *testing.T) {
 	for _, kind := range []Kind{KindJoin, Kind("xx"), Kind("")} {
 		_, err := f.act("token.create", func(m audit.Mutation) error {
 			_, _, err := MintToken(context.Background(), m, RoleAdmin, f.now, "alice",
-				kind, "", time.Time{})
+				kind, "", time.Time{}, false)
 			return err
 		})
 		if !errors.Is(err, ErrUnknownKind) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"slices"
@@ -153,7 +154,7 @@ func cmdPolicyApply(e env, args []string) int {
 	fs := newFlagSet(e, "policy apply")
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -192,16 +193,34 @@ func cmdPolicyApply(e env, args []string) int {
 		}
 	}
 
-	rec, err := s.log.Act(context.Background(),
-		s.request("policy.apply", &audit.Target{Kind: "policy", ID: candidate.Name}, *justify),
-		func(m audit.Mutation) error {
+	rec, applied, code := s.attested(e, "policy apply", change{
+		action: "policy.apply",
+		target: &audit.Target{Kind: "policy", ID: candidate.Name},
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// The diff, not the candidate: the posture this replaces is what
+			// moves if another administrator applies something in between, and
+			// an operator who approved "regulated over default" did not approve
+			// "regulated over whatever is there now".
+			from, _, err := policy.Active(ctx, tx)
+			if err != nil {
+				return nil, err
+			}
+			d := policy.Diff(from, candidate)
+			lines := make([]string, len(d))
+			for i, c := range d {
+				lines[i] = c.String()
+			}
+			return map[string]any{"from": from.Name, "to": candidate.Name, "changes": lines}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
 			return policy.Apply(context.Background(), m, s.who.Role, s.now, candidate, source)
-		})
-	if err != nil {
-		return reportActFailure(e, "policy apply", rec, err)
+		},
+	}, cer, *format)
+	if !applied {
+		return code
 	}
 
 	if *format == "json" {

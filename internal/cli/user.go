@@ -1,13 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -70,7 +69,7 @@ func cmdUserAdd(e env, args []string) int {
 	fs := newFlagSet(e, "user add")
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
 	role := fs.String("role", string(identity.RoleViewer), "role: "+identity.JoinRoles())
 	email := fs.String("email", "", "email address, recorded and not validated")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -96,9 +95,23 @@ func cmdUserAdd(e env, args []string) int {
 	defer s.Close()
 
 	var created identity.User
-	rec, err := s.log.Act(context.Background(),
-		s.request("user.add", nil, *justify),
-		func(m audit.Mutation) error {
+	rec, applied, code := s.attested(e, "user add", change{
+		action: "user.add",
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// Whether the name is free is the thing that can move: another
+			// administrator taking it between preview and apply is what the
+			// re-render catches.
+			taken := true
+			if _, err := identity.Get(ctx, tx, name); errors.Is(err, identity.ErrNotFound) {
+				taken = false
+			} else if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"name": name, "role": string(wanted), "email": *email, "name_taken": taken,
+			}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
@@ -106,9 +119,10 @@ func cmdUserAdd(e env, args []string) int {
 			created, err = identity.Add(context.Background(), m, s.who.Role, s.now,
 				name, *email, wanted)
 			return err
-		})
-	if err != nil {
-		return reportActFailure(e, "user add", rec, err)
+		},
+	}, cer, *format)
+	if !applied {
+		return code
 	}
 	return writeUser(e, *format, created, rec)
 }
@@ -117,7 +131,7 @@ func cmdUserState(e env, verb string, args []string) int {
 	fs := newFlagSet(e, "user "+verb)
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -135,23 +149,36 @@ func cmdUserState(e env, verb string, args []string) int {
 	}
 	defer s.Close()
 
-	change := identity.Suspend
+	transition := identity.Suspend
 	if verb == "delete" {
-		change = identity.Delete
+		transition = identity.Delete
 	}
 	var after identity.User
-	rec, err := s.log.Act(context.Background(),
-		s.request("user."+verb, nil, *justify),
-		func(m audit.Mutation) error {
+	rec, applied, code := s.attested(e, "user "+verb, change{
+		action: "user." + verb,
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// The state being moved *from* is read here, so suspending a user
+			// somebody else already deleted refuses rather than reporting a
+			// transition that never happened.
+			before, err := identity.Get(ctx, tx, name)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"name": before.Name, "from": string(before.State), "to": verb + "d",
+			}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
 			var err error
-			after, err = change(context.Background(), m, s.who.Role, s.now, name)
+			after, err = transition(context.Background(), m, s.who.Role, s.now, name)
 			return err
-		})
-	if err != nil {
-		return reportActFailure(e, "user "+verb, rec, err)
+		},
+	}, cer, *format)
+	if !applied {
+		return code
 	}
 	return writeUser(e, *format, after, rec)
 }
@@ -292,12 +319,11 @@ func cmdUserTOTP(e env, args []string) int {
 	fmt.Fprintf(e.stderr, "This seed is shown once and cannot be read back.\n")
 	fmt.Fprintf(e.stderr, "Enter the code it now shows: ")
 
-	code, err := bufio.NewReader(e.stdin).ReadString('\n')
+	code, err := e.line()
 	if err != nil && code == "" {
 		fmt.Fprintf(e.stderr, "\nnodary user totp: no code was entered; nothing was changed\n")
 		return ExitUsage
 	}
-	code = strings.TrimSpace(code)
 
 	rec, err := s.log.Act(context.Background(),
 		s.request("user.totp", nil, *justify),

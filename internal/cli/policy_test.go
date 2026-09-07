@@ -56,7 +56,10 @@ func TestPolicyApplyReportsWhatItLoosens(t *testing.T) {
 	if code, _, stderr := a.run("policy", "apply", "regulated"); code != ExitOK {
 		t.Fatalf("apply regulated: %d %s", code, stderr)
 	}
-	code, _, stderr := a.run("policy", "apply", "default")
+	// regulated is in force, so this one must carry a justification of at
+	// least min_justification_length. That it does is R1-15's check; that the
+	// loosening is still reported is this test's.
+	code, _, stderr := a.run("policy", "apply", "default", "--justify", "reverting the pilot posture")
 	if code != ExitOK {
 		t.Fatalf("apply default: exit = %d, want 0: %s", code, stderr)
 	}

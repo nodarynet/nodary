@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -274,9 +275,16 @@ func exitFor(err error) int {
 		errors.Is(err, identity.ErrUnknownKind):
 		return ExitUsage
 	case errors.Is(err, identity.ErrNameTaken),
-		errors.Is(err, identity.ErrBadTransition):
+		errors.Is(err, identity.ErrBadTransition),
+		// docs/specs/11-failure-modes.md §3: state moved between the preview
+		// and the apply, so what would be applied is not what was approved.
+		errors.Is(err, attest.ErrIntentChanged):
 		return ExitPrecondition
-	case errors.Is(err, audit.ErrDeliveryBlocked):
+	case errors.Is(err, audit.ErrDeliveryBlocked),
+		errors.Is(err, attest.ErrJustification),
+		errors.Is(err, attest.ErrJustificationShort),
+		errors.Is(err, attest.ErrTOTPRequired),
+		errors.Is(err, attest.ErrUnattendedForbidden):
 		return ExitPolicy
 	}
 	return ExitFailure

@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
+	"github.com/nodarynet/nodary/internal/policy"
 )
 
 func cmdToken(e env, args []string) int {
@@ -83,12 +86,14 @@ func parseLifetime(s string) (time.Duration, error) {
 func cmdTokenCreate(e env, args []string) int {
 	fs := newFlagSet(e, "token create")
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
 	userName := fs.String("user", "", "the user the credential belongs to")
 	kindName := fs.String("kind", string(identity.KindPersonal), "pt (personal) or sk (service)")
 	label := fs.String("name", "", "a label, so this credential is identifiable later")
 	lifetime := fs.String("expires", "", "lifetime: 90d, 12h, or never (default per kind)")
 	save := fs.Bool("save", false, "also write it to the credentials file")
+	unattended := fs.Bool("allow-unattended", false,
+		"let this credential mutate with nobody present to re-authenticate")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -128,29 +133,62 @@ func cmdTokenCreate(e env, args []string) int {
 		return ExitUsage
 	}
 
+	// R1-17: the grant is refused at the mint rather than at every later use,
+	// because it is the whole route around re-authentication and a profile that
+	// closes it must close it once.
+	if *unattended {
+		active, _, err := policy.Active(context.Background(), s.db.Read())
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
+			return ExitFailure
+		}
+		if err := attest.AllowUnattendedMint(active); err != nil {
+			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
+			return ExitPolicy
+		}
+	}
+
 	var (
 		tok   identity.Token
 		plain string
 	)
-	rec, err := s.log.Act(context.Background(),
-		s.request("token.create", nil, *justify),
-		func(m audit.Mutation) error {
+	rec, applied, code := s.attested(e, "token create", change{
+		action: "token.create",
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// The user's state is read, not echoed: minting against somebody
+			// who was suspended between preview and apply is exactly the move
+			// docs/specs/07-identity-audit.md §3 refuses.
+			u, err := identity.Get(ctx, tx, *userName)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"user": u.Name, "user_state": string(u.State), "kind": string(kind),
+				"name": *label, "expires": formatTime(expires), "unattended": *unattended,
+			}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
 			var err error
 			tok, plain, err = identity.MintToken(context.Background(), m, s.who.Role, s.now,
-				*userName, kind, *label, expires)
+				*userName, kind, *label, expires, *unattended)
 			return err
-		})
-	if err != nil {
-		return reportActFailure(e, "token create", rec, err)
+		},
+	}, cer, "text")
+	if !applied {
+		return code
 	}
 
 	fmt.Fprintln(e.stdout, plain)
 	fmt.Fprintf(e.stderr, "%s for %s, id %s, expires %s.\n",
 		kind, *userName, tok.ID, formatTime(tok.ExpiresAt))
 	fmt.Fprintf(e.stderr, "This is shown once and is stored only as a hash.\n")
+	if tok.Unattended {
+		fmt.Fprintf(e.stderr,
+			"This credential may mutate unattended; the grant is audit record %d.\n", rec.Seq)
+	}
 	reportRecord(e, rec)
 
 	if *save {
@@ -233,7 +271,7 @@ func cmdTokenRevoke(e env, args []string) int {
 	fs := newFlagSet(e, "token revoke")
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -253,18 +291,32 @@ func cmdTokenRevoke(e env, args []string) int {
 	defer s.Close()
 
 	var tok identity.Token
-	rec, err := s.log.Act(context.Background(),
-		s.request("token.revoke", nil, *justify),
-		func(m audit.Mutation) error {
+	rec, applied, code := s.attested(e, "token revoke", change{
+		action: "token.revoke",
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// Whether it is already revoked is the moving part: revoking twice
+			// should refuse rather than report a revocation that happened when
+			// somebody else did it.
+			before, err := identity.TokenByID(ctx, tx, rest[0])
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"token": before.ID, "kind": string(before.Kind),
+				"prefix": before.Prefix, "already_revoked": before.Revoked(),
+			}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
 			var err error
 			tok, err = identity.RevokeToken(context.Background(), m, s.who.Role, s.now, rest[0])
 			return err
-		})
-	if err != nil {
-		return reportActFailure(e, "token revoke", rec, err)
+		},
+	}, cer, *format)
+	if !applied {
+		return code
 	}
 
 	if *format == "json" {

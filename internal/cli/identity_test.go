@@ -23,6 +23,9 @@ type appliance struct {
 	db    string
 	key   string
 	creds string
+	// seeds remembers what was enrolled, so a test can produce the code an
+	// authenticator would be showing.
+	seeds map[string][]byte
 }
 
 func newAppliance(t *testing.T) *appliance {
@@ -37,6 +40,7 @@ func newAppliance(t *testing.T) *appliance {
 		db:    filepath.Join(dir, "nodary.db"),
 		key:   filepath.Join(dir, "secret.key"),
 		creds: filepath.Join(dir, "credentials"),
+		seeds: map[string][]byte{},
 	}
 }
 

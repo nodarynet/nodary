@@ -98,6 +98,11 @@ type Token struct {
 	RevokedAt  time.Time
 	LastUsedAt time.Time
 	CreatedAt  time.Time
+	// Unattended is the grant of docs/specs/07-identity-audit.md §2: this
+	// credential may mutate without a person present to re-authenticate. It is
+	// refused at mint under a profile that forbids it, so a token that carries
+	// it was granted deliberately and the grant is in the chain.
+	Unattended bool
 }
 
 // Revoked reports whether the token has been withdrawn.
@@ -144,7 +149,7 @@ func displayPrefix(plaintext string, k Kind) string {
 // outside the holder's hands, which is what docs/specs/10-cli.md §4 means by
 // printed exactly once.
 func MintToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
-	userName string, kind Kind, name string, expires time.Time) (Token, string, error) {
+	userName string, kind Kind, name string, expires time.Time, unattended bool) (Token, string, error) {
 	if err := Authorize(by, PermTokenManage); err != nil {
 		return Token{}, "", err
 	}
@@ -184,18 +189,25 @@ func MintToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
 		Name:      name,
 		ExpiresAt: truncateTime(expires),
 		CreatedAt: truncateTime(now),
+
+		Unattended: unattended,
 	}
 	if _, err := m.Tx().ExecContext(ctx,
-		`INSERT INTO token (id, user_id, kind, hash, prefix, name, expires_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO token (id, user_id, kind, hash, prefix, name, expires_at, allow_unattended, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.UserID, string(t.Kind), hashToken(plaintext), t.Prefix, nullable(t.Name),
-		nullableTime(t.ExpiresAt), formatTime(t.CreatedAt),
+		nullableTime(t.ExpiresAt), t.Unattended, formatTime(t.CreatedAt),
 	); err != nil {
 		return Token{}, "", fmt.Errorf("issuing a token for %q: %w", userName, err)
 	}
 
 	m.Detail("user", u.Name)
 	m.Detail("kind", string(kind))
+	// The grant belongs in the record: it is what an assessor reads instead of
+	// a person's presence for every later act this credential authorises.
+	if unattended {
+		m.Detail("allow_unattended", true)
+	}
 	// The display prefix, never the secret. It is what makes this record and a
 	// later revocation refer to the same credential.
 	m.Detail("prefix", t.Prefix)
@@ -298,7 +310,7 @@ func RevokeToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
 // tokenColumns is the read shape, in one place so the SELECT and the scan
 // cannot drift apart.
 const tokenColumns = `id, user_id, kind, prefix, name, expires_at, revoked_at,
-	last_used_at, created_at`
+	last_used_at, allow_unattended, created_at`
 
 // TokenByID reads one token.
 func TokenByID(ctx context.Context, q Querier, id string) (Token, error) {
@@ -355,7 +367,7 @@ func scanToken(row interface{ Scan(...any) error }) (Token, error) {
 		expires, revoked, used sql.NullString
 	)
 	if err := row.Scan(&t.ID, &t.UserID, &kind, &t.Prefix, &name,
-		&expires, &revoked, &used, &created); err != nil {
+		&expires, &revoked, &used, &t.Unattended, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Token{}, err
 		}

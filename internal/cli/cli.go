@@ -6,10 +6,12 @@
 package cli
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 )
@@ -25,12 +27,56 @@ const (
 	ExitUnreachable  = 6
 )
 
+// ExitCancelled is what an operator answering "no" at the confirmation gets.
+// docs/specs/10-cli.md §5 has no code for it, and 0 would tell a script the
+// change was applied. 1 is the honest answer: the command did not do its job.
+const ExitCancelled = ExitFailure
+
 // env carries the streams a command reads and writes, so every command is
 // testable without touching the process's own.
 type env struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
+	// in is the one buffered reader over stdin. It has to be shared: a
+	// bufio.Reader reads ahead, so a second one built for a later prompt finds
+	// the buffer empty and the input gone. Two prompts in one command --- a
+	// TOTP code and then a confirmation --- is exactly that case, and the
+	// symptom is a silent cancellation rather than an error.
+	in *bufio.Reader
+	// tty reports that there is a human who can answer a prompt. It is a field
+	// rather than a check on stdin because an io.Reader cannot be asked, and
+	// because a test needs to drive both sides of docs/specs/07-identity-audit.md
+	// §2 — the interactive path that prompts, and the unattended path that is
+	// refused for having nobody to prompt.
+	tty bool
+}
+
+// interactive reports whether a prompt would reach anybody.
+func (e env) interactive() bool { return e.tty }
+
+// line reads one answer from stdin.
+func (e env) line() (string, error) {
+	if e.in == nil {
+		return "", io.EOF
+	}
+	s, err := e.in.ReadString('\n')
+	return strings.TrimSpace(s), err
+}
+
+// isTerminal reports whether stdin is a character device.
+//
+// os.Stat rather than a terminal library: the question is only whether a prompt
+// would reach a human, a pipe or a file answers no, and this is the check
+// without a dependency. A test reader is not a *os.File and is therefore
+// non-interactive, which is the right default for one.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // planned lists the verbs specified in docs/specs/10-cli.md that this release
@@ -60,7 +106,16 @@ var planned = map[string]string{
 // stdin is a parameter because one verb reads from it: TOTP enrollment asks for
 // a code back before it writes anything (docs/specs/07-identity-audit.md §1).
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	e := env{stdin: stdin, stdout: stdout, stderr: stderr}
+	return dispatch(env{stdin: stdin, stdout: stdout, stderr: stderr, tty: isTerminal(stdin)}, args)
+}
+
+// dispatch is Main with the environment already decided, so a caller that knows
+// whether it is interactive can say so.
+func dispatch(e env, args []string) int {
+	stdout, stderr := e.stdout, e.stderr
+	if e.in == nil && e.stdin != nil {
+		e.in = bufio.NewReader(e.stdin)
+	}
 
 	if len(args) == 0 {
 		usage(stdout)
