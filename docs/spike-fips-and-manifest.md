@@ -97,7 +97,7 @@ Measured on the same host: `GOFIPS140=v1.0.0 go build` produces a **dynamically 
 binary, and so does a plain `go build`. Go's default is `CGO_ENABLED=1`. `make dist` sets it
 to `0`, which is what the existing `static-binary` job checks and what the release path uses.
 
-So the property [ADR 0002](adr/0002-language-and-runtime.md) and
+So the property [ADR 0002](adr/0002-go-with-package-manager-wrappers.md) and
 [R0-16](tasks/R0-release.md) depend on belongs to the cgo-free build, not to FIPS — and FIPS
 does not take it away, which is the actual finding. With `CGO_ENABLED=0 GOFIPS140=v1.0.0`:
 statically linked, **1049** `fips140` symbols, and the whole suite passing under
