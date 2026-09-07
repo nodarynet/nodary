@@ -52,6 +52,7 @@ A plan carries three things the tracker cannot:
 | [R3a — The gateway, and the closed metering record](R3a-gateway.md) | [R3](../tasks/R3-gateway.md) | R3-01 – R3-06, R3-12, R3-15, R3-16 | complete |
 | [R5a — Components, the mirror, and the units](R5a-components-and-units.md) | [R5](../tasks/R5-install.md) | R5-06, R5-07, R5-11 | complete |
 | [R5b — Preflight, `doctor`, and the setup URL](R5b-preflight-and-doctor.md) | [R5](../tasks/R5-install.md) | R5-01, R5-02, R5-04, R5-18, R5-25 | complete |
+| [R5c — The privileged install](R5c-the-privileged-install.md) | [R5](../tasks/R5-install.md) | R5-09, R5-10 | built, unverified on a privileged host |
 
 ## Not a slice
 
