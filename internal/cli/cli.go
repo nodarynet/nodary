@@ -87,8 +87,6 @@ var planned = map[string]string{
 	"backend":   "backend descriptor registration",
 	"model":     "catalog, staging and deployment",
 	"route":     "public model routing",
-	"limits":    "rate and budget limits",
-	"usage":     "usage reporting",
 	"backup":    "backup and restore",
 	"bundle":    "offline bundle creation",
 	"upgrade":   "in-place upgrade",
@@ -147,12 +145,18 @@ func dispatch(e env, args []string) int {
 		return cmdNode(e, args[1:])
 	case "agent":
 		return cmdAgent(e, args[1:])
+	case "gateway":
+		return cmdGateway(e, args[1:])
+	case "limits":
+		return cmdLimits(e, args[1:])
+	case "usage":
+		return cmdUsage(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress` and `agent plan|run|egress-probe`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits` and `usage`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -197,6 +201,12 @@ Available in this release:
                          plan    Show what this node would do, and do none of it
                          run     Reconcile this node against its desired state
                          egress-probe   The three checks, in this namespace
+  gateway              The inference API
+                         start   Serve the OpenAI surface, metered
+  limits               Rate and budget limits (recorded; not yet enforced)
+                         show | set
+  usage                Metered requests — counts, never content
+                         show [--user] [--model] [--node] [--group_by]
 
 Specified, not yet implemented:
 `, versionString())
