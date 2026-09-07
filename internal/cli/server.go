@@ -132,7 +132,8 @@ func cmdServerStart(e env, args []string) int {
 	defer s.Close()
 
 	srv := api.New(api.Options{DB: s.db, Log: s.log, Key: s.key,
-		PKI: filepath.Join(filepath.Dir(serverConfigPath(*confPath)), "pki")})
+		PKI:  filepath.Join(filepath.Dir(serverConfigPath(*confPath)), "pki"),
+		Dist: api.DistDir(c.DataDir)})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

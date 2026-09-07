@@ -173,9 +173,10 @@ Usage:
 
 Available in this release:
   version              Print version and platform
-  components           Inspect the pinned third-party component manifest
+  components           The pinned third-party component manifest
                          list    Show components this binary pins
                          verify  Check every pinned artifact resolves
+                         fetch   Resolve them into the cache, digest-verified
   audit                Inspect the tamper-evident audit chain
                          list    Show records, newest first
                          verify  Walk the chain and report the first break

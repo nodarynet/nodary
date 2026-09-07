@@ -9,13 +9,17 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"errors"
+	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/paths"
+	"path/filepath"
 )
 
 func cmdComponents(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary components: expected a subcommand (list, verify)\n")
+		fmt.Fprintf(e.stderr, "nodary components: expected a subcommand (list, verify, fetch)\n")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -23,8 +27,10 @@ func cmdComponents(e env, args []string) int {
 		return cmdComponentsList(e, args[1:])
 	case "verify":
 		return cmdComponentsVerify(e, args[1:])
+	case "fetch":
+		return cmdComponentsFetch(e, args[1:])
 	default:
-		fmt.Fprintf(e.stderr, "nodary components: unknown subcommand %q (want list or verify)\n", args[0])
+		fmt.Fprintf(e.stderr, "nodary components: unknown subcommand %q (want list, verify or fetch)\n", args[0])
 		return ExitUsage
 	}
 }
@@ -251,4 +257,113 @@ func cmdComponentsVerify(e env, args []string) int {
 		return ExitFailure
 	}
 	return ExitOK
+}
+
+// cmdComponentsFetch resolves components into the cache the control plane
+// serves to nodes: docs/specs/01-install.md §3 and §4's step 3.
+//
+// It is a verb of its own as well as a step of `server install`, because the
+// cache is the thing an operator most needs to be able to repair: a node that
+// cannot install has a control plane whose cache is incomplete, and re-running
+// the whole install to fix one artifact is the wrong shape of remedy.
+func cmdComponentsFetch(e env, args []string) int {
+	fs := newFlagSet(e, "components fetch")
+	format := formatFlag(fs)
+	platform := fs.String("platform", "host", "platform to resolve for: host, or linux/amd64")
+	dir := fs.String("dir", "", "the cache directory (default /var/lib/nodary/dist)")
+	role := fs.String("role", "", "only components for this role: server or node")
+	from := fs.String("from", "",
+		"fetch through a control plane's mirror instead of upstream, e.g. https://host:8443")
+	ownership := fs.String("record", "", "where to record what was placed (default /etc/nodary/components.json)")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+
+	m, ok := loadManifest(e)
+	if !ok {
+		return ExitFailure
+	}
+	plat := resolvePlatform(*platform)
+	if plat == "" {
+		fmt.Fprintf(e.stderr, "nodary components fetch: --platform all is not a thing to fetch; name one\n")
+		return ExitUsage
+	}
+
+	var want []components.Component
+	for _, c := range m.ForPlatform(plat) {
+		if *role != "" && !c.HasRole(components.Role(*role)) {
+			continue
+		}
+		if c.Kind == components.KindImage {
+			// Pulled by the container runtime from a registry by digest, which
+			// is a different mechanism with different credentials.
+			continue
+		}
+		want = append(want, c)
+	}
+	if len(want) == 0 {
+		fmt.Fprintf(e.stderr, "nodary components fetch: nothing to fetch for %s\n", plat)
+		return ExitOK
+	}
+
+	cache := *dir
+	if cache == "" {
+		cache = filepath.Join(paths.DataDir, "dist")
+	}
+	got, err := components.Fetch(context.Background(), want, components.FetchOptions{
+		Dir: cache, Platform: plat, BaseURL: mirrorURL(*from),
+	})
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary components fetch: %v\n", err)
+		// A digest mismatch is not a network problem and must not read like
+		// one: docs/specs/01-install.md §2 has no override flag for it.
+		if errors.Is(err, components.ErrDigestMismatch) {
+			fmt.Fprintf(e.stderr,
+				"  This is a hard stop. The bytes are not what this binary pins, and there is\n"+
+					"  no flag to proceed anyway.\n")
+		}
+		return ExitFailure
+	}
+
+	// Recorded as fetched, not as placed: these are in nodary's own cache, and
+	// `placed` means something nodary put on the host outside its own tree.
+	record := *ownership
+	if record == "" {
+		record = filepath.Join(paths.ConfigDir, components.OwnershipFile)
+	}
+	owned := make([]components.Owned, 0, len(got))
+	for _, f := range got {
+		owned = append(owned, components.Owned{Component: f.Component, Version: f.Version,
+			Path: f.Path, SHA256: f.SHA256, Placed: true})
+	}
+	if err := components.Record(record, versionString(), owned...); err != nil {
+		// Not fatal: the artifacts are correct and verified, and an unwritable
+		// record is an uninstall that has to ask rather than an install that
+		// failed. Said out loud so it is not discovered at uninstall time.
+		fmt.Fprintf(e.stderr, "nodary components fetch: could not record ownership in %s: %v\n",
+			record, err)
+	}
+
+	if *format == "json" {
+		return writeJSON(e, "components fetch", map[string]any{"fetched": got, "dir": cache})
+	}
+	var bytes int64
+	for _, f := range got {
+		fmt.Fprintf(e.stdout, "%-14s %-12s %-8s %s\n", f.Component, f.Version, f.Placement, f.Path)
+		bytes += f.Bytes
+	}
+	fmt.Fprintf(e.stderr, "\n%d components in %s (%.1f MB)\n", len(got), cache, float64(bytes)/(1<<20))
+	return ExitOK
+}
+
+// mirrorURL turns a control-plane base URL into the dist path a node fetches
+// from. Empty stays empty, which means fetch from upstream.
+func mirrorURL(server string) string {
+	if server == "" {
+		return ""
+	}
+	return strings.TrimRight(server, "/") + api.Prefix + "/agent/dist"
 }
