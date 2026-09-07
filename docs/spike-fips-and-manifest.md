@@ -138,12 +138,12 @@ The current [`Manifest`](../internal/components/manifest.go) carries `schema`,
 
 ## 4. Open
 
-- **Which minisign variant the release actually produces was not measured.** `.goreleaser.yaml`
-  passes no `-H`, and both GitHub releases for `v0.0.1-rc1` are still **drafts**, so no asset
-  was fetchable from this container to read. One command settles it against a real artifact:
-  `head -2 nodary_linux_amd64.minisig | tail -1 | base64 -d | head -c2` — `Ed` is legacy,
-  `ED` is prehashed. If it is `ED`, §3's recommendation becomes a change to the release
-  pipeline rather than a note in an ADR.
+- ~~**Which minisign variant the release actually produces was not measured.**~~ **Settled,
+  and it was the worse answer.** Measured against minisign 0.11: `-S` alone writes a
+  **prehashed `ED`** signature, and `-l` is the flag that asks for the legacy `Ed` one. So
+  §3's recommendation is a change to the release pipeline, not a note in an ADR — anything
+  nodary verifies in Go must be signed `minisign -S -l`. [ADR 0007](adr/0007-independent-component-manifest.md)
+  carries it, and `internal/minisign` tests both directions against the real binary.
 - **Question 1 needs a GPU host.**
 - **`on` or `only` is a product decision, not an implementation one.** `only` costs the TOTP
   algorithm and a sealing-format migration. `on` costs nothing today and claims less. The

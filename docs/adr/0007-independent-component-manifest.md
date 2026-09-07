@@ -56,8 +56,19 @@ digest. BLAKE2b is not in the standard library and is not FIPS-approved, so a pr
 signature would place a non-approved hash on the path that verifies what a node installs —
 inside the boundary [ADR 0006](0006-cui-boundary-and-fips.md) exists to defend. The legacy
 `Ed` algorithm signs the message directly with Ed25519, which is approved and passes under
-`GODEBUG=fips140=only`. **The release pipeline must produce `Ed` signatures**, and the
-verifier rejects `ED` rather than growing a dependency to accommodate it.
+`GODEBUG=fips140=only`.
+
+**`Ed` is not minisign's default, and this is the sharp edge.** Measured against minisign
+0.11: a bare `minisign -S` writes a prehashed `ED` signature, and **`-l` is what asks for the
+legacy format**. Every artifact this verifier must check is therefore signed `minisign -S -l`,
+and a pipeline that omits the flag produces signatures that are perfectly valid and that
+nodary refuses. Two things keep that from being discovered by a customer: the verifier's
+refusal names `-l` instead of saying "does not verify", and the test suite signs with the real
+minisign binary in both directions, including the no-flag default, so the pipeline losing the
+flag fails CI rather than a release.
+
+Release binaries are unaffected: `install.sh` verifies those with `openssl`, and a human
+checking one out-of-band uses stock minisign, which auto-detects either algorithm.
 
 The trusted comment is covered by the global signature and carries the revision number, so a
 signature cannot be lifted from one revision onto another.
