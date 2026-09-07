@@ -301,6 +301,20 @@ func (a *appliance) licensedExpired() {
 	}
 }
 
+// execSQL runs a statement straight against the database, for states a test
+// cannot reach through a verb — an agent's heartbeat, or a tamper.
+func (a *appliance) execSQL(stmt string) {
+	a.t.Helper()
+	db, err := sql.Open("sqlite", a.db)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(stmt); err != nil {
+		a.t.Fatalf("exec %q: %v", stmt, err)
+	}
+}
+
 func extractBundle(t *testing.T, path, into string) map[string]string {
 	t.Helper()
 	f, err := os.Open(path)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/policy"
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -216,7 +217,14 @@ func cmdPolicyApply(e env, args []string) int {
 			if err := s.touch(m); err != nil {
 				return err
 			}
-			return policy.Apply(context.Background(), m, s.who.Role, s.now, candidate, source)
+			if err := policy.Apply(context.Background(), m, s.who.Role, s.now, candidate, source); err != nil {
+				return err
+			}
+			// The active profile is part of the configuration snapshot, so
+			// changing it is a configuration change and records a revision.
+			// R2-11: every configuration change writes one.
+			_, err := config.Record(context.Background(), m, s.now, s.who.Actor.ID, *cer.justify)
+			return err
 		},
 	}, cer, *format)
 	if !applied {

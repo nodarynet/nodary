@@ -91,7 +91,6 @@ var planned = map[string]string{
 	"route":     "public model routing",
 	"limits":    "rate and budget limits",
 	"usage":     "usage reporting",
-	"config":    "configuration revisions",
 	"backup":    "backup and restore",
 	"bundle":    "offline bundle creation",
 	"upgrade":   "in-place upgrade",
@@ -142,12 +141,14 @@ func dispatch(e env, args []string) int {
 		return cmdLicense(e, args[1:])
 	case "evidence":
 		return cmdEvidence(e, args[1:])
+	case "config":
+		return cmdConfig(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license` and `evidence`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence` and `config`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -181,6 +182,8 @@ Available in this release:
                          apply | show
   evidence             The signed evidence bundle (commercial)
                          export
+  config               Configuration revisions
+                         show | list | diff | export | apply | rollback | verify
 
 Specified, not yet implemented:
 `, versionString())

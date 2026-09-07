@@ -65,6 +65,8 @@ var readOnly = map[string]bool{
 	"audit list": true, "audit show": true, "audit export": true, "audit verify": true,
 	"policy show": true, "policy diff": true,
 	"license show": true,
+	"config show":  true, "config list": true, "config diff": true,
+	"config export": true, "config verify": true,
 }
 
 func (a *appliance) whereFor(verb, sub string) []string {
