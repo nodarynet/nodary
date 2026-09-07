@@ -48,3 +48,11 @@ an extra network hop on every request.
 supports converge on a dialect uniform enough that direct proxying becomes trivial. The
 gateway boundary is deliberately placed so that absorbing the proxy later is a contained
 change.
+
+**Reconsider also if** pinning LiteLLM's request logging off proves insufficient.
+[ADR 0006](0006-cui-boundary-and-fips.md) places nodary inside the customer's CUI boundary,
+which reprices this dependency: LiteLLM is a third-party process in the data path whose
+logging, temporary files and error paths are ours to account for. The mitigation is to render
+its configuration with logging pinned off and assert it continuously
+([R3-16](../tasks/R3-gateway.md)). If that assertion cannot be made to hold, absorbing the
+proxy stops being a contained change we might make and becomes one we have to.

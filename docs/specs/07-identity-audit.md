@@ -9,9 +9,17 @@
 | `operator` | The above, plus enable, disable and restart models; stage weights; drain nodes |
 | `admin` | Everything: configuration, catalog and backend registration, node approval, user and token management, policy |
 
-Authentication is local: argon2id password hashing plus TOTP. The web interface uses
+Authentication is local: PBKDF2-SHA256 password hashing plus TOTP. The web interface uses
 short-lived signed session cookies; the CLI uses personal tokens at `~/.nodary/credentials`
 (mode 0600).
+
+**PBKDF2 rather than argon2id**, which is the stronger password KDF and is not FIPS-approved.
+[ADR 0006](../adr/0006-cui-boundary-and-fips.md) puts nodary inside a CUI boundary, and
+arguing to an assessor that password hashing does not protect CUI confidentiality is more
+expensive than the change — the argument may well be right and it still costs a meeting.
+The salt is **at least 128 bits**, which Go's FIPS module enforces and which is therefore a
+correctness requirement rather than a preference; Go enforces no iteration floor, so the cost
+parameter is ours to choose and to raise on verify ([R2-42](../tasks/R2-control-plane.md)).
 
 OIDC against an external identity provider is a later swap behind the same interface, not a
 rewrite. It is deliberately not the initial mechanism: an appliance that cannot authenticate

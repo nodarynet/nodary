@@ -3,7 +3,7 @@
 **Deliverable:** `ee/`, a signed licence key, `nodary evidence export`, and the
 signed advisory feed.
 **Proves:** records become a deliverable an assessor consumes.
-· [pivot §5](../plans/pivot-cmmc.md#5-evidence-and-assessment--spec-13),
+· [13](../specs/13-evidence.md),
 [§6](../plans/pivot-cmmc.md#6-flaw-remediation--spec-14-adr-0007)
 
 R9 is the commercial milestone [pivot §9](../plans/pivot-cmmc.md#9-roadmap-deltas) added.
@@ -13,11 +13,10 @@ hold — which is what makes it small, and what makes its **format** the expensi
 Nothing here is security: [pivot §2.1](../plans/pivot-cmmc.md#21-the-open-core-line-operational-free-evidence-paid)
 keeps the mechanism free and sells the knowing and the proving.
 
-**Every citation below is provisional.** The rule that a task must point at the text
-that made it stands, and the text that made these is a plan rather than a
-specification, because [spec 13](../plans/pivot-cmmc.md#8-new-documents) and spec 14 do
-not exist yet. When they land, every link in this file moves to them and this note goes.
-· [tasks README](README.md#task-format)
+**The remediation citations are provisional.** [13](../specs/13-evidence.md) now exists and
+the bundle tasks cite it. Spec 14 does not, so §"Flaw remediation" still cites
+[the pivot](../plans/pivot-cmmc.md#6-flaw-remediation--spec-14-adr-0007); those links move
+when it lands. · [tasks README](README.md#task-format)
 
 R9 also has a route through it that is not the whole milestone:
 [MVP §4](../plans/mvp.md#4-the-route) takes R9-01 – R9-09 and R9-12 in full, ships
@@ -39,7 +38,7 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 
 ## The bundle
 
-- [ ] **R9-05** `nodary evidence export --from --to --out bundle.tar.gz` writing every member named in [pivot §5](../plans/pivot-cmmc.md#5-evidence-and-assessment--spec-13)
+- [ ] **R9-05** `nodary evidence export --from --to --out bundle.tar.gz` writing every member named in [13](../specs/13-evidence.md)
   - *done:* a member with no producer yet is present and declared empty rather than absent, so a member gaining rows later is not a format change
   - *deps:* R1-11
 - [ ] **R9-06** `manifest.json` and `manifest.json.minisig` — a digest of every member, signed

@@ -48,6 +48,17 @@ nodary.
 skew, upgrade ordering. This is mitigated by keeping the agent deliberately boring: it renders
 files and reports status, and does not schedule, bin-pack or supervise. It is not eliminated.
 
+**Reconsider the runtime, not the decision, if** `nodary-isolated` proves as awkward under
+CNI as it is under docker. [The spike](../spike-fips-and-manifest.md#--internal-silently-breaks-ingress--this-is-the-finding)
+found that docker's obvious isolation primitive silently destroys ingress, and §5's warning
+that `IPAddressDeny=` filters the launcher rather than the workload is a consequence of
+containerd's shim parenting. Podman is daemonless and parents the container inside the unit's
+cgroup, which would make that systemd filter actually enforce — turning
+[03 §5](../specs/03-agent.md#5-egress-isolation)'s "the obvious approach does not work" into a
+mechanism rather than a trap. That is a runtime substitution behind the same architecture, not
+a return to an orchestrator, and it is worth measuring before [R4-26](../tasks/R4-agent.md) is
+built rather than after.
+
 **Reconsider if** the workload becomes heterogeneous or elastic — many model families
 appearing and disappearing, training alongside serving, or bin-packing across a large fleet.
 At that point a scheduler earns its complexity, and this decision should be revisited rather

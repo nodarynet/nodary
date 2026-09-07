@@ -158,6 +158,7 @@ Each is independently useful and shippable.
 | **R6** | Backend descriptors beyond vLLM: SGLang, llama.cpp, TensorRT-LLM | Pluggability is real, not theoretical |
 | **R7** | Read-only web UI: nodes, models, staging, usage, audit browser | Zero mutation, zero risk |
 | **R8** | Mutating UI with attestation | Parity with the CLI |
+| **R9** | Evidence and remediation: the signed bundle, control index, narratives, advisory feed ([13](13-evidence.md)) | Records become a deliverable an assessor consumes |
 
 Node guardrails ([12](12-node-guardrails.md)) are not a milestone of their own: the agent
 checks the desired state against `node.toml` before reconciling, so the check lands in R4 with
@@ -166,3 +167,9 @@ written to assume it never refuses.
 
 R1–R5 deliver the whole stated goal with no frontend. R7 and R8 are polish; stopping after R6
 is a complete outcome.
+
+R9 is the commercial milestone ([ADR 0005](../adr/0005-editions-and-the-advisory-feed.md)). It
+is numbered last because it depends on R1's chain and R2's revisions, not because it is
+optional — it is what the buyer in [§1](#1-scope) is paying for. [The MVP
+route](../plans/mvp.md) pulls part of it forward, because the bundle's format is the one thing
+in the product that cannot be changed once a customer holds one.

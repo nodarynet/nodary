@@ -31,7 +31,7 @@ it is never silent and never hidden.
 | `revisions.jsonl` | Configuration revision history |
 | `nodes.json` | Approval records with the inventory offered as at approval |
 | `identity.jsonl` | User and token lifecycle |
-| `remediation.jsonl` | What was known, decided, by whom, with what justification, and applied when · [14](14-flaw-remediation.md) |
+| `remediation.jsonl` | What was known, decided, by whom, with what justification, and applied when · [pivot §6](../plans/pivot-cmmc.md#6-flaw-remediation--spec-14-adr-0007), pending spec 14 |
 | `manifest.json` + `manifest.json.minisig` | Digest of every member, signed |
 
 **Every member is always present.** A member with no producer yet, or no rows in the period,

@@ -342,11 +342,8 @@ item until the spec is corrected. All of these are open.
 | :--- | :--- |
 | [00 §1](../specs/00-overview.md#1-scope) | Target inverts: regulated small site primary, homelab is the community edition. `default` stays the fresh-install profile — say why |
 | [00 §5](../specs/00-overview.md#5-trust-boundaries) | Add the CUI boundary row |
-| [00 §8](../specs/00-overview.md#8-milestones) | R9 added |
-| [07 §1](../specs/07-identity-audit.md#1-users-and-roles) | argon2id → PBKDF2 under FIPS |
+
 | [07 §5](../specs/07-identity-audit.md#5-control-mapping) | Rewrite against 800-171 practice identifiers, transcribed from the publication. Reframe the opening |
-| [ADR 0003](../adr/0003-litellm-as-data-plane.md) | "Reconsider if" gains the CUI-surface condition |
-| [ADR 0004](../adr/0004-release-artifacts-and-channels.md) | Pointer to ADR 0007 |
 | `README.md` | Lead with the CUI and CMMC framing; editions table; the notary thesis becomes the headline rather than a footnote |
 
 ## 8. New documents
@@ -399,12 +396,12 @@ Stated so it can be checked later rather than quietly revised.
 
 ## Steps
 
-- [ ] ADR 0007 — the independent manifest. First, per §6
-- [ ] ADR 0006 — CUI boundary and FIPS
-- [ ] ADR 0005 — editions, licence key, feed liability
-- [ ] Spec 13 — evidence and assessment
+- [x] ADR 0007 — the independent manifest. First, per §6
+- [x] ADR 0006 — CUI boundary and FIPS
+- [x] ADR 0005 — editions, licence key, feed liability
+- [x] Spec 13 — evidence and assessment
 - [ ] Spec 14 — flaw remediation
 - [ ] Spec corrections, §7 — 07 §5 last, it needs the publication open
 - [ ] README
-- [ ] Tracker: R9, R2-42, R0/R5 deltas, plans README row
-- [ ] The spike, §10
+- [x] Tracker: R9, R2-42, R0/R5 deltas, plans README row
+- [x] The spike, §10 — [memo](../spike-fips-and-manifest.md)

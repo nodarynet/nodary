@@ -73,6 +73,7 @@ functions, and every mutating call passes through the audit layer.
 | 10 | [CLI reference](docs/specs/10-cli.md) |
 | 11 | [Failure modes](docs/specs/11-failure-modes.md) |
 | 12 | [Node guardrails](docs/specs/12-node-guardrails.md) — local limits, maintenance windows, decommissioning |
+| 13 | [Evidence & assessment](docs/specs/13-evidence.md) — the signed bundle an assessor reads |
 
 ### Decisions
 
@@ -82,6 +83,9 @@ functions, and every mutating call passes through the audit layer.
 | 0002 | [Go, redistributed through package-manager wrappers](docs/adr/0002-go-with-package-manager-wrappers.md) |
 | 0003 | [LiteLLM as the data plane](docs/adr/0003-litellm-as-data-plane.md) |
 | 0004 | [Release artifacts and install channels](docs/adr/0004-release-artifacts-and-channels.md) — one binary, four channels |
+| 0005 | [Editions, the licence key, and the advisory feed](docs/adr/0005-editions-and-the-advisory-feed.md) — the mechanism is free, the proving is paid |
+| 0006 | [The CUI boundary and the FIPS build](docs/adr/0006-cui-boundary-and-fips.md) — what nodary may hold, and the crypto that holds it |
+| 0007 | [The component manifest as an independent artifact](docs/adr/0007-independent-component-manifest.md) — patch on the customer's timeline, not ours |
 
 ### Implementation
 

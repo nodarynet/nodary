@@ -28,7 +28,7 @@ Three objects, named distinctly, never again used interchangeably:
 | Object | Contents | Size | Produced by |
 | :--- | :--- | :--- | :--- |
 | **Binary** | `nodary` — server, agent and CLI | ~20–40 MB | Release build |
-| **Component manifest** | Name, version, per-platform URL and SHA-256 for every third-party dependency | Embedded in the binary | Release build |
+| **Component manifest** | Name, version, per-platform URL and SHA-256 for every third-party dependency | Embedded in the binary, and separately signed as a revision ([ADR 0007](0007-independent-component-manifest.md)) | Release build |
 | **Offline bundle** | Binary plus a chosen subset of components, resolved from the manifest | GB | `nodary bundle create` |
 
 ### Channels carry the binary and nothing else
@@ -92,6 +92,11 @@ unaffected.
 **Cost.** The component manifest is now a maintained release artifact — every dependency bump
 is a digest update, and a stale URL is a broken install. `nodary components verify` exists to
 catch that in CI rather than at a customer.
+
+**Amended by [ADR 0007](0007-independent-component-manifest.md).** The manifest is now also
+published as an independently versioned, independently signed artifact, so a customer can take
+a component fix without waiting for a release. The embedded copy remains as a floor and every
+property argued for above survives; only the exclusivity of the embedding is gone.
 
 **Reconsider if** upstream component hosting proves unreliable enough that mirroring
 everything ourselves is cheaper than pinning it, or if a channel appears that can carry
