@@ -22,11 +22,16 @@ permitted to use — not the full fleet.
 
 ## 2. Authentication
 
-Clients present `Authorization: Bearer nodary_sk_…`. The gateway:
+Clients present `Authorization: Bearer nodary_sk_…`. The **kind is enforced**, not merely
+expected: a personal token is refused here, because [02 §4](02-enrollment.md#4-token-types)
+gives each prefix one purpose and a `pt` is the credential on an operator's workstation that
+can also mutate the control plane. One leaked credential should not do both jobs.
+
+The gateway:
 
 1. Hashes the presented key and looks it up. Tokens are stored as SHA-256; plaintext is shown exactly once, at creation.
 2. Rejects revoked, expired, and suspended-user tokens with `401`.
-3. Applies the user's model allowlist; a request for a route outside it returns `403`, not `404` — the route's existence is not a secret, and a misleading error costs support time.
+3. Applies the user's model allowlist; a request for a route outside it returns `403`, not `404` — the route's existence is not a secret, and a misleading error costs support time. **A user with no grants may call nothing**, which is what makes [07 §5](07-identity-audit.md#5-control-mapping)'s "least privilege by default" true: an empty allowlist meaning every route would leave the role as the only real control.
 4. Records `last_used_at` for the token, which is what makes stale-credential cleanup possible.
 
 ## 3. Metering
@@ -38,6 +43,15 @@ completion tokens, latency, status, whether it streamed, and whether accounting 
 
 OpenAI-compatible streams omit usage unless `stream_options.include_usage` is set. The gateway
 **injects it**, reads the final usage chunk, and passes the stream through otherwise untouched.
+A client cannot opt out: opting out of usage reporting would be opting out of accounting, which
+makes metering advisory. The cost is that a client which set `include_usage: false` receives a
+usage chunk it did not ask for — a visible difference from stock behaviour, and the right trade
+inside a boundary where usage is not optional.
+
+"Otherwise untouched" is byte-for-byte. Chunks are parsed to find usage and forwarded exactly
+as received; a gateway that re-serialised them would be a gateway that changed them, and the
+difference surfaces as a client library failing on a field nodary round-tripped through a
+struct it does not fully model.
 
 A stream that terminates early — client disconnect, network failure — is metered from the
 tokens observed so far and flagged `partial`. It is never silently dropped: if disconnection

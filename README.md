@@ -111,8 +111,9 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 
 **R0 and R1 are complete. R2 is complete to the extent the control plane can be without an
 agent, R9's evidence bundle is built, and a node now enrols, speaks the agent protocol, and
-reconciles itself onto its desired state through systemd under an asserted egress boundary.**
-Nothing serves inference yet: the container runtime is not installed and no request is routed.
+reconciles itself onto its desired state through systemd under an asserted egress boundary. The
+inference gateway authenticates, authorises, proxies and meters.** What is missing to serve a
+real model is the container runtime and the install path.
 
 | | | |
 | :--- | :--- | :--- |
@@ -122,7 +123,8 @@ Nothing serves inference yet: the container runtime is not installed and no requ
 | **R9** Evidence | 12 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone |
 | **R4** Agent | 17 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health, egress isolation |
 | **R6** Backends | 2 of 12 | the descriptor schema and argument translation, vLLM and SGLang |
-| **R3** Gateway · **R5** Install | not started | |
+| **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, the route allowlist, metering, LiteLLM |
+| **R5** Install | not started | |
 
 What works today: `nodary server install && nodary server start` brings up a TLS control
 plane; users, tokens, policy profiles and configuration revisions are administered from the
@@ -139,8 +141,15 @@ start it asserts the deployment has no route off-box, cannot resolve a name, and
 an external address — with a control run on the host, so an assertion that passed for the wrong
 reason reports `inconclusive` rather than compliant.
 
+A client then calls `/v1/chat/completions` with a service key, is checked against the routes it
+has been granted, and is proxied through LiteLLM — which nodary configures with request logging
+pinned off and asserts before use. Every request produces one usage row of counts, and none of
+it records what the request said: a canary prompt is sent through the gateway and every byte of
+the database, its write-ahead log and the gateway's log is searched for it.
+
 What does not: containerd is not installed, so a unit reaches `start` and fails there, and
-nothing is served. The route from here is [docs/plans/mvp.md](docs/plans/mvp.md).
+throttling is recorded but not enforced. The route from here is
+[docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests

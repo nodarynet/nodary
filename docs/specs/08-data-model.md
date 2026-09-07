@@ -43,6 +43,8 @@ user(id PK, name, email, role, state, totp_secret_enc, totp_last_step,
      totp_enrolled_at, created_at)
 token(id PK, user_id, kind, hash, prefix, name, expires_at, revoked_at, last_used_at,
       allow_unattended, created_at)
+user_route(user_id, route_name, granted_by, granted_at, PRIMARY KEY (user_id, route_name))
+
 limits(subject_kind, subject_id, rpm, tpm, daily_tokens, max_concurrent,
        PRIMARY KEY (subject_kind, subject_id))
 

@@ -12,6 +12,7 @@ aspiration.
 
 ```
 nodary server   install | start | stop | status
+nodary gateway  start
 nodary node     install | enroll | list | show | approve | drain | revoke
                 | verify-egress | leave | policy | uninstall
 nodary agent    plan | run | audit list | audit verify | audit export | status
