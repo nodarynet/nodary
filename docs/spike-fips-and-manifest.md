@@ -224,6 +224,35 @@ and is silently not what was asked for.
 **its `done:` must include that a published port is listening after the network exists.**
 An isolation test alone passes in the broken configuration.
 
+### Follow-up (R4d): the DNS row above is true of the default bridge and not of the network nodary ships
+
+The table above records `DNS lookup | fails`. That was measured on docker's **default**
+bridge, and it does not transfer to a user-defined network — which is what `nodary-isolated`
+is. Measured again while building [R4-29](tasks/R4-agent.md), same host, same route removal:
+
+| Network | `/etc/resolv.conf` | Lookup with no default route |
+| :--- | :--- | :--- |
+| default bridge `docker0` | `nameserver 192.168.65.7` (the host's) | **fails** — the resolver is off-box and unreachable |
+| user-defined network | `nameserver 127.0.0.11` | **resolves, with live answers** |
+
+Docker injects an embedded resolver at `127.0.0.11` for user-defined networks only. It sits on
+the container's *own loopback*, so no route is needed to reach it, and it proxies queries out
+through the daemon. The container still could not connect to what it resolved — and a
+compromised model server does not need to: `<exfiltrated-data>.attacker.example` is a channel
+out of a container that a route check calls isolated.
+
+Two consequences, both now built:
+
+1. **`nodary-isolated`'s CNI configuration carries an empty `dns` block**, so the absence of a
+   resolver is configured rather than inferred from the absence of a route.
+2. **03 §5's three assertions are not redundant**, and the DNS one is not belt and braces. It
+   is the only one of the three that catches this.
+
+This is the same shape as the `--internal` finding immediately above: a configuration that
+looks correct, reviews clean, and is silently not what was asked for. It is also the second
+time the spike's own conclusion held only for the exact thing it tested, which is the argument
+for [R4-29](tasks/R4-agent.md) running continuously rather than once.
+
 ## 6. Open, after question 1
 
 - **containerd was never exercised.** Cgroup parenting, namespaces and systemd behave the

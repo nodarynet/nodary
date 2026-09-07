@@ -111,8 +111,8 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 
 **R0 and R1 are complete. R2 is complete to the extent the control plane can be without an
 agent, R9's evidence bundle is built, and a node now enrols, speaks the agent protocol, and
-reconciles itself onto its desired state through systemd.** Nothing serves inference yet: the
-container runtime is not installed and no request is routed.
+reconciles itself onto its desired state through systemd under an asserted egress boundary.**
+Nothing serves inference yet: the container runtime is not installed and no request is routed.
 
 | | | |
 | :--- | :--- | :--- |
@@ -120,7 +120,7 @@ container runtime is not installed and no request is routed.
 | **R1** Core, audit, identity | done | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 28 of 42 | schema, revisions, the HTTP API, the shared core, TLS and the PKI |
 | **R9** Evidence | 12 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone |
-| **R4** Agent | 14 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health |
+| **R4** Agent | 17 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health, egress isolation |
 | **R6** Backends | 2 of 12 | the descriptor schema and argument translation, vLLM and SGLang |
 | **R3** Gateway · **R5** Install | not started | |
 
@@ -134,11 +134,13 @@ approves it. `nodary agent plan` renders exactly what that node would run — th
 through the backend descriptor, the unit's environment file, and a verdict on weights verified
 byte by byte against a manifest stock `sha256sum` can also check — and `nodary agent run`
 reconciles it: writing the environment file, loading `nodary-model@.service`, starting the
-instance, polling its health, and reporting inventory, staging and unit state back.
+instance, polling its health, and reporting inventory, staging and unit state back. After every
+start it asserts the deployment has no route off-box, cannot resolve a name, and cannot reach
+an external address — with a control run on the host, so an assertion that passed for the wrong
+reason reports `inconclusive` rather than compliant.
 
-What does not: containerd is not installed, so a unit reaches `start` and fails there; nothing
-is isolated, and nothing is served. The route from here is
-[docs/plans/mvp.md](docs/plans/mvp.md).
+What does not: containerd is not installed, so a unit reaches `start` and fails there, and
+nothing is served. The route from here is [docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests

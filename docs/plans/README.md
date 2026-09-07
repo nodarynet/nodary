@@ -48,6 +48,7 @@ A plan carries three things the tracker cannot:
 | [R4a — Enrolment and the agent protocol](R4a-agent-protocol.md) | [R4](../tasks/R4-agent.md) | R4-01 – R4-04, R4-07 – R4-09 | complete |
 | [R4b — Descriptors, guardrails, staging, and the plan](R4b-backends-and-the-plan.md) | [R4](../tasks/R4-agent.md) | R4-13, R4-17, R4-34, R6-01 – R6-03 | complete |
 | [R4c — The reconcile loop, units, and the daemon](R4c-reconcile.md) | [R4](../tasks/R4-agent.md) | R4-12, R4-18 – R4-20 | complete |
+| [R4d — Egress isolation and its assertion](R4d-egress-isolation.md) | [R4](../tasks/R4-agent.md) | R4-26, R4-27, R4-29 | complete |
 
 ## Not a slice
 
