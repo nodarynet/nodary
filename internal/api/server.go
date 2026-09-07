@@ -28,7 +28,10 @@ type Server struct {
 	key func() (*secret.Key, error)
 	// pki is where the agent CA lives: the enrolment endpoint signs from it and
 	// the listener verifies client certificates against it.
-	pki  string
+	pki string
+	// dist is the component cache this control plane serves to nodes
+	// (docs/specs/01-install.md §3).
+	dist string
 	now  func() time.Time
 	slog *slog.Logger
 	// sessions are the cookie-authenticated logins. In-memory because they are
@@ -45,6 +48,7 @@ type Options struct {
 	Log  *audit.Log
 	Key  func() (*secret.Key, error)
 	PKI  string
+	Dist string
 	Now  func() time.Time
 	Slog *slog.Logger
 }
@@ -57,7 +61,7 @@ func New(o Options) *Server {
 	if o.Slog == nil {
 		o.Slog = slog.Default()
 	}
-	return &Server{db: o.DB, log: o.Log, key: o.Key, pki: o.PKI, now: o.Now, slog: o.Slog,
+	return &Server{db: o.DB, log: o.Log, key: o.Key, pki: o.PKI, dist: o.Dist, now: o.Now, slog: o.Slog,
 		sessions: newSessionStore()}
 }
 

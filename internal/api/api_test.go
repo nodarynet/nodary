@@ -29,6 +29,7 @@ type fixture struct {
 	key    *secret.Key
 	admin  string // a personal token for an admin
 	pki    string
+	dist   string
 	server *api.Server
 	client *http.Client
 }
@@ -90,9 +91,13 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f.pki = pki
+	f.dist = filepath.Join(dir, "dist")
+	if err := os.MkdirAll(f.dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := api.New(api.Options{DB: db, Log: log,
-		Key: func() (*secret.Key, error) { return key, nil }, PKI: pki, Now: time.Now})
+		Key: func() (*secret.Key, error) { return key, nil }, PKI: pki, Dist: f.dist, Now: time.Now})
 
 	// A real TLS listener with the server's own client-certificate policy, not
 	// a plaintext one: the node protocol is mTLS, and a fixture that served it

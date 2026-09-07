@@ -100,6 +100,10 @@ var (
 	errNoCredential = errors.New("no credential was presented")
 )
 
+func notFound(format string, a ...any) error {
+	return fmt.Errorf("%w: %s", identity.ErrNotFound, fmt.Sprintf(format, a...))
+}
+
 func badRequest(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", errBadRequest, fmt.Sprintf(format, a...))
 }

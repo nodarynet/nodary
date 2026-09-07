@@ -33,6 +33,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/enroll", s.enroll)
 	h("GET", "/agent/desired", s.agentDesired)
 	h("POST", "/agent/status", s.agentStatus)
+	h("GET", "/agent/dist/{name}", s.serveDist)
 
 	// Auth — R2-25.
 	h("POST", "/auth/login", s.login)

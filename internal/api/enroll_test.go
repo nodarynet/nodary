@@ -5,12 +5,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +21,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/api"
+	"github.com/nodarynet/nodary/internal/components"
 )
 
 // csrFor generates a node keypair and its certificate request.
@@ -248,5 +252,86 @@ func TestEnrollmentRefusesAnUnpinnedControlPlane(t *testing.T) {
 	_, listed := f.do(http.MethodGet, "/nodes", f.admin, nil, nil)
 	if nodes, _ := listed["nodes"].([]any); len(nodes) != 0 {
 		t.Errorf("a refused enrolment created %v", listed)
+	}
+}
+
+// docs/specs/01-install.md §3: only the control-plane host ever contacts an
+// upstream source, and GPU hosts bootstrap with no internet and no registry
+// access. This proves the mirror half — an enrolled node fetches a
+// digest-verified artifact from its control plane and reaches nothing else.
+func TestANodeFetchesComponentsFromItsControlPlaneAndNowhereElse(t *testing.T) {
+	f := newFixture(t)
+
+	// The control plane's cache, as `nodary components fetch` would leave it.
+	body := []byte("a pinned containerd tarball")
+	sum := sha256.Sum256(body)
+	name := "containerd-2.3.4-linux-amd64.tar.gz"
+	if err := os.WriteFile(filepath.Join(f.dist, name), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Upstream must not be touched.
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the node contacted upstream; 01 §3 says only the control plane does")
+	}))
+	defer upstream.Close()
+
+	key, csr := csrFor(t)
+	status, enrolled := f.enroll("gpu-01", f.joinToken(1), csr)
+	if status != http.StatusOK {
+		t.Fatalf("enroll: %d %v", status, enrolled)
+	}
+	client := f.agentClient(key, enrolled["certificate"].(string))
+
+	got, err := components.Fetch(context.Background(), []components.Component{{
+		Name: "containerd", Version: "2.3.4", Kind: components.KindArchive,
+		Platforms: map[string]components.Artifact{
+			"linux/amd64": {URL: upstream.URL + "/never", SHA256: hex.EncodeToString(sum[:])},
+		},
+	}}, components.FetchOptions{
+		Dir: t.TempDir(), Platform: "linux/amd64", Client: client,
+		BaseURL: f.srv.URL + api.Prefix + "/agent/dist",
+	})
+	if err != nil {
+		t.Fatalf("fetching through the mirror: %v", err)
+	}
+	if got[0].Placement != components.PlacedFetched {
+		t.Errorf("placement = %q", got[0].Placement)
+	}
+
+	// The node verified the bytes against its own manifest. Neither side trusts
+	// the other's word.
+	on, err := os.ReadFile(got[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(on) != string(body) {
+		t.Error("the artifact did not survive the mirror intact")
+	}
+}
+
+// The mirror is behind mTLS like the rest of /agent/: a host that has not
+// enrolled has no business fetching from it, and an open file server on the
+// control plane's port is not what 01 §3 asks for.
+func TestTheMirrorIsNotAnOpenFileServer(t *testing.T) {
+	f := newFixture(t)
+	if err := os.WriteFile(filepath.Join(f.dist, "secret-artifact"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status, _ := f.do(http.MethodGet, "/agent/dist/secret-artifact", f.admin, nil, nil)
+	if status != http.StatusUnauthorized {
+		t.Errorf("an administrator's token reached the mirror: status = %d, want 401", status)
+	}
+
+	// And an enrolled node cannot walk out of the cache.
+	key, csr := csrFor(t)
+	_, enrolled := f.enroll("gpu-01", f.joinToken(1), csr)
+	n := enrolledNode{name: "gpu-01", client: f.agentClient(key, enrolled["certificate"].(string))}
+	for _, path := range []string{"/agent/dist/..%2f..%2fetc%2fpasswd", "/agent/dist/.hidden"} {
+		status, raw := n.call(t, f, http.MethodGet, path, nil)
+		if status == http.StatusOK {
+			t.Errorf("%s was served: %s", path, raw)
+		}
 	}
 }
