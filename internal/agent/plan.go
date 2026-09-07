@@ -42,6 +42,7 @@ type Plan struct {
 // logic, so this struct is the whole of what it decides.
 type Unit struct {
 	Deployment string `json:"deployment"`
+	ModelID    string `json:"model"`
 	Service    string `json:"service"`
 	EnvPath    string `json:"env_path"`
 	// Env is the file's contents, as ordered key/value pairs. Ordered because
@@ -87,6 +88,10 @@ type Refusal struct {
 // PlanOptions are what the node knows that the document does not.
 type PlanOptions struct {
 	ModelsDir string
+	// ConfigDir is where the environment files go. It is a parameter so a test
+	// can drive real systemd against a temporary tree; production always passes
+	// paths.ConfigDir.
+	ConfigDir string
 	// Present is what the driver reported, already narrowed to the offer.
 	Present []GPU
 	// Verify runs the manifest check. It is a parameter because reading every
@@ -104,6 +109,9 @@ type PlanOptions struct {
 // this build does not additionally refuse work the control plane placed within
 // that offer.
 func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
+	if opt.ConfigDir == "" {
+		opt.ConfigDir = paths.ConfigDir
+	}
 	p := Plan{Rev: doc.Rev, Node: doc.Node,
 		Units: []Unit{}, Stage: []Stage{}, Refused: []Refusal{}}
 
@@ -239,8 +247,9 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	}
 	return Unit{
 		Deployment: d.ID,
-		Service:    "nodary-model@" + d.ID + ".service",
-		EnvPath:    filepath.Join(paths.ConfigDir, "deployments", d.ID+".env"),
+		ModelID:    d.Model,
+		Service:    UnitName(d.ID),
+		EnvPath:    filepath.Join(opt.ConfigDir, "deployments", d.ID+".env"),
 		GPUs:       d.GPUs,
 		HostPort:   d.Port,
 		Probe: Probe{Health: desc.Backend.Probe.Health, Ready: desc.Backend.Probe.Ready,
