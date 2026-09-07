@@ -30,11 +30,18 @@ type Host struct {
 	// ConfigDir is where the environment files go, and what the template's
 	// EnvironmentFile= is rendered against.
 	ConfigDir string
+	// Self is this binary's path. The egress probe runs it inside a
+	// deployment's network namespace, so the agent and the assertion are
+	// versioned together and the probe needs nothing from the model's image.
+	// Empty disables the post-start assertion, which is what a test that is not
+	// exercising it wants.
+	Self string
 }
 
 // RealHost runs commands with os/exec.
 func RealHost(unitDir, configDir string) Host {
-	return Host{Run: runCommand, UnitDir: unitDir, ConfigDir: configDir}
+	self, _ := os.Executable()
+	return Host{Run: runCommand, UnitDir: unitDir, ConfigDir: configDir, Self: self}
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -68,6 +75,9 @@ type UnitOutcome struct {
 	// which is the normal case for a converged node.
 	Action string `json:"action,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// Egress is docs/specs/03-agent.md §5's verdict, filled when this iteration
+	// started the deployment. R4-29: it runs after every start.
+	Egress *EgressVerdict `json:"egress,omitempty"`
 }
 
 type StagingOutcome struct {
@@ -185,6 +195,24 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 		// question, and R4-20 answers it separately — a model server is active
 		// for minutes before it is ready.
 		out.State = "ready"
+	}
+
+	// R4-29: the assertion runs after every start, not only on demand.
+	//
+	// Only after a start. Re-probing a converged deployment every fifteen
+	// seconds would put three network operations per deployment into the
+	// reconcile loop for a namespace nothing has touched since the last time it
+	// was checked; `nodary node verify-egress` is how an operator asks again.
+	if out.Action != "" && out.State != "failed" && h.Self != "" {
+		if v, err := VerifyEgress(ctx, h, u.Deployment, h.Self); err == nil {
+			out.Egress = &v
+		} else {
+			// Recorded rather than swallowed: an assertion that could not run
+			// has not passed, and the whole value of this control is that it
+			// says so.
+			out.Egress = &EgressVerdict{Deployment: u.Deployment,
+				State: Inconclusive, Reason: err.Error()}
+		}
 	}
 	return out
 }

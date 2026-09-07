@@ -40,6 +40,12 @@ func (f *fakeHost) run(_ context.Context, name string, args ...string) ([]byte, 
 	if msg, bad := f.fail[args[0]]; bad {
 		return []byte(msg), fmt.Errorf("exit status 1")
 	}
+	if name == "nerdctl" || name == "nsenter" {
+		if msg, bad := f.fail[args[0]]; bad {
+			return []byte(msg), fmt.Errorf("exit status 1")
+		}
+		return nil, fmt.Errorf("exit status 127")
+	}
 	switch args[0] {
 	case "is-active":
 		if f.active[args[1]] {
@@ -306,5 +312,42 @@ func TestTheReportEncodesWithEmptySlicesNotNulls(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "null") {
 		t.Errorf("the report encodes nulls: %s", raw)
+	}
+}
+
+// R4-29 runs the assertion after every start, and a start whose assertion
+// cannot run has not passed it.
+//
+// The failure this rules out is the quiet one: an agent that starts a
+// deployment, cannot reach the namespace to check it, and reports nothing —
+// leaving a model serving with no evidence about the control the product's
+// strongest claim rests on.
+func TestEgressIsAssertedAfterAStartAndNotSilentlySkipped(t *testing.T) {
+	h, f := newFakeHost(t)
+	h.Self = "/usr/local/bin/nodary"
+	p := planFor(t, h)
+
+	// nerdctl is not installed on this host, so the probe cannot run — which is
+	// exactly the state that must not be reported as compliant.
+	f.fail["inspect"] = "nerdctl: command not found"
+
+	r := Reconcile(context.Background(), p, h)
+	if r.Units[0].Egress == nil {
+		t.Fatal("a started deployment carried no egress verdict")
+	}
+	if got := r.Units[0].Egress.State; got != Inconclusive {
+		t.Errorf("egress = %q, want inconclusive: an assertion that could not run has not passed",
+			got)
+	}
+
+	// And a converged pass does not re-probe: three network operations per
+	// deployment every fifteen seconds, for a namespace nothing has touched.
+	f.reset()
+	second := Reconcile(context.Background(), p, h)
+	if second.Units[0].Egress != nil {
+		t.Errorf("a converged reconcile re-ran the assertion: %+v", second.Units[0].Egress)
+	}
+	if f.did("nsenter") {
+		t.Error("a converged reconcile entered a namespace")
 	}
 }

@@ -120,6 +120,18 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 			d.Log.Info("agent", "deployment", u.Deployment, "state", u.State,
 				"action", u.Action, "error", u.Error)
 		}
+		if u.Egress == nil {
+			continue
+		}
+		// docs/specs/11-failure-modes.md §3: a failing egress verification
+		// marks the deployment non-compliant and raises a critical alert. It is
+		// not silently left serving, and it is not quietly logged either.
+		if u.Egress.State == Compliant {
+			d.Log.Info("agent", "deployment", u.Deployment, "egress", u.Egress.State)
+			continue
+		}
+		d.Log.Error("agent", "deployment", u.Deployment, "egress", u.Egress.State,
+			"reason", u.Egress.Reason)
 	}
 	for _, name := range r.Stopped {
 		d.Log.Info("agent", "stopped", name)
