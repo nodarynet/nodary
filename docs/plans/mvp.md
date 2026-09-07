@@ -221,7 +221,7 @@ owes, and does not pre-empt them:
   - ADR 0006 picks `fips140=on` and names the two gates to `only`; the sealing-format gate
     has a hard deadline at [R2-40](../tasks/R2-control-plane.md)
 - [x] S2 — R1d policy, R1e attestation — R1 complete, 36 of 36
-- [ ] S3 — evidence export and the licence key
+- [x] S3 — evidence export and the licence key
 - [ ] S4 — R2 thin
 - [ ] S5 — R4 thin
 - [ ] S6 — R3 thin

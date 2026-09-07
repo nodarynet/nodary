@@ -24,43 +24,47 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 
 ## Licence and editions
 
-- [ ] **R9-01** `ee/` under a commercial licence, with a pointer from the root `LICENSE`; everything outside it stays Apache 2.0 · [pivot §2.3](../plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key)
+- [x] **R9-01** `ee/` under a commercial licence, with a pointer from the root `LICENSE`; everything outside it stays Apache 2.0 · [pivot §2.3](../plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key)
   - *done:* one binary still ships through the four existing channels, and the split is a directory rather than a build tag — an edition that needs its own pipeline spends [R0](R0-release.md) twice
-- [ ] **R9-02** `nodary license apply|show` — minisign verification against an embedded key, reusing [`internal/components/verify.go`](../../internal/components/verify.go)
-  - *done:* no new crypto and no new trust root; applying a licence is a mutation and lands in the chain
+- [x] **R9-02** `nodary license apply|show` — minisign verification against an embedded key, in [`internal/minisign`](../../internal/minisign/minisign.go)
+  - *done:* applying a licence is a mutation and lands in the chain, and the stored licence is re-verified on every read rather than trusting a verdict recorded once — the row lives in a database an administrator can write
+  - *note:* **not** a reuse of `components/verify.go`, which does digest checks over HTTP and holds no signature verification at all. The verifier is ~200 lines of standard library, shared with [R5-27](R5-install.md) and R9-14 · [ADR 0007](../adr/0007-independent-component-manifest.md)
+  - *note:* `Ed`, never `ED`. Measured against minisign 0.11: **`minisign -S` writes a prehashed signature by default and `-l` is what asks for the legacy format**, so anything nodary verifies must be signed `-S -l`. The refusal names the flag, and the tests sign with the real binary in both directions including the no-flag default · [spike](../spike-fips-and-manifest.md)
   - *deps:* R1-12
-- [ ] **R9-03** An unlicensed install carries every commercial verb and explains what it would produce
+- [x] **R9-03** An unlicensed install carries every commercial verb and explains what it would produce
   - *done:* `nodary evidence export` without a licence names the bundle's members and refuses; the commercial surface is discoverable, never hidden · [pivot §2.3](../plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key)
   - *deps:* R9-02
-- [ ] **R9-04** An absent or expired licence never makes existing evidence unreadable
+- [x] **R9-04** An absent or expired licence never makes existing evidence unreadable
   - *done:* a bundle produced under a licence still verifies after it lapses, `audit export` is unaffected, and the bundle format is documented well enough to reconstruct a binder without nodary. This is the first property a careful buyer tests
   - *deps:* R9-02, R9-05
 
 ## The bundle
 
-- [ ] **R9-05** `nodary evidence export --from --to --out bundle.tar.gz` writing every member named in [13](../specs/13-evidence.md)
-  - *done:* a member with no producer yet is present and declared empty rather than absent, so a member gaining rows later is not a format change
+- [x] **R9-05** `nodary evidence export --from --to --out bundle.tar.gz` writing every member named in [13](../specs/13-evidence.md)
+  - *done:* a member with no producer yet is present and declared empty rather than absent, so a member gaining rows later is not a format change. `manifest.json` carries a record count for every `.jsonl` member, because a zero-byte file cannot say whether nothing happened or nothing was written
   - *deps:* R1-11
-- [ ] **R9-06** `manifest.json` and `manifest.json.minisig` — a digest of every member, signed
+- [x] **R9-06** `manifest.json` and `manifest.json.minisig` — a digest of every member, signed
   - *done:* the manifest lists members rather than fixing a schema per member
   - *deps:* R9-05
-- [ ] **R9-07** The bundle verifies with nodary not installed
+- [x] **R9-07** The bundle verifies with nodary not installed
   - *done:* an assessor with `sha256sum`, `minisign` and the documented procedure can check every digest and the chain itself. This is the property that makes the bundle worth money — a tarball, not a request to log into something
+  - *note:* tested by running the documented commands against a real bundle with the real tools, in both directions: the checks pass, and an edited member fails them. A procedure asserted only against our own reimplementation would pass just as well if both sides were wrong in the same way
   - *deps:* R9-06
-- [ ] **R9-08** `chain.jsonl` — the audit segment for the period, with the anchoring hashes either side
+- [x] **R9-08** `chain.jsonl` — the audit segment for the period, with the anchoring hashes either side
   - *done:* the segment verifies standalone, without the records before or after it
   - *deps:* R1-09, R9-05
-- [ ] **R9-09** `verify.txt` — `audit verify` output over that segment
+- [x] **R9-09** `verify.txt` — `audit verify` output over that segment
   - *deps:* R1-09, R9-05
-- [ ] **R9-10** `controls.json` and `controls.md` — the practice → evidence index, pointing at record sequences
+- [x] **R9-10** `controls.json` and `controls.md` — the practice → evidence index, pointing at record sequences
   - *done:* until R9-19 lands, every entry carries its structure and `"status": "unmapped"`; a plausible guess here is worse than an absent member, because a customer pastes it into an SSP · [MVP §5.2](../plans/mvp.md#52-the-control-mapping-ships-as-a-stub-with-no-claims)
   - *deps:* R9-05
 - [ ] **R9-11** `narratives/` — parameterised SSP text per practice, filled with this install's values
   - *done:* the parameters resolve from the install's real configuration, so a narrative naming a value nodary does not hold fails to render rather than emitting a placeholder into a deliverable
   - *deps:* R9-05, R9-19
-- [ ] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
+- [x] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
   - *deps:* R2-11, R9-05
-- [ ] **R9-13** `remediation.jsonl` — what was known, decided, by whom, with what justification, and applied when
+- [x] **R9-13** `remediation.jsonl` — what was known, decided, by whom, with what justification, and applied when
+  - *done:* the member and its schema ship; the rows arrive with R9-17. It is written as one object saying the category exists and this install has nothing in it, which is an answer where a missing file is a question
   - *deps:* R9-05, R9-17
 
 ## Flaw remediation

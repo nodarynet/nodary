@@ -1,7 +1,7 @@
 # R9a — The evidence bundle
 
 **Slice of:** [R9](../tasks/R9-evidence-remediation.md) · **Tasks:** R9-01 – R9-13 ·
-**Status:** in flight
+**Status:** complete
 
 The first commercial slice, and [the MVP route](mvp.md#51-evidence-export-lands-before-the-control-plane)
 pulls it ahead of R2 on purpose: the bundle's only input that exists today is the chain, the
@@ -95,9 +95,9 @@ nothing in it. An assessor who sees a missing file has to ask, and the answer co
 
 ## Steps
 
-- [ ] `internal/minisign` — verify `Ed`, refuse `ED`
-- [ ] The install's signing key, sealed, its creation audited
-- [ ] `ee/` — the licence file, `nodary license apply|show`
-- [ ] `ee/evidence` — the bundle, every member
-- [ ] `nodary evidence export`, and the unlicensed path
-- [ ] The verify-without-nodary procedure, tested by running it
+- [x] `internal/minisign` — verify `Ed`, refuse `ED`
+- [x] The install's signing key, sealed, its creation audited
+- [x] `ee/` — the licence file, `nodary license apply|show`
+- [x] `ee/evidence` — the bundle, every member
+- [x] `nodary evidence export`, and the unlicensed path
+- [x] The verify-without-nodary procedure, tested by running it

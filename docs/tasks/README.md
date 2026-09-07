@@ -37,7 +37,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 12 |
 | **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 |
 | **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 |
-| **[R9](R9-evidence-remediation.md)** | Evidence and remediation | Records become a deliverable an assessor consumes | task | 20 |
+| **[R9](R9-evidence-remediation.md)** | Evidence and remediation | Records become a deliverable an assessor consumes | task | 8 of 20 |
 
 R9 is [the pivot](../plans/pivot-cmmc.md#9-roadmap-deltas)'s addition. It depends on
 R1's chain and R2's revisions and lands after R2, and it is at task level despite being
