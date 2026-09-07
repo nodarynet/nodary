@@ -16,6 +16,7 @@ package audit
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -230,6 +231,20 @@ func (r Record) Line() ([]byte, error) {
 	}
 	return b, nil
 }
+
+// MarshalJSON gives a record one set of field names everywhere it is read.
+//
+// Without this, `GET /api/v1/audit` returned Go's exported field names — Seq,
+// TS, IntentHash — while `GET /api/v1/audit/export` returned the canonical
+// seq, ts, intent_hash that the hash is taken over. Same server, same records,
+// two vocabularies, and a client that read a record from the list and looked
+// for it in the export could not match a single field. The names that are
+// hashed are the names that are correct, so this is members() and not a second
+// set of struct tags that could drift from it.
+//
+// Unlike Line, this does not require a hash: an unchained record is a value a
+// caller may legitimately be holding — Act returns one when a mutation failed.
+func (r Record) MarshalJSON() ([]byte, error) { return json.Marshal(r.members()) }
 
 // ErrInvalidRecord is returned by Validate.
 var ErrInvalidRecord = errors.New("audit record is not well formed")
