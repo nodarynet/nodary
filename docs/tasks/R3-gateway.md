@@ -30,3 +30,9 @@ needs no database of its own. · [00 §7](../specs/00-overview.md#7-why-litellm-
 - [ ] **R3-12** `nodary limits show|set` and `nodary usage show` with `--user`, `--model`, `--node`, `--group_by`, `--from`, `--to`, `--format` · [10 §1](../specs/10-cli.md#1-verbs)
 - [ ] **R3-13** Roll `usage` into `usage_daily` past `usage_retention_days` · [08 §3](../specs/08-data-model.md#3-retention)
 - [ ] **R3-14** Route round-robin across ready members, with health-driven membership changes honoured live · [05 §5](../specs/05-catalog.md#5-routes)
+- [ ] **R3-15** The metering record schema is closed — no free-text body field exists to write into · [pivot §3](../plans/pivot-cmmc.md#the-guarantee-is-structural-not-documentary)
+  - *done:* a test fails if request or completion content reaches the database or a log. "nodary records that a request happened, never what it said" is a structural guarantee, made unreachable in the same way as [the audit seam](README.md#cross-cutting-constraints) rather than merely discouraged
+  - *deps:* R3-05
+- [ ] **R3-16** LiteLLM's configuration is rendered with request logging pinned off, and the pinning is asserted · [pivot §3](../plans/pivot-cmmc.md#litellm-is-now-a-compliance-surface)
+  - *done:* asserted continuously rather than configured once, on the same principle as [egress verification](../specs/03-agent.md#5-egress-isolation). Inside a CUI boundary, "LiteLLM begins writing request bodies somewhere by default" is an incident rather than a nuisance
+  - *deps:* R3-04

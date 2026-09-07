@@ -67,3 +67,17 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - *done:* the Homebrew channel survives a goreleaser major bump. The migration target, `homebrew_casks`, is macOS-only, so adopting it as-is would silently drop Linux Homebrew users — and Linux is the primary platform while macOS is CLI-only ([01 §8](../specs/01-install.md#8-platform-support)). Decide deliberately: keep a formula by another route, or accept narrowing the channel and say so in [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
 - [ ] **R5-24** Move npm's `latest` tag off the release candidate
   - *done:* `npm install -g nodary` resolves to a stable version. `--tag next` does not hold on a package's **first** publish — npm must give a new package a `latest` and has nowhere else to point it — so `0.0.1-rc1` currently owns it. Publishing `0.0.1` with `--tag latest` fixes it; `npm deprecate` warns installers in the meantime
+
+## FIPS and the manifest
+
+Both come from [pivot §9](../plans/pivot-cmmc.md#9-roadmap-deltas). They land in R5 rather
+than reopening a complete [R0](R0-release.md), which is where R0's own follow-ups went.
+
+- [ ] **R5-25** A `GOFIPS140=v1.0.0` job in CI that builds the tree and runs the suite, reporting rather than gating · [pivot §3](../plans/pivot-cmmc.md#fips-is-a-build-not-a-rearchitecture)
+  - *done:* it answers continuously what [the spike](../plans/mvp.md#4-the-route) answers once — whether the FIPS build compiles, whether the suite passes, and whether TOTP's HMAC-SHA-1 survives the module. Non-gating deliberately: blocking every pull request on an unmeasured dependency, for a claim the [MVP](../plans/mvp.md#6-what-an-mvp-install-cannot-claim) does not make, is the wrong trade · [MVP §5.6](../plans/mvp.md#56-fips-builds-in-ci-and-does-not-gate)
+- [ ] **R5-26** The FIPS artifact ships through the four existing channels · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
+  - *done:* a second artifact, not a second pipeline. This works only because the binary is static and the SQLite driver is `modernc` rather than cgo — BoringCrypto needs cgo and would break the property [R0-16](R0-release.md) asserts in CI
+  - *deps:* R5-25
+- [ ] **R5-27** The component manifest becomes separately versioned and separately signed, superseding the binary's embedded copy
+  - *done:* the embedded manifest remains a floor and a signed revision supersedes it, verified identically and delivered online or through `nodary bundle create`. Without this a customer's patch timeline is coupled to our release cadence while their assessor holds them to a window we do not control · [pivot §6](../plans/pivot-cmmc.md#adr-0007--the-component-manifest-becomes-an-independent-artifact)
+  - *deps:* R5-13

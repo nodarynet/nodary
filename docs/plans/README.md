@@ -42,9 +42,15 @@ A plan carries three things the tracker cannot:
 
 ## Not a slice
 
-One file here is not a slice of a milestone.
+Two files here are not slices of a milestone.
+
 [Pivot — SMB CMMC as the primary market](pivot-cmmc.md) re-aims the product at a buyer
 and records what the specifications owe as a result. It is the one plan that changes what
 the authoritative documents say rather than describing how to build what they already
 said, and it is finished when [§7](pivot-cmmc.md#7-spec-corrections-this-plan-owes) is
 empty.
+
+[MVP — the shortest honest route](mvp.md) follows from it. Where a slice designs one
+milestone's worth of work, this orders eight of them and says which parts are stubs — its
+subject is the sequence, not the design. It changes nothing a specification says, and
+where it finds one wrong it waits for the correction like any other plan.
