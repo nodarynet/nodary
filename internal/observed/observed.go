@@ -137,3 +137,33 @@ func positiveOrNull(n int64) any {
 	}
 	return n
 }
+
+// TouchToken records that a credential was used.
+//
+// identity.Touch does the same thing inside an audited act, which is right for
+// an administrative mutation: the credential's last use and the change it made
+// commit together. An inference request is not a mutation and produces no audit
+// record (docs/specs/06-gateway.md §3 makes it a usage row), so the touch has
+// nowhere to ride along and becomes an observation of its own.
+//
+// It is an observation by the package's own rule: a credential being presented
+// is something that happened, not something anybody decided. And it is what
+// makes stale-credential cleanup possible, which docs/specs/06-gateway.md §2
+// names as the reason for recording it at all.
+//
+// A failure is returned and not swallowed, but the caller is expected to log
+// rather than refuse: a request that authenticated correctly should not fail
+// because a timestamp could not be written.
+func TouchToken(ctx context.Context, db *store.DB, id string, now time.Time) error {
+	if id == "" {
+		return fmt.Errorf("recording a use with no credential")
+	}
+	return db.WriteTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE token SET last_used_at = ? WHERE id = ?`,
+			now.UTC().Truncate(time.Millisecond).Format(audit.TimeFormat), id); err != nil {
+			return fmt.Errorf("recording the use of %s: %w", id, err)
+		}
+		return nil
+	})
+}
