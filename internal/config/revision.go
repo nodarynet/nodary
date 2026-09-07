@@ -346,3 +346,18 @@ func keyLimits(s *Snapshot) map[string]string {
 	}
 	return m
 }
+
+// LatestSeq is the sequence number of the newest revision, or 0 for a
+// configuration nobody has changed yet.
+//
+// It is what the agent long-poll compares against
+// (docs/plans/R4a-agent-protocol.md §6): the revision chain already advances on
+// every configuration change, so a node needs no counter of its own.
+func LatestSeq(ctx context.Context, q Querier) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx,
+		`SELECT coalesce(max(seq), 0) FROM revision`).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("reading the revision chain: %w", err)
+	}
+	return seq, nil
+}

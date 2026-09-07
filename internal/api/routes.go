@@ -31,6 +31,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// The node protocol. Enrolment is the only unauthenticated endpoint in the
 	// product (docs/specs/03-agent.md §1); everything under /agent/ is mTLS.
 	h("POST", "/enroll", s.enroll)
+	h("GET", "/agent/desired", s.agentDesired)
+	h("POST", "/agent/status", s.agentStatus)
 
 	// Auth — R2-25.
 	h("POST", "/auth/login", s.login)
@@ -473,7 +475,9 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			out = append(out, map[string]any{"name": name, "state": state,
-				"agent_version": version, "last_seen": seen, "reboot_policy": reboot})
+				"agent_version": version, "last_seen": seen, "reboot_policy": reboot,
+				// Derived, never stored — docs/plans/R4a-agent-protocol.md §5.
+				"stale": Stale(seen, s.now())})
 		}
 		return map[string]any{"nodes": out}, rows.Err()
 	})
@@ -624,10 +628,11 @@ func (s *Server) diffPolicy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) showNode(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
 		name := r.PathValue("name")
-		var state, gpus, offer, reboot string
+		var state, gpus, offer, reboot, seen string
 		err := d.DB.Read().QueryRowContext(r.Context(),
-			`SELECT state, gpus_json, offer_json, reboot_policy FROM node WHERE name = ?`, name).
-			Scan(&state, &gpus, &offer, &reboot)
+			`SELECT state, gpus_json, offer_json, reboot_policy, coalesce(last_seen, '')
+			 FROM node WHERE name = ?`, name).
+			Scan(&state, &gpus, &offer, &reboot, &seen)
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("%w: no node named %q", identity.ErrNotFound, name)
 		}
@@ -635,6 +640,7 @@ func (s *Server) showNode(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		return map[string]any{"name": name, "state": state, "reboot_policy": reboot,
+			"last_seen": seen, "stale": Stale(seen, s.now()),
 			"gpus": json.RawMessage(gpus), "offer": json.RawMessage(offer)}, nil
 	})
 }

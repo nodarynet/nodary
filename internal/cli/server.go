@@ -137,7 +137,7 @@ func cmdServerStart(e env, args []string) int {
 	defer stop()
 
 	fmt.Fprintf(e.stderr, "serving %s%s on %s\n", "https://", c.Bind, api.Prefix)
-	if err := api.Serve(ctx, srv.Handler(), c); err != nil {
+	if err := srv.Serve(ctx, c); err != nil {
 		fmt.Fprintf(e.stderr, "nodary server start: %v\n", err)
 		return ExitFailure
 	}

@@ -283,6 +283,14 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 	offenders, err := bypassOffenders(root, map[string]bool{
 		filepath.Join(root, "internal", "store"): true,
 		filepath.Join(root, "internal", "audit"): true,
+		// The one directory that writes observations rather than decisions: a
+		// node's heartbeat, and R3's usage rows. Its package comment carries the
+		// rule it is allowed to exist under, and the point of listing one narrow
+		// package here is that the alternative was exempting internal/api —
+		// which would put every handler in the product outside this gate in
+		// order to let a heartbeat through.
+		// docs/plans/R4a-agent-protocol.md §4
+		filepath.Join(root, "internal", "observed"): true,
 	})
 	if err != nil {
 		t.Fatal(err)
