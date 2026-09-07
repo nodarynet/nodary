@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/core"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/secret"
@@ -245,6 +247,13 @@ func (s *session) request(action string, target *audit.Target, justify string) a
 	}
 }
 
+// deps hands internal/core this process's handles. The key is a function
+// because opening it is only needed when the active profile demands a code, and
+// most acts never do.
+func (s *session) deps() core.Deps {
+	return core.Deps{DB: s.db, Log: s.log, Key: s.key, Now: s.now}
+}
+
 // touch records the use of the credential that authorised an act, inside that
 // act. Nothing outside internal/audit may write on its own.
 func (s *session) touch(m audit.Mutation) error {
@@ -289,3 +298,6 @@ func exitFor(err error) int {
 	}
 	return ExitFailure
 }
+
+// splitComma splits a comma-separated flag value.
+func splitComma(s string) []string { return strings.Split(s, ",") }

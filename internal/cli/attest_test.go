@@ -226,9 +226,11 @@ func TestTOTPReEntryIsPromptedAndAWrongCodeFailsTheAct(t *testing.T) {
 	args := append([]string{"user", "add"}, a.where()...)
 	args = append(args, "bob", "--role", "user", "--justify", "onboarding the new operator")
 
-	// Two prompts to answer: the code, then the confirmation. A wrong code has
-	// to reach the act to fail it, and the act is behind the confirmation.
-	code, _, stderr := runInteractive(t, "000000\ny\n", args...)
+	// Two prompts, in this order: confirm the change, then re-authenticate for
+	// it. The code proves a person was present *for this act*, so asking after
+	// the operator has seen and approved it is the order that means something —
+	// asking first would be proving presence for something not yet shown.
+	code, _, stderr := runInteractive(t, "y\n000000\n", args...)
 	if code != ExitAuth {
 		t.Errorf("a wrong code exited %d, want %d (authentication failure)\n%s", code, ExitAuth, stderr)
 	}

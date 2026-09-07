@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,8 +11,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
-	"github.com/nodarynet/nodary/internal/identity"
-	"github.com/nodarynet/nodary/internal/policy"
+	"github.com/nodarynet/nodary/internal/core"
 )
 
 // ceremonyFlags are the global flags of docs/specs/10-cli.md §2 that every
@@ -59,114 +57,62 @@ type change struct {
 // ignored it would print a result for something that never happened.
 func (s *session) attested(e env, verb string, c change, f ceremonyFlags, format string) (audit.Record, bool, int) {
 	ctx := context.Background()
+	ch := core.Change{Action: c.action, Target: c.target, Render: c.render, Apply: c.apply}
 
-	active, _, err := policy.Active(ctx, s.db.Read())
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-		return audit.Record{}, false, ExitFailure
-	}
-
-	// The preview runs against a read snapshot. Its hash is what the operator
-	// approves and what Bind compares against inside the transaction.
-	preview, err := s.preview(ctx, c.render)
+	// Rendered once here so the operator can be shown what they are approving,
+	// and the hash is then passed back as the intent: what gets applied is what
+	// was on the screen, bound rather than assumed.
+	shown, intent, err := core.Preview(ctx, s.deps(), ch)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return audit.Record{}, false, exitFor(err)
 	}
-	intent, err := attest.Hash(preview)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-		return audit.Record{}, false, ExitFailure
-	}
-
-	// --dry-run stops before ceremony: there is nothing to justify because
-	// nothing will happen.
 	if *f.dryRun {
-		return audit.Record{}, false, writeDryRun(e, verb, format, c.action, intent, preview)
-	}
-
-	cer := attest.Ceremony{
-		Justification: *f.justify,
-		TOTPCode:      *f.totp,
-		Unattended:    s.who.Token.Unattended,
-		Local:         s.who.Local(),
-		Interactive:   e.interactive(),
-	}
-	if err := attest.Require(active, cer); err != nil {
-		// A missing code is the one refusal a human can still satisfy here.
-		if errors.Is(err, attest.ErrTOTPRequired) && cer.Interactive {
-			if cer.TOTPCode, err = promptTOTP(e); err != nil {
-				fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-				return audit.Record{}, false, ExitPolicy
-			}
-		} else {
-			fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-			return audit.Record{}, false, ExitPolicy
-		}
+		return audit.Record{}, false, writeDryRun(e, verb, format, c.action, intent, shown)
 	}
 
 	// --yes skips this and only this. docs/specs/10-cli.md §2 is explicit that
-	// it skips neither justification nor TOTP, and both are already settled.
-	if !*f.yes && cer.Interactive {
-		showPreview(e, c.action, intent, preview)
+	// it skips neither justification nor TOTP, and neither is decided here.
+	if !*f.yes && e.interactive() {
+		showPreview(e, c.action, intent, shown)
 		if !confirm(e) {
 			fmt.Fprintf(e.stderr, "nodary %s: cancelled; nothing was applied\n", verb)
 			return audit.Record{}, false, ExitCancelled
 		}
 	}
 
-	req := s.request(c.action, c.target, cer.Justification)
-	req.IntentHash = intent
-
-	rec, err := s.log.Act(ctx, req, func(m audit.Mutation) error {
-		if err := s.touch(m); err != nil {
-			return err
-		}
-		// Re-authentication is spent inside the act it authorises, so a code and
-		// the change it attests to commit together or not at all.
-		// Recorded rather than silent: under a profile that requires
-		// re-authentication, an act that did not carry one has to say why.
-		if active.RequireTOTP && !attest.NeedsTOTP(active, cer) {
-			if cer.Local {
-				m.Detail("totp_exempt", "local")
-			} else {
-				m.Detail("totp_exempt", "unattended")
-			}
-		}
-		if attest.NeedsTOTP(active, cer) {
-			k, err := s.key()
-			if err != nil {
-				return err
-			}
-			if _, err := identity.VerifyTOTP(ctx, m, s.now, k, s.who.User.Name, cer.TOTPCode); err != nil {
-				return err
-			}
-		}
-		bound, err := attest.Bind(ctx, m.Tx(), c.render, intent)
-		if err != nil {
-			return err
-		}
-		return c.apply(m, bound)
-	})
-	if err != nil {
-		return rec, false, reportActFailure(e, verb, rec, err)
+	req := core.Request{
+		Principal: s.who,
+		Ceremony: attest.Ceremony{
+			Justification: *f.justify,
+			TOTPCode:      *f.totp,
+			Interactive:   e.interactive(),
+		},
+		Intent: intent,
 	}
-	return rec, true, ExitOK
-}
 
-// preview runs a render outside any mutation, in a transaction it rolls back.
-//
-// A read-only connection would be simpler and would not do: a render sees the
-// same snapshot semantics as the apply path only if it runs in a transaction,
-// and a preview that read differently from the bind would refuse changes that
-// had not moved.
-func (s *session) preview(ctx context.Context, r attest.Render) (any, error) {
-	tx, err := s.db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("opening a preview transaction: %w", err)
+	out, err := core.Act(ctx, s.deps(), req, ch)
+	// A missing code is the one refusal a human can still satisfy, and asking
+	// is the CLI's job: core.Act cannot prompt and an HTTP handler has nobody
+	// to prompt, so it reports what is missing and each front end answers in
+	// its own way.
+	if errors.Is(err, core.ErrTOTPRequired) && req.Ceremony.Interactive {
+		code, perr := promptTOTP(e)
+		if perr != nil {
+			fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, perr)
+			return audit.Record{}, false, ExitPolicy
+		}
+		req.Ceremony.TOTPCode = code
+		out, err = core.Act(ctx, s.deps(), req, ch)
 	}
-	defer tx.Rollback()
-	return r(ctx, tx)
+	if err != nil {
+		if core.IsPolicyRefusal(err) {
+			fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+			return out.Record, false, ExitPolicy
+		}
+		return out.Record, false, reportActFailure(e, verb, out.Record, err)
+	}
+	return out.Record, true, ExitOK
 }
 
 func showPreview(e env, action, intent string, preview any) {
