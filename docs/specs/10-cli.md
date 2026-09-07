@@ -28,7 +28,7 @@ nodary audit    list | verify | export
 nodary policy   show | apply | diff
 nodary config   show | diff | rollback | export | apply
 nodary backup   create | restore
-nodary components list | verify
+nodary components list | verify | fetch
 nodary bundle   create [--platform] [--backends] [--components] -o FILE
 nodary upgrade  [--to VERSION] [--check]
 nodary uninstall [--purge] [--purge-models] [--force]

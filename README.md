@@ -124,7 +124,7 @@ real model is the container runtime and the install path.
 | **R4** Agent | 17 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health, egress isolation |
 | **R6** Backends | 2 of 12 | the descriptor schema and argument translation, vLLM and SGLang |
 | **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, the route allowlist, metering, LiteLLM |
-| **R5** Install | not started | |
+| **R5** Install | 3 of 27 | component resolution, the control plane as a mirror, ownership recorded |
 
 What works today: `nodary server install && nodary server start` brings up a TLS control
 plane; users, tokens, policy profiles and configuration revisions are administered from the
@@ -147,9 +147,14 @@ pinned off and asserts before use. Every request produces one usage row of count
 it records what the request said: a canary prompt is sent through the gateway and every byte of
 the database, its write-ahead log and the gateway's log is searched for it.
 
-What does not: containerd is not installed, so a unit reaches `start` and fails there, and
-throttling is recorded but not enforced. The route from here is
-[docs/plans/mvp.md](docs/plans/mvp.md).
+`nodary components fetch` resolves containerd, `nerdctl`, the CNI plugins and runc against the
+embedded manifest, verifying each digest before it lands, and the control plane then serves that
+cache to nodes over the same mTLS the agent protocol uses — so a GPU host bootstraps without
+reaching the internet at all.
+
+What does not: nothing yet places those binaries on a host or writes the systemd units, so a
+deployment still fails at `start`; throttling is recorded and not enforced. The route from here
+is [docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests

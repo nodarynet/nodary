@@ -27,14 +27,23 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 - [ ] **R5-05** `nodary server install` — the ten ordered, idempotent steps · [01 §4](../specs/01-install.md#4-server-install)
   - *done:* every prompt has a flag equivalent and `--non-interactive` requires them all and never prompts; the binary reopens `/dev/tty`, which is why `install.sh` `exec`s rather than runs and returns
-- [ ] **R5-06** Component resolution into `/var/lib/nodary/dist/`, digest-checked against the embedded manifest, skipping anything already present and correct
-- [ ] **R5-07** The control plane as a mirror: only the control-plane host contacts an upstream source; GPU hosts bootstrap with no internet and no registry access · [01 §3](../specs/01-install.md#3-bootstrap-order)
+- [x] **R5-06** Component resolution into `/var/lib/nodary/dist/`, digest-checked against the embedded manifest, skipping anything already present and correct
+  - verify-**then**-rename: an artifact is hashed in a temporary file and only then moved into place, so a killed fetch leaves a temporary file rather than something that looks complete. Same rule [05 §3](../specs/05-catalog.md#3-staging) applies to weights, same reason
+  - "already present and correct" is checked by **digest, not presence**, which is what makes re-running an install re-verify rather than re-download — and what catches a tampered cache instead of trusting it because the file exists. A cached artifact whose digest is wrong is **refused, not replaced**: overwriting would erase the only evidence that something put a different file where nodary keeps a pinned one
+  - proved against the real pinned artifacts: 108 MB fetched, digests verified, archives extracted, and `bin/containerd`, `nerdctl`, `bridge`, `portmap` and `host-local` all present. `components verify` checks that URLs resolve; this checks what actually breaks an install
+- [x] **R5-07** The control plane as a mirror: only the control-plane host contacts an upstream source; GPU hosts bootstrap with no internet and no registry access · [01 §3](../specs/01-install.md#3-bootstrap-order)
+  - the mirror sits behind the **same mTLS as the rest of `/agent/`**, so it is not an open file server on the control plane's port: a host that has not enrolled has no business pulling a fleet's pinned runtime. `--mirror` therefore takes no URL — a node fetches from *its* control plane, using the certificate and pin already in `agent.toml`
+  - the path is validated against a **whitelist of what `ArtifactName` produces**, not a traversal filter. This handler joins a caller-supplied string to a directory, and "reject what looks dangerous" is the design that keeps needing another exclusion
+  - the node verifies the bytes against its own embedded manifest after the mirror serves them, so neither side trusts the other's word
+  - this is the same property [03 §5](../specs/03-agent.md#5-egress-isolation) asserts at runtime, applied to install time: a node that curls GitHub to install containerd is a node with egress, on the day it is least supervised
 - [ ] **R5-08** First administrator with a one-time setup URL valid for 15 minutes · [01 §4](../specs/01-install.md#4-server-install)
   - *done:* no default password ever exists
 - [ ] **R5-09** `nodary node install` — preflight, fetch from the mirror, create `nodary-isolated`, enroll, write `agent.toml`, start units, report inventory · [01 §5](../specs/01-install.md#5-node-install)
 - [ ] **R5-10** Filesystem layout and permissions exactly as specified, including `secret.key` at 0400 root and `/etc/nodary/pki/` at 0400 · [01 §12](../specs/01-install.md#12-filesystem-layout)
-- [ ] **R5-11** `/etc/nodary/components.json` records component ownership **at install**, so uninstall removes what nodary placed and leaves what it found · [01 §10](../specs/01-install.md#10-uninstall)
+- [x] **R5-11** `/etc/nodary/components.json` records component ownership **at install**, so uninstall removes what nodary placed and leaves what it found · [01 §10](../specs/01-install.md#10-uninstall)
   - *done:* ownership is recorded, never inferred at uninstall time
+  - the record distinguishes **placed by nodary** from **found already present and acceptable**, and only the first is ever removable. A host may already have containerd, installed by its operator and in use by something else; removing it because the name appears in nodary's manifest would take that down — on a machine [12](../specs/12-node-guardrails.md) opens by pointing out is rarely only a nodary node
+  - written as each artifact lands rather than at the end, so an install killed halfway leaves a record of exactly what it had placed
 - [ ] **R5-12** The `--with-node` single-box deployment · [00 §2](../specs/00-overview.md#2-topology)
 
 ## Offline
