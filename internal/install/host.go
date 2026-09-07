@@ -1,0 +1,260 @@
+package install
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+
+	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/paths"
+)
+
+// Layout is docs/specs/01-install.md §12, as directories and their modes.
+//
+// The modes are the specification's, and they are not decorative:
+// /var/lib/nodary at 0700 because the database sits beside a write-ahead log
+// holding committed-but-uncheckpointed audit records and sealed secrets, and
+// /etc/nodary/pki at 0700 because it holds the agent CA's sealed key.
+var Layout = []struct {
+	Dir  string
+	Mode os.FileMode
+	// Owned says whether the service user should own it. The PKI and the
+	// sealing key are root's.
+	Owned bool
+}{
+	{paths.DataDir, paths.ModeDataDir, true},
+	{filepath.Join(paths.DataDir, "dist"), 0o755, true},
+	{filepath.Join(paths.DataDir, "models"), 0o755, true},
+	{paths.ConfigDir, paths.ModeConfigDir, false},
+	{filepath.Join(paths.ConfigDir, "pki"), 0o700, false},
+	{filepath.Join(paths.ConfigDir, "deployments"), 0o755, false},
+	{filepath.Join(paths.ConfigDir, "backends"), 0o755, false},
+	{paths.LogDir, paths.ModeLogDir, true},
+}
+
+// EnsureLayout creates the directories of 01 §12 with their specified modes.
+//
+// Modes are set on every run, not only at creation. An install that created a
+// directory correctly and then never checked it again would let a `chmod 777`
+// stand forever — and /var/lib/nodary at 0755 is the audit chain readable by
+// every user on the box.
+func EnsureLayout(o Options) ([]Step, error) {
+	o.setDefaults()
+	uid, gid := -1, -1
+	if o.User != "" {
+		if u, err := user.Lookup(o.User); err == nil {
+			fmt.Sscan(u.Uid, &uid)
+			fmt.Sscan(u.Gid, &gid)
+		}
+	}
+
+	var steps []Step
+	for _, l := range Layout {
+		path := o.path(l.Dir)
+		step := Step{Name: "dir: " + l.Dir, Detail: fmt.Sprintf("%s %o", path, l.Mode)}
+
+		info, err := os.Stat(path)
+		switch {
+		case os.IsNotExist(err):
+			if err := os.MkdirAll(path, l.Mode); err != nil {
+				return steps, err
+			}
+			step.Changed = true
+		case err != nil:
+			return steps, err
+		case info.Mode().Perm() != l.Mode:
+			step.Changed = true
+		}
+		// Set every time. See the note above.
+		if err := os.Chmod(path, l.Mode); err != nil {
+			return steps, fmt.Errorf("setting the mode of %s: %w", path, err)
+		}
+		if l.Owned && uid >= 0 && o.Root == "" {
+			if err := os.Chown(path, uid, gid); err != nil {
+				return steps, fmt.Errorf("setting the owner of %s: %w", path, err)
+			}
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
+}
+
+// EnsureUser creates the service account 01 §4 step 4 asks for.
+//
+// A system account with no login shell and no home: it exists to own files and
+// run two processes, and anything more is a way in. Idempotent — an existing
+// account is used rather than recreated, because a site may have provisioned
+// one with its own uid policy.
+func EnsureUser(ctx context.Context, name string, o Options) (Step, error) {
+	o.setDefaults()
+	step := Step{Name: "user: " + name}
+	if name == "" {
+		step.Detail = "running as root; no service account"
+		return step, nil
+	}
+	if _, err := user.Lookup(name); err == nil {
+		step.Detail = "already exists"
+		return step, nil
+	}
+	out, err := o.Run(ctx, "useradd", "--system", "--no-create-home",
+		"--shell", "/usr/sbin/nologin", name)
+	if err != nil {
+		return step, fmt.Errorf("creating the %s user: %w: %s", name, err, strings.TrimSpace(string(out)))
+	}
+	step.Changed, step.Detail = true, "created as a system account with no shell"
+	return step, nil
+}
+
+// PlaceComponents extracts the fetched archives and puts their binaries where
+// the unit template expects them.
+//
+// It records ownership as it goes, distinguishing what it placed from what it
+// found — R5-11, and the reason is that a host may already run containerd for
+// something else. **A binary already present is left alone**, and recorded as
+// found rather than placed, so an uninstall will not remove it.
+func PlaceComponents(ctx context.Context, fetched []components.Fetched, o Options,
+	recordPath, version string) ([]Step, error) {
+	o.setDefaults()
+	binDir := o.path(o.BinDir)
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	var steps []Step
+	var owned []components.Owned
+	for _, f := range fetched {
+		want, ok := wantedBinaries[f.Component]
+		if !ok {
+			continue
+		}
+		staged := filepath.Join(filepath.Dir(f.Path), ".extract", f.Component)
+		if strings.HasSuffix(f.Path, ".tar.gz") {
+			if _, err := components.Extract(f.Path, staged); err != nil {
+				return steps, err
+			}
+		}
+
+		for _, b := range want {
+			src := filepath.Join(staged, b.From)
+			if !strings.HasSuffix(f.Path, ".tar.gz") {
+				src = f.Path // a bare binary, e.g. runc
+			}
+			dst := filepath.Join(binDir, b.As)
+			step := Step{Name: "bin: " + b.As, Detail: dst}
+
+			if _, err := os.Stat(dst); err == nil {
+				// Found, not placed. Left alone and recorded as such: removing
+				// something the operator installed, because its name appears in
+				// nodary's manifest, would take down whatever else uses it.
+				step.Detail = dst + " (already present, left alone)"
+				owned = append(owned, components.Owned{Component: f.Component,
+					Version: f.Version, Path: dst, Placed: false})
+				steps = append(steps, step)
+				continue
+			}
+			if err := copyExecutable(src, dst); err != nil {
+				return steps, fmt.Errorf("placing %s: %w", b.As, err)
+			}
+			step.Changed = true
+			owned = append(owned, components.Owned{Component: f.Component,
+				Version: f.Version, Path: dst, SHA256: f.SHA256, Placed: true})
+			steps = append(steps, step)
+		}
+	}
+
+	if recordPath != "" && len(owned) > 0 {
+		if err := components.Record(recordPath, version, owned...); err != nil {
+			return steps, err
+		}
+	}
+	return steps, nil
+}
+
+// wantedBinaries names what comes out of each archive and what it is called on
+// the host.
+//
+// An explicit list rather than "everything executable in the tarball":
+// containerd's archive carries several binaries, only some of which nodary
+// needs, and an install that placed all of them would own files it never uses
+// and would remove them on uninstall.
+var wantedBinaries = map[string][]struct{ From, As string }{
+	"containerd": {
+		{"bin/containerd", "containerd"},
+		{"bin/containerd-shim-runc-v2", "containerd-shim-runc-v2"},
+		{"bin/ctr", "ctr"},
+	},
+	"nerdctl": {{"nerdctl", "nerdctl"}},
+	"runc":    {{"", "runc"}},
+}
+
+// CNIBinDir is where the CNI plugins live. Not /usr/local/bin: containerd looks
+// for them in their own directory, and mixing them with host binaries makes
+// both harder to reason about.
+const CNIBinDir = "/opt/cni/bin"
+
+// PlaceCNIPlugins extracts the CNI plugins into their own directory.
+func PlaceCNIPlugins(fetched components.Fetched, o Options) (Step, error) {
+	o.setDefaults()
+	dir := o.path(CNIBinDir)
+	step := Step{Name: "cni plugins", Detail: dir}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return step, err
+	}
+	// The plugins the isolated network's configuration names, and nothing else.
+	before, _ := os.ReadDir(dir)
+	if _, err := components.Extract(fetched.Path, dir); err != nil {
+		return step, err
+	}
+	after, _ := os.ReadDir(dir)
+	step.Changed = len(after) != len(before)
+	step.Detail = fmt.Sprintf("%s (%d plugins)", dir, len(after))
+	return step, nil
+}
+
+// copyExecutable places a binary at 0755, writing to a temporary file first so
+// a killed install does not leave a truncated executable at a path something
+// will try to run.
+func copyExecutable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".nodary-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), dst)
+}
+
+// Start enables and starts a unit.
+func Start(ctx context.Context, unit string, o Options) (Step, error) {
+	o.setDefaults()
+	step := Step{Name: "start: " + unit}
+	if o.Root != "" {
+		step.Detail = "not started: this is a staged install into " + o.Root
+		return step, nil
+	}
+	out, err := o.Run(ctx, "systemctl", "enable", "--now", unit)
+	if err != nil {
+		return step, fmt.Errorf("starting %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+	}
+	step.Changed, step.Detail = true, "enabled and started"
+	return step, nil
+}
