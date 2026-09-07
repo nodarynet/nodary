@@ -452,3 +452,68 @@ func TestStoredTimesRoundTrip(t *testing.T) {
 		t.Errorf("read back %+v, want %+v", back, tok)
 	}
 }
+
+// A join token is the only credential in the product that is spent rather than
+// presented, so the thing worth asserting is that spending it is final.
+// docs/specs/11-failure-modes.md §3 names the replay directly.
+func TestAJoinTokenIsBurnedOnUse(t *testing.T) {
+	f := newFixture(t)
+	_, plain := f.mintJoin(2, f.now.Add(time.Hour))
+
+	for i, wantLeft := range []int{1, 0} {
+		var j JoinToken
+		if _, err := f.act("node.enroll", func(m audit.Mutation) error {
+			var err error
+			j, err = RedeemJoinToken(context.Background(), m, f.now, plain)
+			return err
+		}); err != nil {
+			t.Fatalf("redemption %d: %v", i+1, err)
+		}
+		if j.UsesLeft != wantLeft {
+			t.Errorf("redemption %d left %d uses, want %d", i+1, j.UsesLeft, wantLeft)
+		}
+	}
+
+	// The third is the replay.
+	_, err := f.act("node.enroll", func(m audit.Mutation) error {
+		_, err := RedeemJoinToken(context.Background(), m, f.now, plain)
+		return err
+	})
+	if !errors.Is(err, ErrBadToken) {
+		t.Errorf("replaying a spent token: error = %v, want ErrBadToken", err)
+	}
+}
+
+func TestRedeemingRefusesEveryUnusableToken(t *testing.T) {
+	f := newFixture(t)
+	_, expired := f.mintJoin(1, f.now.Add(time.Minute))
+
+	for _, tc := range []struct {
+		what      string
+		plaintext string
+		now       time.Time
+		want      error
+	}{
+		{"not a join token", "nodary_pt_abcdef", f.now, ErrBadToken},
+		{"unknown", "nodary_jt_neverminted", f.now, ErrBadToken},
+		{"expired", expired, f.now.Add(time.Hour), ErrTokenExpired},
+	} {
+		_, err := f.act("node.enroll", func(m audit.Mutation) error {
+			_, err := RedeemJoinToken(context.Background(), m, tc.now, tc.plaintext)
+			return err
+		})
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: error = %v, want %v", tc.what, err, tc.want)
+		}
+	}
+
+	// An expired token that was refused still has its use: the refusal must not
+	// be a way to burn somebody else's token down.
+	list, err := ListJoinTokens(context.Background(), f.db.Read())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].UsesLeft != 1 {
+		t.Errorf("a refused redemption changed %+v", list)
+	}
+}

@@ -534,3 +534,71 @@ func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 	}
 	return out, rows.Err()
 }
+
+// RedeemJoinToken spends one use of a join token and reports what was spent.
+//
+// The decrement *is* the check: `uses_left > 0` and the expiry live in the
+// UPDATE's WHERE clause, so a single-use token cannot be spent twice even if
+// two enrolments arrive together. A SELECT-then-UPDATE would be safe today
+// because store.WriteTx serialises writers, but it would be safe by accident —
+// it reads correct and depends on something in another package staying true.
+//
+// docs/specs/02-enrollment.md §1: the token is burned on success and is never
+// reusable. docs/specs/11-failure-modes.md §3: a replayed token is rejected.
+func RedeemJoinToken(ctx context.Context, m audit.Mutation, now time.Time, plaintext string) (JoinToken, error) {
+	if !strings.HasPrefix(plaintext, KindJoin.Prefix()) {
+		return JoinToken{}, fmt.Errorf("%w: a join token starts %s", ErrBadToken, KindJoin.Prefix())
+	}
+	hash := hashToken(plaintext)
+
+	res, err := m.Tx().ExecContext(ctx,
+		`UPDATE join_token SET uses_left = uses_left - 1
+		 WHERE hash = ? AND uses_left > 0 AND expires_at > ?`, hash, formatTime(now))
+	if err != nil {
+		return JoinToken{}, fmt.Errorf("redeeming a join token: %w", err)
+	}
+	spent, err := res.RowsAffected()
+	if err != nil {
+		return JoinToken{}, err
+	}
+
+	var j JoinToken
+	var expires, created string
+	row := m.Tx().QueryRowContext(ctx,
+		`SELECT id, prefix, uses_left, expires_at, created_by, created_at
+		 FROM join_token WHERE hash = ?`, hash)
+	switch err := row.Scan(&j.ID, &j.Prefix, &j.UsesLeft, &expires, &j.CreatedBy, &created); {
+	case err == sql.ErrNoRows:
+		// Deliberately the same answer as a used-up token: the caller is
+		// unauthenticated, and telling it which of the two it holds is a way to
+		// enumerate live tokens.
+		return JoinToken{}, fmt.Errorf("%w: no such join token", ErrBadToken)
+	case err != nil:
+		return JoinToken{}, err
+	}
+	for _, f := range []struct {
+		raw   string
+		field *time.Time
+	}{{expires, &j.ExpiresAt}, {created, &j.CreatedAt}} {
+		ts, err := time.Parse(audit.TimeFormat, f.raw)
+		if err != nil {
+			return JoinToken{}, fmt.Errorf("join token %s has an unreadable timestamp %q: %w", j.ID, f.raw, err)
+		}
+		*f.field = ts
+	}
+
+	// The row exists, so the WHERE clause failed on a condition worth naming.
+	// The read is not racing anything: the write lock is already held.
+	if spent == 0 {
+		if !now.Before(j.ExpiresAt) {
+			return JoinToken{}, fmt.Errorf("%w: join token %s expired at %s",
+				ErrTokenExpired, j.Prefix, expires)
+		}
+		return JoinToken{}, fmt.Errorf("%w: join token %s has no uses left", ErrBadToken, j.Prefix)
+	}
+
+	m.Detail("join_token", j.ID)
+	m.Detail("prefix", j.Prefix)
+	m.Detail("uses_left", j.UsesLeft)
+	return j, nil
+}
