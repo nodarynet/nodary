@@ -177,3 +177,104 @@ func serial() *big.Int {
 	}
 	return n
 }
+
+// AgentCAPath is the certificate the listener verifies client certificates
+// against, and the one EnsureAgentCA wrote.
+func AgentCAPath(dir string) string { return filepath.Join(dir, caCertName) }
+
+// agentCertificateLifetime is docs/specs/02-enrollment.md §1's 90-day default.
+const agentCertificateLifetime = 90 * 24 * time.Hour
+
+// LoadAgentCA unseals the internal CA so it can sign.
+//
+// It returns an error rather than a nil key when the sealed half is missing,
+// for the reason EnsureAgentCA gives: a CA that cannot sign is worse than no CA
+// at all, because it looks usable until the first enrolment.
+func LoadAgentCA(dir string, k *secret.Key) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	certPath := AgentCAPath(dir)
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the agent CA: %w", err)
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, nil, fmt.Errorf("%s is not PEM", certPath)
+	}
+	ca, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing the agent CA: %w", err)
+	}
+
+	sealed, err := os.ReadFile(certPath + ".sealed")
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the sealed agent CA key: %w", err)
+	}
+	keyDER, err := k.Open(caSealLabel, "agent-ca", sealed)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unsealing the agent CA key: %w", err)
+	}
+	key, err := x509.ParseECPrivateKey(keyDER)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing the agent CA key: %w", err)
+	}
+	return ca, key, nil
+}
+
+// SignAgentCertificate issues one node's client certificate, in PEM.
+//
+// The subject is built here and never taken from the CSR
+// (docs/plans/R4a-agent-protocol.md §2): the CSR arrives on the one
+// unauthenticated endpoint in the product, and its subject would otherwise
+// become the identity mTLS then trusts. It contributes a public key and
+// nothing else.
+func SignAgentCertificate(ca *x509.Certificate, caKey *ecdsa.PrivateKey,
+	node string, pub any, now time.Time) ([]byte, time.Time, error) {
+	notAfter := now.Add(agentCertificateLifetime)
+	tmpl := &x509.Certificate{
+		SerialNumber: serial(),
+		Subject:      pkix.Name{CommonName: node, Organization: []string{"nodary node"}},
+		// A minute of leeway, not an hour: an agent whose clock is a minute
+		// fast should still be able to use the certificate it was just handed,
+		// and anything wider is backdating a credential.
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, pub, caKey)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("signing a certificate for %s: %w", node, err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), notAfter, nil
+}
+
+// PublicKeyFromCSR validates a certificate request and returns the only thing
+// taken from it.
+//
+// One algorithm is accepted. The agent generates this key, so every additional
+// curve or algorithm is a code path nothing in the product exercises, on the
+// endpoint where an unauthenticated caller chooses the input. P-256 is also
+// what EnsureServerCertificate and EnsureAgentCA already use, and it passes
+// under GODEBUG=fips140=only (docs/spike-fips-and-manifest.md).
+func PublicKeyFromCSR(csrPEM []byte) (any, error) {
+	block, _ := pem.Decode(csrPEM)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return nil, fmt.Errorf("%w: expected a PEM CERTIFICATE REQUEST", errBadRequest)
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: unparseable certificate request: %v", errBadRequest, err)
+	}
+	// Without this the request proves only that somebody copied a public key,
+	// not that they hold the private half.
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("%w: the certificate request is not signed by its own key: %v",
+			errBadRequest, err)
+	}
+	pub, ok := csr.PublicKey.(*ecdsa.PublicKey)
+	if !ok || pub.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("%w: a node key must be ECDSA P-256", errBadRequest)
+	}
+	return pub, nil
+}

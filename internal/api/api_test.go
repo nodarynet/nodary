@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,6 +28,7 @@ type fixture struct {
 	log    *audit.Log
 	key    *secret.Key
 	admin  string // a personal token for an admin
+	pki    string
 	client *http.Client
 }
 
@@ -76,8 +78,20 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 
+	// The PKI the enrolment endpoint signs from. Generated the way `server
+	// install` generates it, so a test cannot enroll against a CA no install
+	// would have produced.
+	pki := filepath.Join(dir, "pki")
+	if err := os.MkdirAll(pki, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.EnsureAgentCA(ctx, pki, key, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	f.pki = pki
+
 	srv := api.New(api.Options{DB: db, Log: log,
-		Key: func() (*secret.Key, error) { return key, nil }, Now: time.Now})
+		Key: func() (*secret.Key, error) { return key, nil }, PKI: pki, Now: time.Now})
 	f.srv = httptest.NewServer(srv.Handler())
 	t.Cleanup(f.srv.Close)
 	f.client = f.srv.Client()

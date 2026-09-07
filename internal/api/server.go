@@ -23,9 +23,12 @@ const Prefix = "/api/v1"
 // Server holds the process's handles. It is deliberately small: a handler that
 // needed something not here would be a handler doing something the core should.
 type Server struct {
-	db   *store.DB
-	log  *audit.Log
-	key  func() (*secret.Key, error)
+	db  *store.DB
+	log *audit.Log
+	key func() (*secret.Key, error)
+	// pki is where the agent CA lives: the enrolment endpoint signs from it and
+	// the listener verifies client certificates against it.
+	pki  string
 	now  func() time.Time
 	slog *slog.Logger
 	// sessions are the cookie-authenticated logins. In-memory because they are
@@ -41,6 +44,7 @@ type Options struct {
 	DB   *store.DB
 	Log  *audit.Log
 	Key  func() (*secret.Key, error)
+	PKI  string
 	Now  func() time.Time
 	Slog *slog.Logger
 }
@@ -53,7 +57,7 @@ func New(o Options) *Server {
 	if o.Slog == nil {
 		o.Slog = slog.Default()
 	}
-	return &Server{db: o.DB, log: o.Log, key: o.Key, now: o.Now, slog: o.Slog,
+	return &Server{db: o.DB, log: o.Log, key: o.Key, pki: o.PKI, now: o.Now, slog: o.Slog,
 		sessions: newSessionStore()}
 }
 

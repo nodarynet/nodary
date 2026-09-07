@@ -28,6 +28,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 		mux.HandleFunc(method+" "+Prefix+path, fn)
 	}
 
+	// The node protocol. Enrolment is the only unauthenticated endpoint in the
+	// product (docs/specs/03-agent.md §1); everything under /agent/ is mTLS.
+	h("POST", "/enroll", s.enroll)
+
 	// Auth — R2-25.
 	h("POST", "/auth/login", s.login)
 	h("POST", "/auth/logout", s.logout)
