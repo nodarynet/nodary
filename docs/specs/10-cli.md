@@ -14,7 +14,7 @@ aspiration.
 nodary server   install | start | stop | status
 nodary node     install | enroll | list | show | approve | drain | revoke
                 | verify-egress | leave | policy | uninstall
-nodary agent    audit list | audit verify | audit export | status
+nodary agent    plan | run | audit list | audit verify | audit export | status
 nodary backend  list | show | register | remove | build | rebuild
 nodary model    register | list | show | enable | disable | restart
                 | stage | unstage | restage

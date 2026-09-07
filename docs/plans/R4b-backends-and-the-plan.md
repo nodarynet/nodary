@@ -1,7 +1,7 @@
 # R4b — Descriptors, guardrails, staging, and the plan
 
 **Slice of:** [R4](../tasks/R4-agent.md) ·
-**Tasks:** R4-13, R4-34, R6-01 – R6-03 · **Status:** in progress
+**Tasks:** R4-13, R4-17, R4-34, R6-01 – R6-03 · **Status:** complete
 
 Everything the agent needs to decide *what it would do*, and nothing that does it.
 [R4a](R4a-agent-protocol.md) got a desired-state document onto a node. This slice turns that
@@ -113,11 +113,12 @@ weaker claim than the one an assessor is being shown.
 
 **Decided.** R4-13 only: the file is read, refused if malformed, and its contents become the
 node's advertised offer and constraints at enrolment.
-[R4-14 – R4-17](../tasks/R4-agent.md) — evaluate-before-side-effect, refusals, `out_of_policy`,
-inventory narrowing — stay open.
+[R4-14 – R4-16](../tasks/R4-agent.md) — evaluate-before-side-effect, refusals, `out_of_policy`
+— stay open. R4-17 closes here, because it is the reporting half and falls out of R4-13
+rather than needing anything of its own.
 
 **Why.** [mvp §6](mvp.md#6-what-an-mvp-install-cannot-claim) already lists "no node guardrail
-enforcement" as a gap with those four task numbers, and
+enforcement" as a gap with those task numbers, and
 [mvp §5.3](mvp.md#53-egress-isolation-is-built-node-guardrails-are-not) gives the reasoning:
 guardrails protect an operator from themselves on a machine they own, and their absence is
 visible rather than silent.
@@ -146,18 +147,40 @@ and writing it against a loop that does not exist is writing it twice.
 
 ## 6. Steps
 
-- [ ] `internal/backend`: parse, validate, reject unknown keys
-- [ ] Embed the vLLM and SGLang descriptors
-- [ ] Canonical translation, `extra_args` appended verbatim
-- [ ] `node.toml` parsed, and the offer it produces at enrolment
-- [ ] Local staging verified against its manifest
-- [ ] `Plan` — the desired document rendered as actions, side-effect free
-- [ ] `nodary agent plan`, so the plan is inspectable without running it
+- [x] `internal/backend`: parse, validate, reject unknown keys
+- [x] Embed the vLLM and SGLang descriptors
+- [x] Canonical translation, `extra_args` appended verbatim
+- [x] `node.toml` parsed, and the offer it produces at enrolment
+- [x] Local staging verified against its manifest
+- [x] `Plan` — the desired document rendered as actions, side-effect free
+- [x] `nodary agent plan`, so the plan is inspectable without running it
 
-## 7. Open items
+## 7. What this slice changed outside itself
+
+- [10 §1](../specs/10-cli.md#1-verbs) gains `agent plan`.
+- [05 §3](../specs/05-catalog.md#3-staging) gains where the per-file manifest lives — §2 above.
+- R4-17 was closed along the way. It is the reporting half of the guardrails and it falls out
+  of R4-13 rather than needing anything of its own: the offer is narrowed on the node, so the
+  control plane is never told about a card that is not on offer.
+- **A defect found on the way through.** `nodary token join` built its own flag set and called
+  `audit.Log.Act` directly, so minting the credential that gets a machine onto the fleet had
+  no preview, no `intent_hash`, no confirmation, and no way to supply a TOTP code under a
+  profile requiring one — while the API's `POST /tokens/join` went through `core.Act` and
+  demanded all of it. The two front ends disagreed about what that act costs, which is exactly
+  what [R2c](R2c-api-core.md) exists to prevent, on the act where it matters most.
+
+  The fix is one verb. The *test* is structural — every mutating verb is asserted to accept
+  `--justify`, `--dry-run`, `--yes` and `--totp` — and it was checked against the old code to
+  confirm it fails there. One verb diverging is a bug; nothing checking for divergence is how
+  the next one gets in.
+
+## 8. Open items
 
 - R4c takes the reconcile loop, the unit template, health polling and the daemon.
 - R4d takes egress isolation, which [mvp §5.3](mvp.md#53-egress-isolation-is-built-node-guardrails-are-not)
   makes non-optional.
-- [mvp §4](mvp.md#4-the-route)'s route does not mention R6 at all. §1 above takes three of its
-  tasks; the route should say so.
+- [mvp §4](mvp.md#4-the-route)'s route does not mention R6 at all. §1 takes three of its tasks;
+  the route now says so.
+- `probeGPUs` and `RebootPolicy` shell out to `nvidia-smi` and read `/proc`, and neither has a
+  test: one would need a GPU, and the other would assert against a stub of our own writing.
+  Both were exercised by hand on this machine — an RTX 5090 on driver 610.88.

@@ -48,6 +48,21 @@ without restaging.
 - **`source: remote`** — the agent downloads into a temporary directory, verifies against the manifest, then atomically renames into place. Resumable across agent restarts; progress reported as bytes completed against total.
 - **`source: local`** — an operator places the weights out of band (removable media, `rsync`); the agent verifies the manifest and marks them staged. This is the air-gapped path, and it is a first-class one, not a workaround.
 
+The per-file digest list travels **with the weights**, as `nodary-manifest.sha256` in the
+model's directory, in `sha256sum` format. The control plane holds only `manifest_sha256` — the
+digest of that file — and the agent refuses to stage unless the list it found hashes to it.
+
+An operator carries the bulk; the control plane carries the one digest that makes the bulk
+checkable, and it arrived over mTLS from an audited `model register`. Verification therefore
+needs no network, which is the property the air-gapped path exists for, and a manifest swapped
+in transit fails against the digest. The format is `sha256sum` output so that an operator can
+produce it with `sha256sum *` and check it with `sha256sum -c`, needing nodary installed for
+neither.
+
+Verification reads every byte. There is no size-and-mtime fast path: media that has been
+carried physically is exactly the media that develops quiet bit errors, and the whole value of
+`corrupt` being terminal is that `staged` means verified.
+
 ```
 absent → staging → verifying → staged
                             ↘ corrupt

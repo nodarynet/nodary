@@ -110,8 +110,9 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 ## Status
 
 **R0 and R1 are complete. R2 is complete to the extent the control plane can be without an
-agent, R9's evidence bundle is built, and a node now enrols and speaks the agent protocol.**
-Nothing serves inference yet: no model is started and no request is routed.
+agent, R9's evidence bundle is built, and a node now enrols, speaks the agent protocol, and
+can say exactly what it would run.** Nothing serves inference yet: no unit is started and no
+request is routed.
 
 | | | |
 | :--- | :--- | :--- |
@@ -119,7 +120,8 @@ Nothing serves inference yet: no model is started and no request is routed.
 | **R1** Core, audit, identity | done | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 28 of 42 | schema, revisions, the HTTP API, the shared core, TLS and the PKI |
 | **R9** Evidence | 12 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone |
-| **R4** Agent | 7 of 37 | enrolment, certificate pinning, mTLS, desired state, heartbeat |
+| **R4** Agent | 10 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging |
+| **R6** Backends | 2 of 12 | the descriptor schema and argument translation, vLLM and SGLang |
 | **R3** Gateway · **R5** Install | not started | |
 
 What works today: `nodary server install && nodary server start` brings up a TLS control
@@ -128,10 +130,12 @@ CLI or the API, and every mutation is previewed, justified, hash-chained and exp
 evidence bundle an assessor can verify without nodary installed. A GPU host runs `nodary node
 enroll`, pins the control plane by a fingerprint carried out of band, receives a client
 certificate, and long-polls its desired state — and receives nothing until an administrator
-approves it.
+approves it. `nodary agent plan` then renders exactly what that node would run: the argv
+translated through the backend descriptor, the unit's environment file, and a verdict on
+weights verified byte by byte against a manifest stock `sha256sum` can also check.
 
-What does not: no model is staged, no unit is written, nothing is isolated and nothing is
-served. The route from here is [docs/plans/mvp.md](docs/plans/mvp.md).
+What does not: no unit is started, nothing is isolated, and nothing is served. The route from
+here is [docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests

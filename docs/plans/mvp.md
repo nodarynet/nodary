@@ -55,7 +55,7 @@ The mechanism exists: [`cli.go`](../../internal/cli/cli.go)'s `planned` map alre
 | **S2** | Finish R1 | R1-13 – R1-17, R1-25 – R1-31 | The R1d and R1e slices [R1c](R1c-identity.md) named. Nothing after this can be written without attestation and profiles |
 | **S3** | Evidence export | R9-01 – R9-09, R9-12; R9-10, R9-11, R9-13 as stubs | Out of order deliberately — §5.1 |
 | **S4** | R2 thin | R2-01, R2-04 – R2-13, R2-15 – R2-20, R2-24 – R2-26, R2-28 – R2-31, R2-33 – R2-36, R2-39, R2-40 | ~24 of 42. Deferred: pagination, `If-Match`, `Idempotency-Key`, backends API, usage API, retention, backup, the SIEM sink |
-| **S5** | R4 thin | R4-01 – R4-04, R4-07 – R4-09, R4-13, R4-18 – R4-20, R4-26, R4-27, R4-29, R4-34 | ~14 of 37, and the plan's whole risk — §7 |
+| **S5** | R4 thin | R4-01 – R4-04, R4-07 – R4-09, R4-13, R4-18 – R4-20, R4-26, R4-27, R4-29, R4-34, **and R6-01 – R6-03** | ~14 of 37, and the plan's whole risk — §7. The three R6 tasks are a prerequisite this route missed: an agent cannot render an argv without a descriptor, and [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugins) already embeds them in the binary · [R4b §1](R4b-backends-and-the-plan.md) |
 | **S6** | R3 thin | R3-01 – R3-06, R3-12, R3-15, R3-16 | Metering is closed here or never — §2 |
 | **S7** | R5 thin | R5-01, R5-02, R5-04, R5-05, R5-08 – R5-12, R5-18, R5-25 | Deferred: offline bundle, upgrade, uninstall, WSL2 |
 | **S8** | The remaining stubs | R9-14, R9-15 | The feed's format and an empty signed revision, so the verb exists and the shape is fixed |
@@ -180,7 +180,7 @@ honest form of "it is on the roadmap".
 | No advisory feed content | R9-14, R9-15 |
 | No FIPS-validated build shipped | R5-25, R5-26 |
 | No offline install, no upgrade path | R5-13 – R5-17 |
-| No node guardrail enforcement | R4-14 – R4-17 |
+| No node guardrail enforcement — the limits are reported, not enforced | R4-14 – R4-16 |
 | No remote weight staging | R4-33 |
 | Password hashing still specified as argon2id | 07 §1, open — §8 |
 

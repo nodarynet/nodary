@@ -41,14 +41,18 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 
 ## Guardrails
 
-- [ ] **R4-13** `/etc/nodary/node.toml` parsing; every field optional, an absent `[limits]` offering the whole machine · [12 §2](../specs/12-node-guardrails.md#2-the-file)
+- [x] **R4-13** `/etc/nodary/node.toml` parsing; every field optional, an absent `[limits]` offering the whole machine · [12 §2](../specs/12-node-guardrails.md#2-the-file)
+  - parsed and **reported**, enforcing nothing: the offer it produces is what enrolment advertises, and R4-14 – R4-17 stay open · [mvp §6](../plans/mvp.md#6-what-an-mvp-install-cannot-claim)
+  - an unknown key is refused rather than ignored. Here more than anywhere else: an operator who misspells `gpu_indices` and is not told believes a GPU is withheld that is in fact on offer
+  - an absent `gpu_indices` and an empty one are different answers, and TOML tells them apart. Collapsing them would turn "offer nothing" into "offer everything"
 - [ ] **R4-14** `evaluate` runs before any side effect · [03 §3](../specs/03-agent.md#3-reconcile-loop)
   - *done:* an agent never partially applies a document it is going to refuse — a half-applied change is worse than a rejected one
 - [ ] **R4-15** Refusals are recorded, surfaced against the node, and **not** retried · [12 §1](../specs/12-node-guardrails.md#1-where-they-apply)
   - *done:* a limit being hit repeatedly is something an operator sees, not something the system grinds against
 - [ ] **R4-16** A guardrail narrowing under a running deployment reports `out_of_policy` and does not kill it · [12 §3](../specs/12-node-guardrails.md#3-editing-a-live-node)
   - *done:* editing a config file never terminates a serving model. A guardrail nobody dares touch is not a guardrail
-- [ ] **R4-17** Reported inventory is the offer, not the machine: a four-GPU host offering three appears as a three-GPU node · [12 §4](../specs/12-node-guardrails.md#4-reported-inventory)
+- [x] **R4-17** Reported inventory is the offer, not the machine: a four-GPU host offering three appears as a three-GPU node · [12 §4](../specs/12-node-guardrails.md#4-reported-inventory)
+  - the narrowing happens **on the node**, before the wire, so the control plane is never told the fourth card exists and cannot place work on it. Filtering at the far end would leave the knowledge on the wrong side of the boundary
 
 ## Reconcile and runtime
 
@@ -87,7 +91,11 @@ looks correct, reviews clean, and enforces nothing.
   - *done:* a model whose origin later becomes denied flags existing deployments rather than stopping them; disabling is an explicit, audited decision
 - [ ] **R4-33** `source: remote` staging — download to a temporary directory, verify against the manifest, atomically rename into place, resumable across agent restarts · [05 §3](../specs/05-catalog.md#3-staging)
   - *done:* a temporary directory is never renamed into place unverified; disk-full fails cleanly and removes the partial
-- [ ] **R4-34** `source: local` staging — the air-gapped path, verified from the manifest and marked staged, as a first-class path rather than a workaround · [05 §3](../specs/05-catalog.md#3-staging)
+- [x] **R4-34** `source: local` staging — the air-gapped path, verified from the manifest and marked staged, as a first-class path rather than a workaround · [05 §3](../specs/05-catalog.md#3-staging)
+  - the per-file digest list travels **with the weights** as `nodary-manifest.sha256`; the control plane sends only `manifest_sha256`, the digest of that file. An operator carries the bulk, the control plane carries the one digest that makes the bulk checkable, and verification needs no network — which is the property an air-gapped path exists for · [R4b §2](../plans/R4b-backends-and-the-plan.md)
+  - the format is `sha256sum` output, and the interoperability is **measured** in both directions: a manifest we accept passes `sha256sum -c`, and one `sha256sum` wrote verifies here
+  - every byte is read. No size-and-mtime fast path: media carried physically is exactly the media that develops quiet bit errors, and `staged` has to mean verified
+  - a missing file is `absent`, not `corrupt`. `corrupt` is terminal and needs a human; weights still being copied do not
 - [ ] **R4-35** `corrupt` is terminal and requires explicit `nodary model restage`
   - *done:* nothing auto-repairs a failed verification, because a silent re-download is how a corrupt artifact becomes a permanent mystery
 - [ ] **R4-36** `nodary model enable|disable|restart|stage|unstage|restage` and `nodary route list|show|set` · [05 §4](../specs/05-catalog.md#4-enable-and-disable)
