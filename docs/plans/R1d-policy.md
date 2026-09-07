@@ -1,7 +1,7 @@
 # R1d — Policy profiles
 
 **Slice of:** [R1](../tasks/R1-core-audit-identity.md) · **Tasks:** R1-25 – R1-28 ·
-**Status:** in flight
+**Status:** complete
 
 The fourth of five slices of R1.
 
@@ -99,8 +99,8 @@ parse and at apply. They are the ones a plausible profile could contain by accid
 
 ## Steps
 
-- [ ] `internal/policy` — `Profile`, `Parse`, the invariants, the two embedded profiles
-- [ ] Migration `0004_policy.sql` — the singleton row
-- [ ] `Active` and `Apply`, the latter through `audit.Mutation`
-- [ ] `Diff`, naming which constraints loosen
-- [ ] `nodary policy show|apply|diff`
+- [x] `internal/policy` — `Profile`, `Parse`, the invariants, the two embedded profiles
+- [x] Migration `0004_policy.sql` — the singleton row
+- [x] `Active` and `Apply`, the latter through `audit.Mutation`
+- [x] `Diff`, naming which constraints loosen
+- [x] `nodary policy show|apply|diff`

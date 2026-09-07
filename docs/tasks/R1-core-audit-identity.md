@@ -108,17 +108,20 @@ front of the same core functions.
 
 ## Policy profiles
 
-- [ ] **R1-25** Parse and validate a policy profile from TOML · [07 §4](../specs/07-identity-audit.md#4-policy-profiles)
+- [x] **R1-25** Parse and validate a policy profile from TOML · [07 §4](../specs/07-identity-audit.md#4-policy-profiles)
   - *done:* unknown keys are rejected rather than ignored; a profile is a reviewable object, and a silently dropped key defeats that
   - *deps:* R1-03
-- [ ] **R1-26** Embed the built-in `default` and `regulated` profiles; `default` is active on a fresh install
-  - *done:* both profiles' values match [07 §4](../specs/07-identity-audit.md#4-policy-profiles) exactly
+- [x] **R1-26** Embed the built-in `default` and `regulated` profiles; `default` is active on a fresh install
+  - *done:* both profiles' values match [07 §4](../specs/07-identity-audit.md#4-policy-profiles) exactly — asserted against the specification's own TOML blocks rather than against a transcription, because the transcription is the thing that drifts
+  - *note:* `default` is resolved on read from the absence of a row rather than seeded by the migration. A seeded row would claim somebody applied it while no audit record said who
   - *deps:* R1-25
-- [ ] **R1-27** Enforce the invariants no profile can turn off · [07 §4](../specs/07-identity-audit.md#4-policy-profiles)
+- [x] **R1-27** Enforce the invariants no profile can turn off · [07 §4](../specs/07-identity-audit.md#4-policy-profiles)
   - *done:* a profile attempting to disable the audit chain, `intent_hash` binding, signature verification, digest pinning or egress isolation is rejected at apply. What a profile adjusts is ceremony and retention, never whether the record exists
+  - *note:* the five invariants divide in two. `require_signed_artifacts = false` and `egress_default = "allow"` are valid keys a plausible profile could hold by accident, and are refused by name. The other three have no key at all, so they would fall through to "unknown key" — which reads as a typo to somebody who just tried to disable the audit chain, and they get named refusals instead · [R1d](../plans/R1d-policy.md)
   - *deps:* R1-25
-- [ ] **R1-28** `nodary policy show|apply|diff`
-  - *done:* `diff` names exactly which constraints would loosen; loosening is permitted, doing it silently is not
+- [x] **R1-28** `nodary policy show|apply|diff`
+  - *done:* `diff` names exactly which constraints would loosen; loosening is permitted, doing it silently is not — `apply` reports the same lines on stderr before it acts, so the report survives `--format json` being parsed on stdout
+  - *note:* one table drives `diff` and `show` both, so a setting cannot be visible in one and missing from the other, and a test fails if the table and the struct disagree
   - *deps:* R1-12, R1-26
 
 ## CLI surface
