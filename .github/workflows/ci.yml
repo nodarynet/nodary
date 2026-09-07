@@ -19,6 +19,68 @@ jobs:
           cache: true
       - run: make check
 
+  # R5-25. Does the tree build and pass under Go's FIPS 140-3 module, and does
+  # TOTP's HMAC-SHA-1 survive it?
+  #
+  # docs/spike-fips-and-manifest.md answered that once, by hand: it builds, it
+  # stays static, `fips140=on` passes everything, and `fips140=only` breaks
+  # three of eight packages — HMAC-SHA-1 does not merely fail, it *panics*
+  # inside hmac.New. This job answers it continuously and for free.
+  #
+  # **Non-gating on purpose.** docs/plans/mvp.md §5.6: blocking every pull
+  # request on an unmeasured dependency, in service of a claim the MVP
+  # explicitly does not make (§6 — "no FIPS-validated build shipped"), is the
+  # wrong trade. It reports; a person reads it. Gating is R5-26's problem, once
+  # there is an artifact that has to hold.
+  fips:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - name: The tree builds against the FIPS module
+        env:
+          GOFIPS140: v1.0.0
+        run: go build ./...
+      - name: The suite passes with the module enforcing
+        env:
+          GOFIPS140: v1.0.0
+          GODEBUG: fips140=on
+        run: go test ./... -timeout 900s
+      - name: What `fips140=only` still refuses
+        env:
+          GOFIPS140: v1.0.0
+          GODEBUG: fips140=only
+        # Expected to fail while TOTP uses HMAC-SHA-1, which the module refuses
+        # by panicking. Recorded rather than hidden: the output is the list of
+        # what would have to change for ADR 0006's second gate to open.
+        run: go test ./... -timeout 900s || true
+      - name: It is still a static binary
+        env:
+          GOFIPS140: v1.0.0
+          # CGO_ENABLED=0 explicitly, matching `make dist`. Without it this step
+          # fails on every run and tells you nothing: Go's default is
+          # CGO_ENABLED=1, which produces a dynamically linked binary whether
+          # GOFIPS140 is set or not. Measured — a plain `go build` on the same
+          # host is dynamic too. The question here is whether *FIPS* breaks the
+          # property ADR 0002 and R0-16 depend on, and only a cgo-free build
+          # asks it.
+          CGO_ENABLED: "0"
+        run: |
+          go build -o /tmp/nodary-fips ./cmd/nodary
+          file /tmp/nodary-fips
+          if ! file /tmp/nodary-fips | grep -q 'statically linked'; then
+            echo "::error::the FIPS build is not static; ADR 0002's property is broken"
+            exit 1
+          fi
+          # The whole reason a FIPS artifact can be a second build rather than a
+          # second pipeline: BoringCrypto needs cgo, Go's own module does not,
+          # and the SQLite driver is modernc rather than cgo.
+          echo "fips140 symbols: $(go tool nm /tmp/nodary-fips | grep -c fips140)"
+
   # The component manifest pins third-party artifacts by digest. A stale URL is
   # a broken install for everyone who runs it, so it fails here rather than on
   # someone's first attempt.
