@@ -59,20 +59,23 @@ front of the same core functions.
 
 ## Attestation
 
-- [ ] **R1-13** Render a preview of exactly what a mutation will change, and hash it into `intent_hash` · [07 §2](../specs/07-identity-audit.md#2-attestation)
+- [x] **R1-13** Render a preview of exactly what a mutation will change, and hash it into `intent_hash` · [07 §2](../specs/07-identity-audit.md#2-attestation)
   - *done:* `--dry-run` prints the rendered change and its hash and applies nothing · [10 §2](../specs/10-cli.md#2-global-flags)
+  - *note:* a verb supplies a *render function*, not a value. A value computed once would still match after the world moved, having never been recomputed, so the hash would bind nothing. What each verb renders is the state it depends on — the state a user is moving *from*, whether a name is free, the policy diff — rather than an echo of its arguments · [R1e](../plans/R1e-attestation.md)
   - *deps:* R1-01, R1-12
-- [ ] **R1-14** Re-render and re-hash at apply time; refuse when the hash no longer matches
+- [x] **R1-14** Re-render and re-hash at apply time; refuse when the hash no longer matches
   - *done:* moving state between preview and apply produces a refusal with exit code 4, not a silent apply of something the operator never saw · [11 §3](../specs/11-failure-modes.md#3-security-controls)
   - *deps:* R1-13
-- [ ] **R1-15** `--justify TEXT`, with `min_justification_length` enforced by the active profile
+- [x] **R1-15** `--justify TEXT`, with `min_justification_length` enforced by the active profile
   - *done:* under `regulated` a 5-character justification is refused; under `default` the record is still written with actor and outcome
+  - *note:* the floor applies to any justification supplied, required or not — a profile that sets a minimum without requiring the field means "optional, but say something real if you say anything". Length is counted in runes: a byte count would fail an accented justification that an ASCII one of the same length passes
   - *deps:* R1-12, R1-25
-- [ ] **R1-16** TOTP re-entry when `require_totp` is set
-  - *done:* re-authentication is per-act, not per-session — a valid session cookie alone does not satisfy it
+- [x] **R1-16** TOTP re-entry when `require_totp` is set
+  - *done:* re-authentication is per-act, not per-session — a valid session cookie alone does not satisfy it, and a code is spent so it cannot authorise a second act
+  - *note:* **local root is exempt**, and the record says so with `totp_exempt`. It has no user row and therefore no seed, and [R1c](../plans/R1c-identity.md)'s argument applies unchanged — anyone who can open the database can already do anything to it, so demanding a second factor stored in that same database buys nothing. Without the exemption, `regulated` would mean the local CLI cannot recover the appliance, which is what [07 §1](../specs/07-identity-audit.md#1-users-and-roles) argues against
   - *deps:* R1-19, R1-25
-- [ ] **R1-17** `--allow-unattended` tokens: an audited grant, refused when `allow_unattended_tokens = false`
-  - *done:* non-interactive mutation is possible under `default` and impossible under `regulated`, and the grant itself appears in the chain
+- [x] **R1-17** `--allow-unattended` tokens: an audited grant, refused when `allow_unattended_tokens = false`
+  - *done:* non-interactive mutation is possible under `default` and impossible under `regulated`, and the grant itself appears in the chain. The grant is refused at the mint rather than at every later use, because it is the whole route around re-authentication and a profile that closes it must close it once
   - *deps:* R1-21, R1-25
 
 ## Identity
@@ -126,11 +129,12 @@ front of the same core functions.
 
 ## CLI surface
 
-- [ ] **R1-29** Exit codes 0–6 wired through every R1 verb · [10 §5](../specs/10-cli.md#5-exit-codes)
-  - *done:* policy refusal exits 5, intent mismatch exits 4, authorization failure exits 3 — distinguishable without parsing stderr
-- [ ] **R1-30** Output discipline across every R1 verb · [10 §4](../specs/10-cli.md#4-output-discipline)
-  - *done:* `--format json` emits a stable schema to stdout and nothing else; progress and diagnostics go to stderr; secrets never appear in list output
-- [ ] **R1-31** `--yes` skips the interactive confirmation and does **not** skip justification or TOTP · [10 §2](../specs/10-cli.md#2-global-flags)
+- [x] **R1-29** Exit codes 0–6 wired through every R1 verb · [10 §5](../specs/10-cli.md#5-exit-codes)
+  - *done:* policy refusal exits 5, intent mismatch exits 4, authorization failure exits 3 — distinguishable without parsing stderr, and asserted as a table because the codes are a contract a script depends on. 6 is not reachable in R1, which has no control plane to be unable to reach
+- [x] **R1-30** Output discipline across every R1 verb · [10 §4](../specs/10-cli.md#4-output-discipline)
+  - *done:* `--format json` emits a stable schema to stdout and nothing else; progress and diagnostics go to stderr; secrets never appear in list output. Previews, prompts and the loosening report are diagnostics — a preview on stdout would corrupt every scripted caller. `--dry-run --format json` is the exception, because there the preview *is* the result
+- [x] **R1-31** `--yes` skips the interactive confirmation and does **not** skip justification or TOTP · [10 §2](../specs/10-cli.md#2-global-flags)
+  - *done:* it is the flag somebody reaches for to make a refusal go away, so the test is that the refusal still happens
   - *deps:* R1-15, R1-16
 
 ## Quality gates

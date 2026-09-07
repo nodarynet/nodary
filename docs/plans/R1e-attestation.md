@@ -1,7 +1,7 @@
 # R1e — Attestation
 
 **Slice of:** [R1](../tasks/R1-core-audit-identity.md) · **Tasks:** R1-13 – R1-17, R1-29 – R1-31 ·
-**Status:** in flight
+**Status:** complete
 
 The last of five slices of R1.
 
@@ -126,8 +126,8 @@ transaction with a `failure` record, which is the correct outcome and worth the 
 
 ## Steps
 
-- [ ] `internal/attest` — `Intent`, `Render`, `Ceremony`, `Require`
-- [ ] `session.act` — one gate every mutating verb passes through
-- [ ] Renders for `user`, `token` and `policy`, and `--dry-run`
-- [ ] R1-17 — `--allow-unattended` at mint, refused by profile
-- [ ] Exit codes and output discipline, asserted per verb
+- [x] `internal/attest` — `Intent`, `Render`, `Ceremony`, `Require`
+- [x] `session.act` — one gate every mutating verb passes through
+- [x] Renders for `user`, `token` and `policy`, and `--dry-run`
+- [x] R1-17 — `--allow-unattended` at mint, refused by profile
+- [x] Exit codes and output discipline, asserted per verb
