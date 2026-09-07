@@ -1,0 +1,101 @@
+# R2b — Revisions and `config`
+
+**Slice of:** [R2](../tasks/R2-control-plane.md) · **Tasks:** R2-11 – R2-13 ·
+**Status:** in flight
+
+[R2a](R2a-fleet-schema.md) made the fleet state. This slice makes it *change-controlled*:
+an immutable, hash-chained snapshot per configuration change, carrying author and
+justification, and the verbs that read, compare, export and undo them.
+· [08 §2](../specs/08-data-model.md#2-revisions-replace-version-control)
+
+## Scope
+
+| Task | |
+| :--- | :--- |
+| **R2-11** | `revision` — monotonic sequence, full snapshot, author, justification, hash-chained |
+| **R2-12** | `nodary config show\|diff\|rollback\|export\|apply` |
+| **R2-13** | A rollback is itself a new revision |
+
+## Decisions
+
+### A snapshot holds desired state, never observed state
+
+**Decided.** A revision carries what somebody decided: a node's administrative state and
+constraints, registered models, defined deployments and their GPUs, routes, limits, and the
+active policy profile. It does **not** carry `last_seen`, reported inventory, staging
+progress, deployment health, or `last_error`.
+
+**Why.** [08 §2](../specs/08-data-model.md#2-revisions-replace-version-control) makes the
+export "canonical, for provisioning and DR" — the thing you would replay onto a rebuilt
+control plane. Observed state has no business being replayed: writing a node's last heartbeat
+back into a fresh database asserts something false, and a rollback that restored a deployment
+to `ready` would be claiming a container is running that nobody started.
+
+It also decides what a diff means. Two revisions differing because a node checked in would
+make `config diff` unreadable, and change control that reports noise is change control nobody
+reads.
+
+**Rejected — snapshot every column.** Simpler to write and impossible to get subtly wrong,
+since there is no judgement about what belongs. Every heartbeat would be a configuration
+change, or heartbeats would have to avoid writing revisions, which puts the judgement back in
+a worse place — spread across writers instead of stated once here.
+
+### A revision is written after the change, in the same transaction
+
+**Decided.** A verb that changes configuration calls `revision.Record` inside its
+`audit.Mutation`, after its own writes. The snapshot is therefore of the state the change
+produced.
+
+**Why.** Committing together is what stops the two from disagreeing: a revision written in a
+second transaction can be lost while the change survives, and then history says the current
+state was never applied. It is the same argument
+[R1b](R1b-audit-chain.md) makes for the audit record itself.
+
+Recording *after* rather than *before* makes a revision answer "what was true once this
+landed", which is what a rollback target has to be. A pre-change snapshot would make
+`rollback N` restore the state before N, which is off by one in the direction nobody expects.
+
+### The chain is the audit chain's shape, and deliberately its own chain
+
+`revision` hashes the same way `audit` does — SHA-256 over the canonical JSON encoding of the
+record including `prev_hash` — and reuses [`canonical`](../../internal/canonical/canonical.go)
+rather than growing a second encoder. What it does not reuse is the *chain*: a configuration
+snapshot and an administrative act are different objects with different volumes, and
+[00 §3](../specs/00-overview.md#3-object-model) already keeps two chains apart for that
+reason. Every revision is accompanied by an audit record naming who wrote it; the revision
+carries the state, the audit record carries the act.
+
+### `export` and `apply` are one applier, and rollback is that applier
+
+**Decided.** `config export` renders a snapshot as TOML, `config apply -f` reads one back, and
+`config rollback N` feeds revision N's snapshot to the same applier. One code path, three
+entrances.
+
+**Why.** R2-13 requires that a rollback is itself a new revision and that history is never
+rewritten. If rollback had its own applier it would be the one that drifts, and the drift
+would show up as "the rollback did not restore what export said was there" — discovered
+during a recovery, which is the worst possible time.
+
+**Nodes are not created by `apply`.** A node joins by enrolling
+([02](../specs/02-enrollment.md)), and a configuration file that could conjure one would let a
+paste into the wrong terminal add a machine to the fleet. `apply` may change a known node's
+administrative fields and will refuse a name it has never seen.
+
+### `apply` refuses to delete unless told to
+
+**Decided.** Objects present in the database and absent from the file are **left alone** and
+reported, unless `--prune` is passed.
+
+**Why.** The alternative makes `config apply -f partial.toml` a fleet-wide delete, and the
+first person to run it against a hand-written fragment loses their deployments. Declarative
+appliers conventionally do reconcile-to-absent, and that convention assumes the file is
+generated by the same system — which `export` produces but a human writing a fragment does
+not.
+
+## Steps
+
+- [ ] Migration `0007_revision.sql`
+- [ ] `internal/config` — the snapshot type, its reads, canonical hashing, `Record`
+- [ ] TOML rendering and parsing, round-tripping through `export`/`apply`
+- [ ] The applier, shared by `apply` and `rollback`
+- [ ] `nodary config show|diff|export|apply|rollback`, and `policy apply` writing a revision
