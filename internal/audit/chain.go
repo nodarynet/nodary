@@ -133,6 +133,25 @@ func tail(tx *sql.Tx) (int64, string, error) {
 	return seq, hash, nil
 }
 
+// InstallID reads this appliance's identifier without minting one.
+//
+// Read-only, unlike installID: a caller that only wants to name the install --
+// an evidence bundle does -- must not bring one into existence as a side effect
+// of asking.
+func InstallID(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (string, error) {
+	var id string
+	err := q.QueryRowContext(ctx, `SELECT id FROM installation WHERE singleton = 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("this database has no installation id: nothing has been recorded yet")
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading the installation id: %w", err)
+	}
+	return id, nil
+}
+
 // installID returns this appliance's identifier, minting one on first use.
 //
 // It runs inside the caller's write transaction, so two processes reaching a

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"time"
@@ -478,7 +479,14 @@ func fileRecords(path string) (iter.Seq2[Record, error], func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening %s: %w", path, err)
 	}
-	sc := bufio.NewScanner(fh)
+	return readerRecords(fh, path), func() { fh.Close() }, nil
+}
+
+// readerRecords is fileRecords over anything readable, so a segment held in
+// memory verifies through exactly the same code as one on disk. An evidence
+// bundle is assembled in memory and must not get a second implementation.
+func readerRecords(r io.Reader, name string) iter.Seq2[Record, error] {
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 
 	return func(yield func(Record, error) bool) {
@@ -489,18 +497,27 @@ func fileRecords(path string) (iter.Seq2[Record, error], func(), error) {
 			if len(raw) == 0 {
 				continue
 			}
-			r, err := ParseLine(raw)
+			rec, err := ParseLine(raw)
 			if err != nil {
-				err = fmt.Errorf("%s line %d: %w", path, line, err)
+				err = fmt.Errorf("%s line %d: %w", name, line, err)
 			}
-			if !yield(r, err) {
+			if !yield(rec, err) {
 				return
 			}
 		}
 		if err := sc.Err(); err != nil {
-			yield(Record{}, fmt.Errorf("reading %s: %w", path, err))
+			yield(Record{}, fmt.Errorf("reading %s: %w", name, err))
 		}
-	}, func() { fh.Close() }, nil
+	}
+}
+
+// VerifyBytes verifies a chain segment held in memory.
+//
+// Same contract as VerifyFile: pass an anchor to check that the segment joins a
+// chain you already know, or nil to prove only that the records are consistent
+// with each other.
+func VerifyBytes(b []byte, name string, anchor *Anchor) Result {
+	return verify(readerRecords(bytes.NewReader(b), name), verifyOpts{anchor: anchor})
 }
 
 // ParseLine reads one canonical JSON record.
