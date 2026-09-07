@@ -1,0 +1,37 @@
+# SGLang: the same shape, a different vocabulary. docs/specs/04-backends.md §6.
+#
+# It is embedded alongside vLLM rather than after it because one descriptor
+# cannot show that the translation is data-driven -- a single vocabulary is
+# indistinguishable from a hard-coded one.
+[backend]
+name           = "sglang"
+api            = "openai"
+weights_layout = "hf-cache"
+mount_path     = "/root/.cache/huggingface"
+container_port = 30000
+image_default  = "lmsysorg/sglang:latest"
+
+[backend.capabilities]
+tensor_parallel = true
+expert_parallel = false
+quantization    = ["awq", "gptq", "fp8"]
+lora            = true
+cpu_offload     = false
+
+[backend.args]
+model_path      = "--model-path={v}"
+served_name     = "--served-model-name={v}"
+tensor_parallel = "--tp-size={v}"
+max_context     = "--context-length={v}"
+port            = "--port={v}"
+
+[backend.gpu]
+mechanism = "device-flag"
+
+[backend.probe]
+health          = "/health"
+ready           = "/health_generate"
+ready_timeout_s = 1800
+
+[backend.metrics]
+path = "/metrics"

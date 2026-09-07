@@ -1,0 +1,35 @@
+# vLLM. docs/specs/04-backends.md §6.
+[backend]
+name           = "vllm"
+api            = "openai"
+weights_layout = "hf-cache"
+mount_path     = "/root/.cache/huggingface"
+container_port = 8000
+image_default  = "vllm/vllm-openai:v0.23.0"
+
+[backend.capabilities]
+tensor_parallel = true
+expert_parallel = true
+quantization    = ["awq", "gptq", "fp8"]
+lora            = true
+cpu_offload     = false
+
+[backend.args]
+model_path          = "--model={v}"
+served_name         = "--served-model-name={v}"
+tensor_parallel     = "--tensor-parallel-size={v}"
+max_context         = "--max-model-len={v}"
+gpu_memory_fraction = "--gpu-memory-utilization={v}"
+dtype               = "--dtype={v}"
+port                = "--port={v}"
+
+[backend.gpu]
+mechanism = "device-flag"
+
+[backend.probe]
+health          = "/health"
+ready           = "/health"
+ready_timeout_s = 1800
+
+[backend.metrics]
+path = "/metrics"
