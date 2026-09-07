@@ -230,7 +230,7 @@ func Enroll(ctx context.Context, m audit.Mutation, by Role, now time.Time, k *se
 
 	// The first seal is what binds this database to this key. Before it there
 	// is nothing to lose; after it, losing the key is unrecoverable.
-	if err := BindKey(ctx, m.Tx(), now, k); err != nil {
+	if err := BindKey(ctx, m, now, k); err != nil {
 		return User{}, err
 	}
 	sealed, err := k.Seal("totp", u.ID, seed)

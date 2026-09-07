@@ -61,7 +61,14 @@ func CheckKey(ctx context.Context, q Querier, k *secret.Key) error {
 // Once recorded it is never rewritten here: advancing it means everything
 // sealed under the old key has been resealed, which is a rotation and not a
 // side effect of enrolling somebody.
-func BindKey(ctx context.Context, tx *sql.Tx, now time.Time, k *secret.Key) error {
+//
+// It takes an audit.Mutation rather than the transaction inside one. The
+// difference is not cosmetic: a *sql.Tx is obtainable by anything in the
+// package, so the old signature let a future caller bind a key with no record
+// of it, which is exactly the conventional-rather-than-structural guarantee
+// docs/tasks/README.md forbids.
+func BindKey(ctx context.Context, m audit.Mutation, now time.Time, k *secret.Key) error {
+	tx := m.Tx()
 	if err := CheckKey(ctx, tx, k); err != nil {
 		return err
 	}
