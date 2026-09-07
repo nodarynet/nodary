@@ -16,32 +16,34 @@ import (
 // operator reading the specification should be told the difference between a
 // verb that does not exist and one that is not built yet.
 var nodeVerbs = map[string]string{
-	"install":       "the full node install: preflight, components, the isolated network, then enroll",
-	"list":          "fleet listing from an operator workstation",
-	"show":          "one node in detail",
-	"approve":       "approving an enrolled node",
-	"drain":         "draining a node",
-	"revoke":        "revoking a node's certificate",
-	"verify-egress": "asserting that a deployment has no route off-box",
-	"leave":         "decommissioning from the node itself",
-	"policy":        "the node's local guardrails",
-	"uninstall":     "removing nodary from a node",
+	"install":   "the full node install: preflight, components, the isolated network, then enroll",
+	"list":      "fleet listing from an operator workstation",
+	"show":      "one node in detail",
+	"approve":   "approving an enrolled node",
+	"drain":     "draining a node",
+	"revoke":    "revoking a node's certificate",
+	"leave":     "decommissioning from the node itself",
+	"policy":    "the node's local guardrails",
+	"uninstall": "removing nodary from a node",
 }
 
 func cmdNode(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary node: expected a subcommand (enroll)\n")
+		fmt.Fprintf(e.stderr, "nodary node: expected a subcommand (enroll, verify-egress)\n")
 		return ExitUsage
 	}
-	if args[0] == "enroll" {
+	switch args[0] {
+	case "enroll":
 		return cmdNodeEnroll(e, args[1:])
+	case "verify-egress":
+		return cmdNodeVerifyEgress(e, args[1:])
 	}
 	if what, ok := nodeVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary node %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary node: unknown subcommand %q (want enroll)\n", args[0])
+	fmt.Fprintf(e.stderr, "nodary node: unknown subcommand %q (want enroll or verify-egress)\n", args[0])
 	return ExitUsage
 }
 
@@ -194,4 +196,65 @@ func orElse(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// cmdNodeVerifyEgress is docs/specs/03-agent.md §5's mandatory verification.
+//
+// It runs on the node, against a live deployment. Given how easy this mechanism
+// is to get subtly wrong — twice measured, once for a network that silently
+// discarded its published port and once for a resolver that survived route
+// removal — an assertion that runs continuously is worth more than any amount
+// of configuration review.
+func cmdNodeVerifyEgress(e env, args []string) int {
+	fs := newFlagSet(e, "node verify-egress")
+	format := formatFlag(fs)
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) != 1 {
+		fmt.Fprintf(e.stderr, "nodary node verify-egress: expected one deployment id\n")
+		return ExitUsage
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary node verify-egress: %v\n", err)
+		return ExitFailure
+	}
+	host := agent.RealHost("", "")
+	v, err := agent.VerifyEgress(context.Background(), host, rest[0], self)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary node verify-egress: %v\n", err)
+		return ExitFailure
+	}
+
+	if *format == "json" {
+		if code := writeJSON(e, "node verify-egress", v); code != ExitOK {
+			return code
+		}
+	} else {
+		fmt.Fprintf(e.stdout, "%s %s\n", v.Deployment, v.State)
+		for _, c := range v.Inside.Checks {
+			state := "REACHABLE"
+			if c.Isolated {
+				state = "isolated"
+			}
+			fmt.Fprintf(e.stdout, "  %-8s %-10s %s\n", c.Name, state, c.Detail)
+		}
+		fmt.Fprintf(e.stderr, "%s\n", v.Reason)
+	}
+
+	switch v.State {
+	case agent.Compliant:
+		return ExitOK
+	case agent.Inconclusive:
+		// Not a failure and not a pass. Exit 2 so a script can tell the three
+		// apart, and so nobody reads "did not establish it" as "established it".
+		return ExitUsage
+	}
+	return ExitFailure
 }

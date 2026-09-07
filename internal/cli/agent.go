@@ -35,13 +35,15 @@ func cmdAgent(e env, args []string) int {
 		return cmdAgentPlan(e, args[1:])
 	case "run":
 		return cmdAgentRun(e, args[1:])
+	case "egress-probe":
+		return cmdAgentEgressProbe(e, args[1:])
 	}
 	if what, ok := agentVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary agent %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan or run)\n", args[0])
+	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan, run or egress-probe)\n", args[0])
 	return ExitUsage
 }
 
@@ -258,3 +260,42 @@ func cmdAgentRun(e env, args []string) int {
 
 // systemdUnitDir is where a system manager reads unit files.
 const systemdUnitDir = "/etc/systemd/system"
+
+// cmdAgentEgressProbe runs the three assertions of docs/specs/03-agent.md §5 in
+// whatever network namespace it finds itself in, and prints the result.
+//
+// It is the thing `nodary node verify-egress` runs inside a deployment, via
+// nsenter. Keeping it a verb of the same binary is what lets the probe need
+// nothing from the model's image: no vLLM image promises `ip`, `nc` or a
+// resolver tool, and a probe container would be one more artifact to pin,
+// distribute and stage onto an air-gapped node.
+//
+// It reads nothing and writes nothing. Running it on the host is how
+// `verify-egress` gets its control run.
+func cmdAgentEgressProbe(e env, args []string) int {
+	fs := newFlagSet(e, "agent egress-probe")
+	format := formatFlag(fs)
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+
+	p := agent.RunEgressProbe(context.Background())
+	if *format == "json" {
+		return writeJSON(e, "agent egress-probe", p)
+	}
+	for _, c := range p.Checks {
+		state := "REACHABLE"
+		if c.Isolated {
+			state = "isolated"
+		}
+		fmt.Fprintf(e.stdout, "%-8s %-10s %s\n", c.Name, state, c.Detail)
+	}
+	if !p.Isolated() {
+		// Exit 1, so a shell loop around this verb is usable as an assertion.
+		return ExitFailure
+	}
+	return ExitOK
+}

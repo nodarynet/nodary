@@ -152,7 +152,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll` and `agent plan|run`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress` and `agent plan|run|egress-probe`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -191,10 +191,12 @@ Available in this release:
   server               Control plane lifecycle
                          install | start | status
   node                 GPU nodes
-                         enroll  Join a control plane with a join token
+                         enroll         Join a control plane with a join token
+                         verify-egress  Assert a deployment has no way off-box
   agent                The node-side agent
                          plan    Show what this node would do, and do none of it
                          run     Reconcile this node against its desired state
+                         egress-probe   The three checks, in this namespace
 
 Specified, not yet implemented:
 `, versionString())
