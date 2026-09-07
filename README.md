@@ -108,13 +108,25 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 
 ## Status
 
-Specification complete. Implementation is at **R0** — the release pipeline, ahead of the
-milestones in [00-overview](docs/specs/00-overview.md#8-milestones).
+**R0 and R1 are complete. R2 is complete to the extent the control plane can be without an
+agent, and R9's evidence bundle is built.** Nothing serves inference yet: that is the gateway
+and the agent, and neither has started.
 
-R0 ships a real binary through every channel, implementing `nodary version` and
-`nodary components list|verify`; every other verb reports that it is not yet implemented. It
-exists to prove the distribution path end to end — cross-compilation, signing, verification,
-wheel tags and npm platform guards — while the stakes are zero.
+| | | |
+| :--- | :--- | :--- |
+| **R0** Release pipeline | done | one signed binary through four channels, tamper rejection tested |
+| **R1** Core, audit, identity | done | the hash chain, attestation, policy profiles, roles, TOTP |
+| **R2** Control plane | 28 of 42 | schema, revisions, the HTTP API, the shared core, TLS and the PKI |
+| **R9** Evidence | 12 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone |
+| **R3** Gateway · **R4** Agent · **R5** Install | not started | |
+
+What works today: `nodary server install && nodary server start` brings up a TLS control
+plane; users, tokens, policy profiles and configuration revisions are administered from the
+CLI or the API, and every mutation is previewed, justified, hash-chained and exportable as an
+evidence bundle an assessor can verify without nodary installed.
+
+What does not: no node enrols, no model is staged, and nothing is served. The route from here
+is [docs/plans/mvp.md](docs/plans/mvp.md).
 
 ```sh
 make check           # gofmt, vet, tests
