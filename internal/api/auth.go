@@ -41,6 +41,11 @@ func (s *sessionStore) key(v string) string {
 }
 
 func (s *sessionStore) create(p identity.Principal, ttl time.Duration, now time.Time) string {
+	// Swept on the way in rather than on a timer: a goroutine per server is a
+	// lifecycle to get wrong, and the only thing that grows this map is the
+	// call that is happening right now.
+	s.sweep(now)
+
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return ""
@@ -71,6 +76,33 @@ func (s *sessionStore) drop(value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.by, s.key(value))
+}
+
+// sweep drops sessions that have expired.
+//
+// lookup already removes one it finds expired, which is enough for a session
+// somebody comes back to and nothing at all for one they do not: a browser
+// closed at five o'clock leaves an entry that is never read again and never
+// freed. On a long-lived control plane that is an unbounded map, so expiry is
+// also driven from the outside.
+func (s *sessionStore) sweep(now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dropped := 0
+	for k, v := range s.by {
+		if now.After(v.expires) {
+			delete(s.by, k)
+			dropped++
+		}
+	}
+	return dropped
+}
+
+// count is the live session total, for the test that proves sweeping works.
+func (s *sessionStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.by)
 }
 
 // authenticate resolves the caller.
