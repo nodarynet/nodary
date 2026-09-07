@@ -43,6 +43,7 @@ A plan carries three things the tracker cannot:
 | [R1e — Attestation](R1e-attestation.md) | [R1](../tasks/R1-core-audit-identity.md) | R1-13 – R1-17, R1-29 – R1-31 | complete |
 | [R9a — The evidence bundle](R9a-evidence-bundle.md) | [R9](../tasks/R9-evidence-remediation.md) | R9-01 – R9-13 | complete |
 | [R2a — The fleet schema](R2a-fleet-schema.md) | [R2](../tasks/R2-control-plane.md) | R2-01, R2-04 – R2-10 | complete |
+| [R2b — Revisions and `config`](R2b-revisions.md) | [R2](../tasks/R2-control-plane.md) | R2-11 – R2-13 | complete |
 
 ## Not a slice
 

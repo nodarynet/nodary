@@ -30,7 +30,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | :--- | :--- | :--- | :--- | ---: |
 | **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | **0 of 26** |
 | **[R1](R1-core-audit-identity.md)** | Core, audit, identity | Accountability, before any rearchitecture | task | **0 of 36** |
-| **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 34 of 42 |
+| **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 31 of 42 |
 | **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 16 |
 | **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 37 |
 | **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 27 |
