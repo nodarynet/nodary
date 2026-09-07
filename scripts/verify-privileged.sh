@@ -13,7 +13,7 @@
 #                       (only if absent — an existing one is left alone)
 #   /opt/cni/bin/       the CNI plugins
 #   /etc/cni/net.d/     10-nodary-isolated.conflist
-#   /etc/systemd/system nodary-server, nodary-gateway, nodary-agent units
+#   /etc/systemd/system nodary-server, nodary-gateway, nodary-agent, containerd
 #   /etc/nodary/        configuration, PKI, the sealing key
 #   /var/lib/nodary/    database, component cache, models
 #   /var/log/nodary/    the audit mirror
@@ -55,12 +55,12 @@ need_root() {
 cleanup() {
   need_root
   say "Stopping and removing units"
-  for u in nodary-agent nodary-gateway nodary-server; do
+  for u in nodary-agent nodary-gateway nodary-server containerd; do
     systemctl disable --now "$u.service" >/dev/null 2>&1 && echo "  stopped $u"
     rm -f "/etc/systemd/system/$u.service"
   done
   systemctl stop 'nodary-model@*' >/dev/null 2>&1
-  rm -f /etc/systemd/system/nodary-model@.service
+  rm -f /etc/systemd/system/nodary-model@.service /etc/systemd/system/containerd.service
   systemctl daemon-reload
 
   say "Removing the isolated network"
@@ -157,7 +157,17 @@ else
   bad "node install failed"
 fi
 
-say "7. The placed runtime actually runs"
+say "7. containerd is running"
+# The containerd release tarball ships no unit; nodary places one. Without it
+# nodary-model@.service's Requires=containerd.service resolves to nothing.
+if systemctl is-active --quiet containerd.service; then
+  ok "containerd.service is active"
+else
+  bad "containerd.service is not active"
+  journalctl -u containerd.service -n 15 --no-pager 2>/dev/null | sed 's/^/    /'
+fi
+
+say "8. The placed runtime actually runs"
 for b in containerd nerdctl runc; do
   if command -v "$b" >/dev/null 2>&1 && "$b" --version >/dev/null 2>&1; then
     ok "$b: $($b --version 2>&1 | head -1)"
@@ -169,7 +179,7 @@ for p in bridge portmap host-local; do
   if [ -x "/opt/cni/bin/$p" ]; then ok "CNI $p present"; else bad "CNI $p missing"; fi
 done
 
-say "8. R4-26 — the nodary-isolated network exists"
+say "9. R4-26 — the nodary-isolated network exists"
 if [ -f /etc/cni/net.d/10-nodary-isolated.conflist ]; then
   ok "the CNI configuration is written"
   # The three properties that make it the control.
@@ -192,7 +202,7 @@ else
   skip "nft is not installed, so the drop rule could not be added"
 fi
 
-say "9. The agent is running and reports in"
+say "10. The agent is running and reports in"
 if systemctl is-active --quiet nodary-agent.service; then
   ok "nodary-agent is active"
   sleep 16   # one heartbeat
@@ -206,13 +216,13 @@ else
   journalctl -u nodary-agent.service -n 20 --no-pager | sed 's/^/    /'
 fi
 
-say "10. R4-29 — a REAL container, and is it actually isolated?"
+say "11. R4-29 — a REAL container, and is it actually isolated?"
 # This is the row nothing else can prove. A container on nodary-isolated, and
 # the probe run inside its namespace.
 if ! command -v nerdctl >/dev/null 2>&1; then
   skip "nerdctl is not available"
-elif ! systemctl is-active --quiet containerd 2>/dev/null && ! pgrep -x containerd >/dev/null; then
-  skip "containerd is not running; start it and re-run this section"
+elif ! systemctl is-active --quiet containerd.service 2>/dev/null && ! pgrep -x containerd >/dev/null; then
+  skip "containerd is not running; see step 7"
 else
   nerdctl rm -f nodary-verify >/dev/null 2>&1
   if nerdctl run -d --name nodary-verify --network nodary-isolated \
@@ -245,7 +255,7 @@ else
   fi
 fi
 
-say "11. doctor, as the node"
+say "12. doctor, as the node"
 "$BIN" doctor 2>&1 | sed 's/^/  /'
 
 # --- summary ------------------------------------------------------------------

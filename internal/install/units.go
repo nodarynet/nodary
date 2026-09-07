@@ -166,6 +166,47 @@ RestartSec=10s
 WantedBy=multi-user.target
 `
 
+// containerdUnit starts the runtime the model units depend on.
+//
+// **The containerd release tarball ships no systemd unit** — it is `bin/ctr`,
+// `bin/containerd`, `bin/containerd-shim-runc-v2` and nothing else. Upstream
+// publishes one separately and expects a packager to place it, so nodary is the
+// packager here. Without it `nodary-model@.service`'s `Requires=containerd.service`
+// resolves to nothing and every deployment fails at start with "Unit
+// containerd.service not found" — which is what a privileged run of
+// scripts/verify-privileged.sh reported before this existed.
+//
+// The contents are upstream's own, with the delegation and OOM settings that
+// matter: Delegate=yes so containerd manages its children's cgroups (which is
+// the whole reason docs/specs/03-agent.md §5 says the model is parented outside
+// the unit), and KillMode=process so stopping containerd does not take running
+// containers with it.
+const containerdUnit = `# Written by nodary. Edits are overwritten.
+#
+# containerd publishes no unit in its release tarball; this is upstream's, placed
+# by nodary. See internal/install/units.go.
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target local-fs.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+`
+
 // Units are what an install writes, by role.
 func Units(role string) map[string]string {
 	switch role {
@@ -175,7 +216,10 @@ func Units(role string) map[string]string {
 			"nodary-gateway.service": gatewayUnit,
 		}
 	case "node":
-		return map[string]string{"nodary-agent.service": agentUnit}
+		return map[string]string{
+			"containerd.service":   containerdUnit,
+			"nodary-agent.service": agentUnit,
+		}
 	}
 	return nil
 }
@@ -198,7 +242,13 @@ func WriteUnits(ctx context.Context, role string, o Options) ([]Step, error) {
 	var steps []Step
 	var changed bool
 	for name, tmpl := range Units(role) {
-		body := []byte(fmt.Sprintf(tmpl, o.Binary, userLines))
+		// containerd's unit is upstream's text and takes no substitutions;
+		// running it through Sprintf would be a no-op today and a corruption the
+		// moment upstream's file contains a percent sign.
+		body := []byte(tmpl)
+		if strings.Contains(tmpl, "%[1]s") {
+			body = []byte(fmt.Sprintf(tmpl, o.Binary, userLines))
+		}
 		path := filepath.Join(dir, name)
 		step := Step{Name: "unit: " + name, Detail: path}
 

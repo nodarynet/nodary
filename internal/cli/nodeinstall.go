@@ -192,12 +192,16 @@ func cmdNodeInstall(e env, args []string) int {
 		return ExitFailure
 	}
 	report(e, units)
-	step, err := install.Start(ctx, "nodary-agent.service", o)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary node install: %v\n", err)
-		return ExitFailure
+	// containerd first: nodary-model@.service requires it, and the agent will
+	// try to start a deployment as soon as it has one.
+	for _, unit := range []string{"containerd.service", "nodary-agent.service"} {
+		step, err := install.Start(ctx, unit, o)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary node install: %v\n", err)
+			return ExitFailure
+		}
+		report(e, []install.Step{step})
 	}
-	report(e, []install.Step{step})
 
 	fmt.Fprintf(e.stderr, "\nnodary node %s installed.\n", conf.Name)
 	fmt.Fprintf(e.stderr, "  It is pending and will receive no work until an administrator runs\n")
