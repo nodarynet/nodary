@@ -267,3 +267,48 @@ func TestPermuteMovesPositionalsAfterFlags(t *testing.T) {
 		t.Errorf("positionals = %v, want [alice]", got)
 	}
 }
+
+// docs/specs/10-cli.md §2 makes --justify, --dry-run and --yes *global* flags,
+// and the profile can demand --totp for any mutation. A mutating verb that does
+// not take all four is a verb that skipped the attestation ceremony.
+//
+// This is a structural test rather than four assertions about one verb, because
+// the defect it was written for was structural: `token join` built its own flag
+// set and called audit.Log.Act directly, so minting the credential that gets a
+// machine onto the fleet had no preview, no intent hash, no confirmation and no
+// way to supply a TOTP code — while the API's POST /tokens/join went through
+// core.Act and demanded all of it. One verb diverging is a bug; nothing
+// checking for divergence is how the next one gets in.
+func TestEveryMutatingVerbTakesTheCeremonyFlags(t *testing.T) {
+	// Verbs that mutate. A verb absent from here is either read-only or does
+	// not exist yet; a verb here that stops mutating should be removed.
+	mutating := [][]string{
+		{"user", "add"}, {"user", "delete"}, {"user", "suspend"},
+		{"token", "create"}, {"token", "revoke"}, {"token", "join"},
+		{"policy", "apply"},
+		{"config", "apply"}, {"config", "rollback"},
+		{"license", "apply"},
+	}
+	for _, verb := range mutating {
+		name := strings.Join(verb, " ")
+		t.Run(name, func(t *testing.T) {
+			for _, flag := range []string{"--justify", "--dry-run", "--yes", "--totp"} {
+				// A flag the set does not define produces "flag provided but
+				// not defined" from the parser, which is the signal here. Any
+				// other failure — a missing argument, no such user — means the
+				// flag was accepted and the verb got as far as doing work.
+				_, _, stderr := run(t, append(append([]string{}, verb...), flag, "x")...)
+				if strings.Contains(stderr, "not defined") {
+					t.Errorf("`nodary %s` does not accept %s: %s", name, flag, firstLine(stderr))
+				}
+			}
+		})
+	}
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}

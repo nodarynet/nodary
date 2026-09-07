@@ -217,11 +217,15 @@ func cmdTokenCreate(e env, args []string) int {
 func cmdTokenJoin(e env, args []string) int {
 	fs := newFlagSet(e, "token join")
 	dbPath, keyPath, credsPath := stateFlags(fs)
-	justify := justifyFlag(fs)
+	cer := attestFlags(fs)
+	format := formatFlag(fs)
 	uses := fs.Int("uses", 1, "how many nodes may enroll with it")
 	lifetime := fs.String("expires", "", "lifetime: 2h, 30m (default 1h)")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
 	}
 
 	s, ok := openSession(e, "token join", *dbPath, *keyPath, *credsPath)
@@ -244,9 +248,23 @@ func cmdTokenJoin(e env, args []string) int {
 		j     identity.JoinToken
 		plain string
 	)
-	rec, err := s.log.Act(context.Background(),
-		s.request("token.join", nil, *justify),
-		func(m audit.Mutation) error {
+	// Through core.Act like every other mutation, and not s.log.Act directly.
+	//
+	// This verb mints the credential that gets a machine onto the fleet, and it
+	// was the one mutating verb in the CLI with no attestation at all: no
+	// preview, no intent hash, no confirmation, and no way to supply a TOTP
+	// code under a profile that requires one. The API's POST /tokens/join has
+	// always gone through core.Act, so the two front ends disagreed about what
+	// this costs — which is precisely the divergence
+	// docs/plans/R2c-api-core.md exists to prevent, on the act where it matters
+	// most.
+	rec, applied, code := s.attested(e, "token join", change{
+		action: "token.join",
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			return map[string]any{"kind": string(identity.KindJoin), "uses": *uses,
+				"expires": formatTime(expires)}, nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
 				return err
 			}
@@ -254,9 +272,10 @@ func cmdTokenJoin(e env, args []string) int {
 			j, plain, err = identity.MintJoinToken(context.Background(), m, s.who.Role, s.now,
 				s.who.Actor.ID, *uses, expires)
 			return err
-		})
-	if err != nil {
-		return reportActFailure(e, "token join", rec, err)
+		},
+	}, cer, *format)
+	if !applied {
+		return code
 	}
 
 	fmt.Fprintln(e.stdout, plain)
