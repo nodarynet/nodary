@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/api"
+	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 )
 
@@ -113,9 +114,11 @@ type EnrollOptions struct {
 	Name          string
 	// Dir is where the node's keypair is written.
 	Dir string
-	// Offer is what this node advertises. Empty means the whole machine, which
-	// is what an absent [limits] in node.toml means (R4-13).
-	Offer any
+	// NodeConfig is the path to node.toml. Empty uses the default; a file that
+	// is not there offers the whole machine, which is what
+	// docs/specs/12-node-guardrails.md §2 makes the right default for a
+	// dedicated GPU host.
+	NodeConfig string
 }
 
 // Result is what enrolment established.
@@ -161,10 +164,25 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	guardrails, err := LoadNodeConfig(orDefault(opt.NodeConfig, NodeConfigPath()))
+	if err != nil {
+		return Result{}, err
+	}
+	inv := LocalInventory(ctx)
+	offer, constraints := guardrails.Advertise(inv.GPUs, BackendNames())
+
+	// What the control plane is told exists is the *offer*, not the machine.
+	// docs/specs/12-node-guardrails.md §4: a four-GPU host offering three
+	// appears as a three-GPU node, so the reported inventory is narrowed here
+	// rather than sent whole and filtered at the far end — a control plane that
+	// was told about the fourth card could place work on it.
+	inv.GPUs = offer.GPUs
+
 	body, err := json.Marshal(api.EnrollRequest{
 		Name: opt.Name, Token: opt.Token, CSR: string(csrPEM),
-		Offer:        offerJSON(opt.Offer),
-		Inventory:    LocalInventory(ctx),
+		Offer:        mustJSON(offer),
+		Constraints:  mustJSON(constraints),
+		Inventory:    inv.raw(),
 		AgentVersion: buildinfo.Version,
 		Protocol:     api.Protocol,
 		RebootPolicy: RebootPolicy(),
@@ -243,27 +261,58 @@ func unwrapPin(err error) error {
 	return err
 }
 
-// LocalInventory is the machine as this node can see it.
-func LocalInventory(ctx context.Context) api.Inventory {
-	inv := api.Inventory{Arch: runtime.GOARCH, OS: runtime.GOOS,
-		GPUs: json.RawMessage("[]"), Topology: json.RawMessage("{}")}
-	gpus, driver := probeGPUs(ctx)
-	if len(gpus) > 0 {
-		if raw, err := json.Marshal(gpus); err == nil {
-			inv.GPUs = raw
-		}
-	}
-	inv.DriverVersion = driver
-	return inv
+// Inventory is the machine as this node can see it, before it is narrowed by
+// node.toml. It is the agent's own type rather than api.Inventory because the
+// GPUs are a list here and JSON on the wire, and the narrowing happens between.
+type Inventory struct {
+	Arch          string
+	OS            string
+	DriverVersion string
+	GPUs          []GPU
 }
 
-func offerJSON(offer any) json.RawMessage {
-	if offer == nil {
-		return json.RawMessage("{}")
+// raw renders the inventory for the wire.
+func (i Inventory) raw() api.Inventory {
+	out := api.Inventory{Arch: i.Arch, OS: i.OS, DriverVersion: i.DriverVersion,
+		GPUs: json.RawMessage("[]"), Topology: json.RawMessage("{}")}
+	if len(i.GPUs) > 0 {
+		if raw, err := json.Marshal(i.GPUs); err == nil {
+			out.GPUs = raw
+		}
 	}
-	raw, err := json.Marshal(offer)
+	return out
+}
+
+// LocalInventory asks the driver what is present.
+func LocalInventory(ctx context.Context) Inventory {
+	gpus, driver := probeGPUs(ctx)
+	return Inventory{Arch: runtime.GOARCH, OS: runtime.GOOS,
+		DriverVersion: driver, GPUs: gpus}
+}
+
+// BackendNames is what this build can run, before node.toml narrows it.
+func BackendNames() []string {
+	all, err := backend.Builtins()
+	if err != nil {
+		return nil
+	}
+	return backend.Names(all)
+}
+
+// mustJSON encodes something this package built. A failure would be a bug in a
+// struct definition rather than anything a node could cause, and an empty
+// document is a safer thing to send than a half-written one.
+func mustJSON(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
 	if err != nil {
 		return json.RawMessage("{}")
 	}
 	return raw
+}
+
+func orDefault(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
 }

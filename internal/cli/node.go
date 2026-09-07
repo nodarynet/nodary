@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/nodarynet/nodary/internal/agent"
 )
@@ -57,6 +59,13 @@ func cmdNodeEnroll(e env, args []string) int {
 	name := fs.String("name", "", "this node's name in the fleet (default: hostname)")
 	confPath := fs.String("config", "", "agent.toml path")
 	modelsDir := fs.String("models-dir", "", "where weights are staged")
+	// docs/specs/12-node-guardrails.md §2 puts these on `node install`, which is
+	// R5. Until it exists they belong here, because the file they write is what
+	// the control plane is told this machine offers — and an operator who has
+	// to hand-write TOML before enrolling will enrol offering everything.
+	gpus := fs.String("gpus", "", "GPU indices to offer, comma-separated (default: all present)")
+	maxDeployments := fs.Int("max-deployments", 0, "deployment ceiling (default: one per offered GPU)")
+	maintenance := fs.String("maintenance", "", `maintenance window, e.g. "sat 02:00-06:00 UTC"`)
 	format := formatFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -87,10 +96,17 @@ func cmdNodeEnroll(e env, args []string) int {
 	}
 	dir := filepath.Dir(conf)
 	pki := filepath.Join(dir, "pki")
+	nodeConf := filepath.Join(dir, "node.toml")
+
+	if *gpus != "" || *maxDeployments > 0 || *maintenance != "" {
+		if code := writeNodeConfig(e, nodeConf, *gpus, *maxDeployments, *maintenance); code != ExitOK {
+			return code
+		}
+	}
 
 	res, err := agent.Enroll(context.Background(), agent.EnrollOptions{
 		Server: *server, Token: *token, CAFingerprint: *fingerprint,
-		Name: *name, Dir: pki,
+		Name: *name, Dir: pki, NodeConfig: nodeConf,
 	})
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary node enroll: %v\n", err)
@@ -126,6 +142,49 @@ func cmdNodeEnroll(e env, args []string) int {
 		fmt.Fprintf(e.stderr,
 			"\nThis node is pending and will receive no work until an administrator runs\n"+
 				"  nodary node approve %s\n", res.Node)
+	}
+	return ExitOK
+}
+
+// writeNodeConfig places node.toml from the flags, refusing rather than
+// overwriting: the file is edited by root on the node
+// (docs/specs/12-node-guardrails.md §2), and silently replacing an operator's
+// limits during a re-enrolment would widen what the machine offers without
+// anybody asking.
+func writeNodeConfig(e env, path, gpus string, maxDeployments int, maintenance string) int {
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(e.stderr,
+			"nodary node enroll: %s already exists; edit it rather than passing --gpus, --max-deployments or --maintenance\n",
+			path)
+		return ExitUsage
+	}
+	var c agent.NodeConfig
+	for _, raw := range splitComma(gpus) {
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary node enroll: --gpus %q is not a list of indices\n", gpus)
+			return ExitUsage
+		}
+		c.Limits.GPUIndices = append(c.Limits.GPUIndices, n)
+	}
+	if maxDeployments > 0 {
+		c.Limits.MaxDeployments = &maxDeployments
+	}
+	c.Window.Maintenance = maintenance
+	if err := c.Validate(path); err != nil {
+		fmt.Fprintf(e.stderr, "nodary node enroll: %v\n", err)
+		return ExitUsage
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		fmt.Fprintf(e.stderr, "nodary node enroll: %v\n", err)
+		return ExitFailure
+	}
+	if err := os.WriteFile(path, agent.RenderNodeConfig(c), 0o644); err != nil {
+		fmt.Fprintf(e.stderr, "nodary node enroll: %v\n", err)
+		return ExitFailure
 	}
 	return ExitOK
 }

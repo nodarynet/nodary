@@ -35,7 +35,12 @@ type EnrollRequest struct {
 	// Offer is what the node is putting on the table: GPU indices, a deployment
 	// ceiling, permitted backends. 02 §1 records it in the approval so that
 	// neither side can later claim terms the other did not see.
-	Offer        json.RawMessage `json:"offer"`
+	Offer json.RawMessage `json:"offer"`
+	// Constraints are the limits that are not about inventory — prepare jobs,
+	// reboots, the maintenance window. They travel with the offer because
+	// 12 §4 records both in the approval, and half of a set of terms is not a
+	// set of terms.
+	Constraints  json.RawMessage `json:"constraints"`
 	Inventory    Inventory       `json:"inventory"`
 	AgentVersion string          `json:"agent_version"`
 	Protocol     int             `json:"protocol"`
@@ -162,6 +167,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		m.Detail("fingerprint", fp)
 		m.Detail("cert_expires_at", expires.UTC().Format(audit.TimeFormat))
 		m.Detail("offer", decodedJSON(rawOrDefault(body.Offer, "{}")))
+		m.Detail("constraints", decodedJSON(rawOrDefault(body.Constraints, "{}")))
 		return nil
 	})
 	if err != nil {
@@ -216,9 +222,9 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 	stamp := now.UTC().Format(audit.TimeFormat)
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO node (name, fingerprint, state, arch, os, driver_version,
-		                   gpus_json, topology_json, offer_json, reboot_policy,
-		                   agent_version, protocol, cert_expires_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                   gpus_json, topology_json, offer_json, constraints_json,
+		                   reboot_policy, agent_version, protocol, cert_expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		     fingerprint = excluded.fingerprint,
 		     state = excluded.state,
@@ -228,6 +234,7 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 		     gpus_json = excluded.gpus_json,
 		     topology_json = excluded.topology_json,
 		     offer_json = excluded.offer_json,
+		     constraints_json = excluded.constraints_json,
 		     reboot_policy = excluded.reboot_policy,
 		     agent_version = excluded.agent_version,
 		     protocol = excluded.protocol,
@@ -235,6 +242,7 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 		body.Name, fingerprint, state, body.Inventory.Arch, body.Inventory.OS,
 		body.Inventory.DriverVersion, rawOrDefault(body.Inventory.GPUs, "[]"),
 		rawOrDefault(body.Inventory.Topology, "{}"), rawOrDefault(body.Offer, "{}"),
+		rawOrDefault(body.Constraints, "{}"),
 		body.RebootPolicy, body.AgentVersion, Protocol,
 		expires.UTC().Format(audit.TimeFormat), stamp)
 	if err != nil {
