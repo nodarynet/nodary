@@ -1,0 +1,23 @@
+nodary Commercial License
+=========================
+
+The contents of this `ee/` directory are NOT licensed under the Apache License,
+Version 2.0 that covers the rest of this repository. They are made available for
+inspection so that customers and prospective customers can read what they run.
+
+Use in production requires a commercial licence agreement with the copyright
+holder. Absent such an agreement you may read this source, build it as part of
+this repository for evaluation, and report defects in it. You may not use it to
+provide a service to a third party, or redistribute it separately from this
+repository.
+
+Everything outside `ee/` remains Apache 2.0 and is unaffected by these terms,
+including the audit chain, `audit verify` and `audit export`. Evidence produced
+while licensed remains readable, verifiable and exportable afterwards; see
+docs/adr/0005-editions-and-the-advisory-feed.md.
+
+This notice summarises the terms. It is not itself the agreement, and it has not
+been reviewed by counsel: before relying on it commercially, replace it with a
+licence drafted for the purpose.
+
+Copyright (c) nodary. All rights reserved.

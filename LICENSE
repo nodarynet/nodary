@@ -199,3 +199,11 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+--------------------------------------------------------------------------------
+
+EXCEPTION: the `ee/` directory
+
+The Apache License above covers this repository EXCEPT for the contents of the
+`ee/` directory, which are governed by ee/LICENSE (a commercial licence). See
+docs/adr/0005-editions-and-the-advisory-feed.md for what is in it and why.
