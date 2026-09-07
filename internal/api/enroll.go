@@ -161,7 +161,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		m.Detail("state", state)
 		m.Detail("fingerprint", fp)
 		m.Detail("cert_expires_at", expires.UTC().Format(audit.TimeFormat))
-		m.Detail("offer", rawOrEmpty(body.Offer))
+		m.Detail("offer", decodedJSON(rawOrDefault(body.Offer, "{}")))
 		return nil
 	})
 	if err != nil {

@@ -491,16 +491,26 @@ func (s *Server) nodeTransition(verb, to string) http.HandlerFunc {
 		s.mutate(w, r, core.Change{
 			Action: "node." + verb,
 			Target: &audit.Target{Kind: "node", ID: name},
+			// The preview carries the node's advertised offer and constraints
+			// because it is what the administrator is agreeing to, and because
+			// core.Act hashes the preview into intent_hash and writes it into
+			// the record. That is docs/specs/02-enrollment.md §1's "neither side
+			// can later claim terms the other did not see" made structural: the
+			// terms are inside the hash the approver signed off, not in prose
+			// beside it.
 			Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-				var from string
-				err := tx.QueryRowContext(ctx, `SELECT state FROM node WHERE name = ?`, name).Scan(&from)
+				var from, offer, constraints string
+				err := tx.QueryRowContext(ctx,
+					`SELECT state, offer_json, constraints_json FROM node WHERE name = ?`, name).
+					Scan(&from, &offer, &constraints)
 				if err == sql.ErrNoRows {
 					return nil, badRequest("no node named %q", name)
 				}
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{"node": name, "from": from, "to": to}, nil
+				return map[string]any{"node": name, "from": from, "to": to,
+					"offer": decodedJSON(offer), "constraints": decodedJSON(constraints)}, nil
 			},
 			Apply: func(m audit.Mutation, _ any) error {
 				p, _ := s.principalOf(r)
@@ -513,13 +523,23 @@ func (s *Server) nodeTransition(verb, to string) http.HandlerFunc {
 				}
 				stamped := s.now().UTC().Format(audit.TimeFormat)
 				if to == "approved" {
-					_, err := m.Tx().ExecContext(r.Context(),
+					if _, err := m.Tx().ExecContext(r.Context(),
 						`UPDATE node SET state = ?, approved_by = ?, approved_at = ? WHERE name = ?`,
-						to, nullOrID(p), stamped, name)
+						to, nullOrID(p), stamped, name); err != nil {
+						return err
+					}
+				} else if _, err := m.Tx().ExecContext(r.Context(),
+					`UPDATE node SET state = ? WHERE name = ?`, to, name); err != nil {
 					return err
 				}
-				_, err := m.Tx().ExecContext(r.Context(),
-					`UPDATE node SET state = ? WHERE name = ?`, to, name)
+				// `node.state` is in the configuration snapshot, so approving or
+				// draining a node is a configuration change and records a
+				// revision like every other one. Without this the revision chain
+				// has a hole in it, and — since the agent long-poll compares
+				// against that sequence — an approved node would not learn it
+				// had been approved until something unrelated moved the
+				// counter (docs/plans/R4a-agent-protocol.md §6).
+				_, err := config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
 				return err
 			},
 		}, nil)
@@ -548,6 +568,22 @@ func (s *Server) listFleet(what string) http.HandlerFunc {
 			}
 		})
 	}
+}
+
+// decodedJSON turns a stored JSON column into ordinary Go values.
+//
+// A preview is hashed into intent_hash, and internal/canonical accepts a closed
+// domain of Go types that json.RawMessage is deliberately not in: a preimage
+// must be built from values the canonical encoder produced, or two identical
+// documents that happened to be formatted differently would hash differently.
+// Unparseable text is returned as itself, so a malformed column shows up in the
+// preview rather than disappearing from it.
+func decodedJSON(raw string) any {
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return raw
+	}
+	return v
 }
 
 func nullOrID(p identity.Principal) any {

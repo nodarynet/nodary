@@ -265,3 +265,56 @@ func TestASupersededCertificateIsRefused(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// R4-04: the approval record has to name the administrator, carry their
+// justification, and record the terms the node advertised — so that neither
+// side can later claim terms the other did not see
+// (docs/specs/02-enrollment.md §1).
+//
+// The offer is asserted through the dry run because that is the preview
+// core.Act hashes into intent_hash: a field visible only in a log line beside
+// the record would not be covered by anything.
+func TestApprovalRecordsTheTermsItAgreedTo(t *testing.T) {
+	f := newFixture(t)
+	f.join("gpu-01")
+
+	status, preview := f.do(http.MethodPost, "/nodes/gpu-01/approve?dry_run=true", f.admin, nil,
+		map[string]string{api.HeaderJustify: "the node in the rack we ordered"})
+	if status != http.StatusOK {
+		t.Fatalf("dry run: %d %v", status, preview)
+	}
+	change, _ := preview["change"].(map[string]any)
+	offer, _ := change["offer"].(map[string]any)
+	if offer["max_deployments"] != float64(1) {
+		t.Errorf("the approved change does not carry the node's offer: %v", change)
+	}
+	if change["from"] != "pending" || change["to"] != "approved" {
+		t.Errorf("change = %v, want the transition it is approving", change)
+	}
+
+	intent, _ := preview["intent_hash"].(string)
+	status, done := f.do(http.MethodPost, "/nodes/gpu-01/approve", f.admin, nil,
+		map[string]string{api.HeaderJustify: "the node in the rack we ordered",
+			api.HeaderIntent: intent})
+	if status != http.StatusOK {
+		t.Fatalf("approve: %d %v", status, done)
+	}
+
+	_, chain := f.do(http.MethodGet, "/audit?action=node.approve", f.admin, nil, nil)
+	records, _ := chain["records"].([]any)
+	if len(records) != 1 {
+		t.Fatalf("audit records = %v, want the one approval", chain)
+	}
+	rec, _ := records[0].(map[string]any)
+	if rec["justification"] != "the node in the rack we ordered" {
+		t.Errorf("justification = %v", rec["justification"])
+	}
+	if rec["intent_hash"] != intent {
+		t.Errorf("intent_hash = %v, want the %v the administrator approved",
+			rec["intent_hash"], intent)
+	}
+	actor, _ := rec["actor"].(map[string]any)
+	if actor["id"] == nil || actor["id"] == "" {
+		t.Errorf("the approval names no administrator: %v", rec)
+	}
+}
