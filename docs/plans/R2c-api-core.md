@@ -1,7 +1,7 @@
 # R2c — The shared core and the HTTP layer
 
 **Slice of:** [R2](../tasks/R2-control-plane.md) ·
-**Tasks:** R2-15 – R2-20, R2-24, R2-34, R2-42 · **Status:** in flight
+**Tasks:** R2-15 – R2-20, R2-24, R2-34, R2-42 · **Status:** complete
 
 The slice where the CLI stops being the only front end, and therefore the slice where
 [R2-34](../tasks/R2-control-plane.md) has to become structure rather than intent.
@@ -85,11 +85,18 @@ replaced on the next successful verification.
 It arrives now because `POST /auth/login` is its first and only consumer, which is exactly the
 argument [R1c](R1c-identity.md) made for deferring it.
 
+## What moving the CLI onto the core changed
+
+One thing, and it is an improvement rather than a regression. The confirmation and the TOTP
+prompt swapped order: an operator now sees the change, confirms it, and *then* re-authenticates.
+Before, the code was asked for first — proving presence for something not yet shown, which is
+the wrong way round for a factor whose whole purpose is to attest to *this act*.
+
 ## Steps
 
-- [ ] `internal/core` — `Act`, and the CLI moved onto it with no behaviour change
-- [ ] R2-42 — PBKDF2 password hashing, migration, `user passwd`
-- [ ] `internal/api` — server, router, the error envelope, request IDs
-- [ ] Auth: bearer tokens and session cookies honouring `session_ttl_minutes`
-- [ ] The mutating-handler gate: `dry_run`, intent, justify, TOTP
-- [ ] A test that the two front ends refuse the same things for the same reasons
+- [x] `internal/core` — `Act`, and the CLI moved onto it with no behaviour change
+- [x] R2-42 — PBKDF2 password hashing, migration, `user passwd`
+- [x] `internal/api` — server, router, the error envelope, request IDs
+- [x] Auth: bearer tokens and session cookies honouring `session_ttl_minutes`
+- [x] The mutating-handler gate: `dry_run`, intent, justify, TOTP
+- [x] A test that the two front ends refuse the same things for the same reasons

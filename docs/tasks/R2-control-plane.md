@@ -57,24 +57,26 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
 
 ## HTTP layer
 
-- [ ] **R2-15** HTTP server, TLS from `/etc/nodary/server.toml`, routes under `/api/v1` · [09](../specs/09-api.md)
-- [ ] **R2-16** Authentication: session cookie or `Authorization: Bearer nodary_pt_…`
-  - *done:* short-lived signed session cookies honour `session_ttl_minutes`
+- [x] **R2-15** HTTP server, TLS from `/etc/nodary/server.toml`, routes under `/api/v1` · [09](../specs/09-api.md)
+- [x] **R2-16** Authentication: session cookie or `Authorization: Bearer nodary_pt_…`
+  - *done:* short-lived session cookies honour `session_ttl_minutes`; a bearer token wins over a cookie when both are sent, because that is a script with a stale browser cookie far more often than the reverse
+  - *note:* an HTTP caller is **never** local root. [R1c](../plans/R1c-identity.md)'s argument for that principal is filesystem access to the database; a network caller has none, and treating an unauthenticated request as an administrator would be the same reasoning applied where it does not hold
   - *deps:* R1-21, R1-26
-- [ ] **R2-17** The uniform error envelope and the full status-code table · [09 §3](../specs/09-api.md#3-errors)
-  - *done:* `code` is stable and machine-readable; a route outside the caller's allowlist returns `403`, not `404`
-- [ ] **R2-18** `?dry_run=true` returns the rendered change and its `intent_hash` without applying · [09 §2](../specs/09-api.md#2-conventions)
+- [x] **R2-17** The uniform error envelope and the full status-code table · [09 §3](../specs/09-api.md#3-errors)
+  - *done:* `code` is stable and machine-readable; a route outside the caller's allowlist returns `403`, not `404`. The status table and the CLI's exit-code table walk the same `errors.Is` chain, so a policy refusal cannot be exit 5 in one front end and 500 in the other
+  - *note:* a `500` never returns its own message. The text can carry a query, a path or a driver's own words; it is logged against the request id the caller was given instead
+- [x] **R2-18** `?dry_run=true` returns the rendered change and its `intent_hash` without applying · [09 §2](../specs/09-api.md#2-conventions)
   - *done:* attestation is available to API clients, not only the CLI
   - *deps:* R1-13
-- [ ] **R2-19** `X-Nodary-Intent` enforcement — refuse with `412` when the re-rendered change no longer matches
+- [x] **R2-19** `X-Nodary-Intent` enforcement — refuse with `412` when the re-rendered change no longer matches
   - *deps:* R1-14, R2-18
-- [ ] **R2-20** `X-Nodary-Justify` and `X-Nodary-TOTP` on mutating requests · [09](../specs/09-api.md)
+- [x] **R2-20** `X-Nodary-Justify` and `X-Nodary-TOTP` on mutating requests · [09](../specs/09-api.md)
   - *deps:* R1-15, R1-16
 - [ ] **R2-21** Pagination: `limit` (default 50, max 500), `cursor`, `next_cursor` · [09 §2](../specs/09-api.md#2-conventions)
 - [ ] **R2-22** `If-Match` on versioned objects, `409` on mismatch
   - *done:* two administrators cannot silently overwrite one another
 - [ ] **R2-23** `Idempotency-Key`: a repeat within 24h returns the original response rather than acting twice
-- [ ] **R2-24** Request IDs threaded from request through audit and usage records · [06 §6](../specs/06-gateway.md#6-error-envelope)
+- [x] **R2-24** Request IDs threaded from request through audit and usage records · [06 §6](../specs/06-gateway.md#6-error-envelope)
   - *done:* a user's report of one bad request resolves to one row without guesswork
 
 ## Endpoints
@@ -82,45 +84,51 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
 Grouped as [09 §1](../specs/09-api.md#1-surface) groups them. Each depends on
 R2-34 rather than reimplementing behaviour.
 
-- [ ] **R2-25** Auth — `POST /auth/login`, `POST /auth/logout`, `GET /auth/whoami`
+- [x] **R2-25** Auth — `POST /auth/login`, `POST /auth/logout`, `GET /auth/whoami`
 - [ ] **R2-26** Nodes — list, show, `approve`, `drain`, `revoke`, `verify-egress`
+  - *note:* list, show, `approve` and `drain` are built. `revoke` and `verify-egress` act on a node that has enrolled and hold a certificate to withdraw or a namespace to probe, so their cores are [R4](R4-agent.md)'s — [R4-06](R4-agent.md) and [R4-29](R4-agent.md). Serving them now would mean serving something that cannot work
   - *note:* `verify-egress` returns the stored result in R2; the probe itself lands in [R4](R4-agent.md)
 - [ ] **R2-27** Backends — list, show, create, delete, `build`, build status
 - [ ] **R2-28** Models — list, register, show, `enable`, `disable`, `restart`, `stage`, `unstage`, delete
+  - *note:* list and show are built, and registration and deletion are declarative — they go through `config apply`, which is one applier rather than a second set of writers. `enable`, `disable`, `restart`, `stage` and `unstage` all direct a node to do something and are [R4](R4-agent.md)'s
 - [ ] **R2-29** Deployments — list, show, `logs`
-- [ ] **R2-30** Routes — list, show, `PUT /routes/{name}`
-- [ ] **R2-31** Users, tokens and limits — including `POST /tokens/join`
+  - *note:* list and show are built. `logs` reads a container's output on a node, which needs the agent
+- [x] **R2-30** Routes — list, show, `PUT /routes/{name}`
+  - *done:* the PUT edits the configuration and applies it through the same applier a whole-file `config apply` uses, so a single-object write records the same revision and cannot diverge from the declarative path
+- [x] **R2-31** Users, tokens and limits — including `POST /tokens/join`
   - *deps:* R1-23, R1-24
 - [ ] **R2-32** Usage — `GET /usage?from&to&user&model&group_by`
   - *deps:* R2-08
-- [ ] **R2-33** Audit, policy and config — listing, `verify`, `export`, `apply`, `diff`, revisions, rollback
+- [x] **R2-33** Audit, policy and config — listing, `verify`, `export`, `apply`, `diff`, revisions, rollback
   - *deps:* R1-09, R1-11, R1-28, R2-12
 
 ## The shared core
 
-- [ ] **R2-34** One set of core functions behind both the CLI and the API · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R2-34** One set of core functions behind both the CLI and the API · [10 §1](../specs/10-cli.md#1-verbs)
   - *done:* a behavioural difference between `nodary model enable …` and `POST /models/{id}/enable` is impossible by construction, because neither holds business logic. This is a constraint on the implementation, not an aspiration — and it is cheapest to satisfy now, while there are two callers rather than three
+  - *done:* [`internal/core`](../../internal/core/core.go) holds the whole of [07 §2](../specs/07-identity-audit.md#2-attestation); both front ends build a principal, a ceremony and a change and call `core.Act`. What stays in a front end is only what the core cannot know — where a credential arrived, whether there is a human to prompt, and how to render an outcome
+  - *done:* asserted behaviourally, not only structurally: [`parity_test.go`](../../internal/api/parity_test.go) drives both front ends against one database and requires the same refusals for the same reasons. That both call `core.Act` is visible in the source; whether they therefore *behave* the same is what the constraint is actually about
   - *deps:* R1-12
 
 ## Server lifecycle
 
-- [ ] **R2-35** `/etc/nodary/server.toml` — bind address, TLS certificate paths, data directory · [01 §12](../specs/01-install.md#12-filesystem-layout)
-- [ ] **R2-36** `nodary server install|start|stop|status` · [10 §1](../specs/10-cli.md#1-verbs)
+- [x] **R2-35** `/etc/nodary/server.toml` — bind address, TLS certificate paths, data directory · [01 §12](../specs/01-install.md#12-filesystem-layout)
+- [x] **R2-36** `nodary server install|start|stop|status` · [10 §1](../specs/10-cli.md#1-verbs)
   - *note:* R2 covers the lifecycle verbs against an already-provisioned host; the full interactive install with preflight and component resolution is [R5](R5-install.md)
 - [ ] **R2-37** `nodary backup create|restore` · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
   - *done:* `secret.key` is captured by default, the command refuses a world-readable destination, and the output states plainly that a database backup without the key is useless. The inverse is the real risk — an operator who backs up only the database discovers at restore time that every agent must re-enroll
   - *deps:* R1-04
 - [ ] **R2-38** `nodary status` and `nodary restart` · [10 §1](../specs/10-cli.md#1-verbs)
-- [ ] **R2-39** Self-signed certificate generation with the fingerprint printed · [01 §5](../specs/01-install.md#self-signed-control-planes)
+- [x] **R2-39** Self-signed certificate generation with the fingerprint printed · [01 §5](../specs/01-install.md#self-signed-control-planes)
   - *done:* the printed form includes the `--pinnedpubkey` variant of the node install command
-- [ ] **R2-40** The internal CA that signs agent certificates, unrelated to the server's public TLS certificate · [01 §4](../specs/01-install.md#4-server-install)
+- [x] **R2-40** The internal CA that signs agent certificates, unrelated to the server's public TLS certificate · [01 §4](../specs/01-install.md#4-server-install)
   - *done:* the CA private key is encrypted at rest under `secret.key`
   - *deps:* R1-04
 - [ ] **R2-41** A network audit sink — Elastic, Splunk HEC, or a generic NDJSON endpoint · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
   - *done:* an implementation of R1-08's `Sink` and nothing else changes; the endpoint, credentials and TLS settings come from `server.toml` with the credential sealed under `secret.key`, and a destination that fell behind is re-synced with `audit export --from-seq` rather than by replaying from a queue
   - *note:* deferred out of [R1b](../plans/R1b-audit-chain.md) deliberately. Shipping records to a SIEM with WORM retention is what a CMMC deployment needs and no MVP install does, and its configuration has nowhere to live until R2-35. The seam, the per-record `install` id and the `v` field that lets the record shape grow all land in R1-08 so this stays additive
   - *deps:* R1-08, R2-35, R1-04
-- [ ] **R2-42** PBKDF2-SHA256 password hashing, and the rehash-on-verify that lets its cost be raised · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
+- [x] **R2-42** PBKDF2-SHA256 password hashing, and the rehash-on-verify that lets its cost be raised · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
   - *done:* the parameters and their version are stored with each hash, so raising the cost does not invalidate an existing one; a hash produced under older parameters is replaced on the next successful verification
   - *done:* the salt is at least 128 bits — Go's FIPS module refuses anything shorter, so this is a correctness requirement and not a preference. Go enforces no iteration floor, so the cost is ours to pick · [spike §2](../spike-fips-and-manifest.md#2-on-and-only-are-different-products-and-the-difference-is-the-finding)
   - *note:* PBKDF2 rather than argon2id, which is stronger and not FIPS-approved · [ADR 0006](../adr/0006-cui-boundary-and-fips.md). Deferred out of [R1c](../plans/R1c-identity.md). A password's only consumer is R2-25's login, R1 authenticates with personal tokens, and [01 §9](../specs/01-install.md) has the first one set through a setup URL that arrives in [R5](R5-install.md) — so choosing parameters in R1 would mean choosing them against no login path at all. Nothing hashes a `user` row, so the column is additive
