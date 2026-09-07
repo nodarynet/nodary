@@ -126,15 +126,16 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO deployment
-			(id, model_id, node_name, backend, params_json, extra_args_json, port,
-			 state, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 'defined', ?, ?)
+			(id, model_id, node_name, backend, image_digest, params_json, extra_args_json,
+			 port, state, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'defined', ?, ?)
 			ON CONFLICT (id) DO UPDATE SET
 				model_id = excluded.model_id, node_name = excluded.node_name,
-				backend = excluded.backend, params_json = excluded.params_json,
+				backend = excluded.backend, image_digest = excluded.image_digest,
+				params_json = excluded.params_json,
 				extra_args_json = excluded.extra_args_json, port = excluded.port,
 				updated_at = excluded.updated_at`,
-			d.ID, d.ModelID, d.NodeName, d.Backend, orDefault(d.Params, "{}"),
+			d.ID, d.ModelID, d.NodeName, d.Backend, nullable(d.Image), orDefault(d.Params, "{}"),
 			orDefault(d.ExtraArgs, "[]"), nullableInt(int64(d.Port)), stamp(now), stamp(now)); err != nil {
 			return fmt.Errorf("applying deployment %q: %w", d.ID, err)
 		}

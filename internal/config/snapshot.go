@@ -63,10 +63,19 @@ type Model struct {
 // observed: a rollback that restored a deployment to `ready` would be claiming a
 // container is running that nobody started.
 type Deployment struct {
-	ID        string `json:"id" toml:"id"`
-	ModelID   string `json:"model_id" toml:"model_id"`
-	NodeName  string `json:"node_name" toml:"node_name"`
-	Backend   string `json:"backend" toml:"backend"`
+	ID       string `json:"id" toml:"id"`
+	ModelID  string `json:"model_id" toml:"model_id"`
+	NodeName string `json:"node_name" toml:"node_name"`
+	Backend  string `json:"backend" toml:"backend"`
+	// Image is the pinned container image the deployment runs, `repo@sha256:…`.
+	//
+	// It is here rather than resolved on the node because docs/adr/0004 pins
+	// every component by digest and a deployment is no different, and it is
+	// here *now* rather than when the backend catalog (R6) can fill it in
+	// because this struct is a hash preimage: docs/plans/mvp.md §2 makes adding
+	// a field to it later the one change that invalidates every revision chain
+	// a customer already holds.
+	Image     string `json:"image" toml:"image,omitempty"`
 	GPUs      []int  `json:"gpus" toml:"gpus"`
 	Params    string `json:"params" toml:"params,omitempty"`
 	ExtraArgs string `json:"extra_args" toml:"extra_args,omitempty"`
@@ -179,14 +188,15 @@ func readModels(ctx context.Context, q Querier, s *Snapshot) error {
 
 func readDeployments(ctx context.Context, q Querier, s *Snapshot) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, model_id, node_name, backend,
-		params_json, extra_args_json, coalesce(port, 0) FROM deployment ORDER BY id`)
+		coalesce(image_digest, ''), params_json, extra_args_json, coalesce(port, 0)
+		FROM deployment ORDER BY id`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.ModelID, &d.NodeName, &d.Backend,
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.NodeName, &d.Backend, &d.Image,
 			&d.Params, &d.ExtraArgs, &d.Port); err != nil {
 			return err
 		}
