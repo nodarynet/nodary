@@ -29,10 +29,12 @@ var nodeVerbs = map[string]string{
 
 func cmdNode(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary node: expected a subcommand (enroll, verify-egress)\n")
+		fmt.Fprintf(e.stderr, "nodary node: expected a subcommand (install, enroll, verify-egress)\n")
 		return ExitUsage
 	}
 	switch args[0] {
+	case "install":
+		return cmdNodeInstall(e, args[1:])
 	case "enroll":
 		return cmdNodeEnroll(e, args[1:])
 	case "verify-egress":
@@ -43,7 +45,7 @@ func cmdNode(e env, args []string) int {
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary node: unknown subcommand %q (want enroll or verify-egress)\n", args[0])
+	fmt.Fprintf(e.stderr, "nodary node: unknown subcommand %q (want install, enroll or verify-egress)\n", args[0])
 	return ExitUsage
 }
 

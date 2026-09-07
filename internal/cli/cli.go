@@ -197,6 +197,7 @@ Available in this release:
   server               Control plane lifecycle
                          install | start | status
   node                 GPU nodes
+                         install        Preflight, runtime, isolated network, enroll, start
                          enroll         Join a control plane with a join token
                          verify-egress  Assert a deployment has no way off-box
   agent                The node-side agent
