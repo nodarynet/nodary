@@ -1,0 +1,12 @@
+-- Password hashing (docs/specs/07-identity-audit.md 1, R2-42).
+--
+-- Deferred out of R1c deliberately: a password's only consumer is the login
+-- endpoint, R1 authenticates with personal tokens, and choosing cost parameters
+-- against no login path would have been choosing them against a guess. Nothing
+-- hashes a `user` row, so this is an ordinary additive migration.
+--
+-- One column holding a self-describing string rather than columns per
+-- parameter. The parameters travel with the hash so raising the cost does not
+-- invalidate existing ones, and a hash produced under older parameters is
+-- replaced on the next successful verification.
+ALTER TABLE user ADD COLUMN password_hash TEXT;
