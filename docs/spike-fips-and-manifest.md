@@ -88,6 +88,21 @@ enforces no iteration floor. Free to satisfy in code that does not exist — whi
 argument [pivot §3](plans/pivot-cmmc.md#fips-is-a-build-not-a-rearchitecture) already made
 for switching R2-42 off argon2id before it is written, now with a number attached.
 
+### Follow-up (R5b): `CGO_ENABLED=0` is what makes it static, and FIPS has nothing to do with it
+
+The "static" above holds, and it is worth being precise about *why*, because building the
+[R5-25](tasks/R5-install.md) job on the loose version of the claim broke it immediately.
+
+Measured on the same host: `GOFIPS140=v1.0.0 go build` produces a **dynamically linked**
+binary, and so does a plain `go build`. Go's default is `CGO_ENABLED=1`. `make dist` sets it
+to `0`, which is what the existing `static-binary` job checks and what the release path uses.
+
+So the property [ADR 0002](adr/0002-language-and-runtime.md) and
+[R0-16](tasks/R0-release.md) depend on belongs to the cgo-free build, not to FIPS — and FIPS
+does not take it away, which is the actual finding. With `CGO_ENABLED=0 GOFIPS140=v1.0.0`:
+statically linked, **1049** `fips140` symbols, and the whole suite passing under
+`GODEBUG=fips140=on`.
+
 ## 3. The manifest can be verified independently — the reuse claim cannot
 
 **Question 4: yes, and it is small.** A throwaway verifier over minisign's legacy `Ed`

@@ -16,12 +16,18 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 ## Preflight
 
-- [ ] **R5-01** Preflight reported as one list, hard failures and warnings distinguished · [01 §11](../specs/01-install.md#11-preflight)
+- [x] **R5-01** Preflight reported as one list, hard failures and warnings distinguished · [01 §11](../specs/01-install.md#11-preflight)
   - *done:* a misconfigured host surfaces every problem at once rather than one per run
-- [ ] **R5-02** The Linux checks: systemd and cgroup v2, architecture, NVIDIA driver and version floor, `nvidia-smi` enumeration, disk space for models and components, clock skew over 60s, ports free, component sources reachable, conflicting runtime
+  - a constraint on the **control flow**, not the output: nothing returns early, so a fresh host with no driver, no swap and a full disk learns all three in one command instead of over three installs. Asserted directly
+  - failures sort first, so the thing that blocks is the thing read before scrolling
+  - **a check that cannot run is not a check that passed.** Where the evidence is unreachable the result says so and never reports `ok` — most checks here establish a property by *not* finding a problem, which is exactly the shape [R4d](../plans/R4d-egress-isolation.md) found quietly stops meaning anything
+- [x] **R5-02** The Linux checks: systemd and cgroup v2, architecture, NVIDIA driver and version floor, `nvidia-smi` enumeration, disk space for models and components, clock skew over 60s, ports free, component sources reachable, conflicting runtime
+  - the driver is read from **nvidia-smi, not a device node**: [the spike](../spike-fips-and-manifest.md#wsl2-binds-a-gpu-through-devdxg-and-there-is-no-devnvidia) measured that a WSL2 host has no `/dev/nvidia*` and nvidia-smi still reports the card, so a filesystem test fails wrongly there and passes vacuously elsewhere
+  - clock skew lives in `doctor` rather than preflight, because it needs the other end of the connection to compare against
+  - *partial:* "component sources reachable" is `components verify`, which exists but is not yet folded into the preflight list; "conflicting runtime" is not implemented
 - [ ] **R5-03** The WSL2 checks · [01 §8](../specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
   - *done:* systemd absent from `/etc/wsl.conf` fails with a message naming `systemd=true` and `wsl --shutdown`, not a missing `systemctl`; CUDA passthrough broken by an in-distribution NVIDIA driver fails at preflight rather than letting deployments fail at start
-- [ ] **R5-04** Warnings that do not block: no swap, SELinux or AppArmor enforcing, low RAM per GPU, encrypted root without automatic unlock, no WSL logon task, a models directory under `/mnt/c`, a low `.wslconfig` memory cap
+- [x] **R5-04** Warnings that do not block: no swap, SELinux or AppArmor enforcing, low RAM per GPU, encrypted root without automatic unlock, no WSL logon task, a models directory under `/mnt/c`, a low `.wslconfig` memory cap
 
 ## Install
 
@@ -60,8 +66,10 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 - [ ] **R5-16** `GET /api/v1/agent/dist/{version}` serving the binary and components for agent self-upgrade · [03 §1](../specs/03-agent.md#1-transport)
 - [ ] **R5-17** `nodary uninstall [--purge] [--purge-models] [--force]` · [01 §10](../specs/01-install.md#10-uninstall)
   - *done:* the default keeps `/var/lib/nodary` and the models directory; `--purge-models` is separate because weights cost hours to restage; uninstalling the server requires `--purge` to be explicit about the audit database
-- [ ] **R5-18** `nodary doctor` · [10 §3](../specs/10-cli.md#3-nodary-doctor)
+- [x] **R5-18** `nodary doctor` · [10 §3](../specs/10-cli.md#3-nodary-doctor)
   - *done:* it exits non-zero on any hard failure, prints a copy-pasteable summary, and runs egress verification here as well as after every deployment start — a control that is only checked at creation time is a control that drifts
+  - it asserts against exactly the set the reconcile loop manages (`RunningDeployments`), because a diagnostic checking a different set would be answering a different question
+  - an assertion that could not run is a **warning, never a pass**
 
 ## Channels
 
@@ -82,8 +90,10 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 Both come from [pivot §9](../plans/pivot-cmmc.md#9-roadmap-deltas). They land in R5 rather
 than reopening a complete [R0](R0-release.md), which is where R0's own follow-ups went.
 
-- [ ] **R5-25** A `GOFIPS140=v1.0.0` job in CI that builds the tree and runs the suite, reporting rather than gating · [pivot §3](../plans/pivot-cmmc.md#fips-is-a-build-not-a-rearchitecture)
+- [x] **R5-25** A `GOFIPS140=v1.0.0` job in CI that builds the tree and runs the suite, reporting rather than gating · [pivot §3](../plans/pivot-cmmc.md#fips-is-a-build-not-a-rearchitecture)
   - *done:* it answers continuously what [the spike](../plans/mvp.md#4-the-route) answers once — whether the FIPS build compiles, whether the suite passes, and whether TOTP's HMAC-SHA-1 survives the module. Non-gating deliberately: blocking every pull request on an unmeasured dependency, for a claim the [MVP](../plans/mvp.md#6-what-an-mvp-install-cannot-claim) does not make, is the wrong trade · [MVP §5.6](../plans/mvp.md#56-fips-builds-in-ci-and-does-not-gate)
+  - the `fips140=only` step records what the module still refuses rather than hiding it: that output is the list of what would have to change for [ADR 0006](../adr/0006-cui-boundary-and-fips.md)'s second gate to open
+  - the static-binary step sets `CGO_ENABLED=0` **explicitly**. Measured while writing it: Go's default is `CGO_ENABLED=1`, which produces a dynamically linked binary whether `GOFIPS140` is set or not — so without it the step would have failed on every run, behind `continue-on-error`, telling nobody anything. Verified locally at 1049 `fips140` symbols, statically linked, whole suite passing under `fips140=on`
 - [ ] **R5-26** The FIPS artifact ships through the four existing channels · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* a second artifact, not a second pipeline. This works only because the binary is static and the SQLite driver is `modernc` rather than cgo — BoringCrypto needs cgo and would break the property [R0-16](R0-release.md) asserts in CI
   - *deps:* R5-25
