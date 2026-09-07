@@ -211,6 +211,11 @@ owes, and does not pre-empt them:
 ## Steps
 
 - [ ] S0 — the spike, [pivot §10](pivot-cmmc.md#10-the-spike)
+  - questions 2, 3 and 4 answered — [memo](../spike-fips-and-manifest.md). Question 1
+    needs a GPU host and is unattempted, so §7's risk is undiminished
+  - two findings change S1's documents rather than waiting for a milestone: ADR 0005 and
+    ADR 0007 both need a signature verifier written in Go, and the sealing format decision
+    has a deadline at [R2-40](../tasks/R2-control-plane.md) rather than at the FIPS artifact
 - [ ] S1 — ADR 0007, ADR 0006, ADR 0005, spec 13, and the 07 §1 correction
 - [ ] S2 — R1d policy, R1e attestation
 - [ ] S3 — evidence export and the licence key
