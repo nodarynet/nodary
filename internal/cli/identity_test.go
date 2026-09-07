@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"io"
 	"os"
@@ -26,6 +27,10 @@ type appliance struct {
 	// seeds remembers what was enrolled, so a test can produce the code an
 	// authenticator would be showing.
 	seeds map[string][]byte
+	// licPriv and licID are the key a test licence was signed with, kept so a
+	// later one can be signed by the same key.
+	licPriv ed25519.PrivateKey
+	licID   [8]byte
 }
 
 func newAppliance(t *testing.T) *appliance {
@@ -49,11 +54,21 @@ func (a *appliance) where() []string {
 	return []string{"--db", a.db, "--secret-key", a.key, "--credentials", a.creds}
 }
 
-// readOnly names the subcommands that never write, and so take only --db.
-var readOnly = map[string]bool{"list": true, "show": true}
+// readOnly names the commands that never write, and so take only --db.
+//
+// Keyed on the whole verb, not the subcommand: `audit export` reads and
+// `evidence export` writes, and a map keyed on "export" alone gave the second
+// one no --secret-key and a confusing failure inside the act.
+var readOnly = map[string]bool{
+	"user list": true, "user show": true,
+	"token list": true,
+	"audit list": true, "audit show": true, "audit export": true, "audit verify": true,
+	"policy show": true, "policy diff": true,
+	"license show": true,
+}
 
-func (a *appliance) whereFor(sub string) []string {
-	if readOnly[sub] {
+func (a *appliance) whereFor(verb, sub string) []string {
+	if readOnly[verb+" "+sub] {
 		return []string{"--db", a.db}
 	}
 	return a.where()
@@ -68,7 +83,7 @@ func (a *appliance) run(args ...string) (int, string, string) {
 
 func (a *appliance) runWithStdin(stdin string, args ...string) (int, string, string) {
 	a.t.Helper()
-	full := append(append([]string{}, args[:2]...), a.whereFor(args[1])...)
+	full := append(append([]string{}, args[:2]...), a.whereFor(args[0], args[1])...)
 	full = append(full, args[2:]...)
 	return runWithStdin(a.t, stdin, full...)
 }

@@ -138,12 +138,16 @@ func dispatch(e env, args []string) int {
 		return cmdToken(e, args[1:])
 	case "policy":
 		return cmdPolicy(e, args[1:])
+	case "license":
+		return cmdLicense(e, args[1:])
+	case "evidence":
+		return cmdEvidence(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token` and `policy`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license` and `evidence`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -173,6 +177,10 @@ Available in this release:
                          create | list | revoke | join
   policy               The posture: ceremony and retention
                          show | apply | diff
+  license              The commercial licence
+                         apply | show
+  evidence             The signed evidence bundle (commercial)
+                         export
 
 Specified, not yet implemented:
 `, versionString())
