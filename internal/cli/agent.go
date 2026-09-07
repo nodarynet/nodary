@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/api"
@@ -18,25 +21,27 @@ import (
 // agentVerbs this release does not implement, listed rather than falling
 // through to "unknown" for the reason nodeVerbs gives.
 var agentVerbs = map[string]string{
-	"run":    "the reconcile loop: staging, units, health (R4c)",
 	"audit":  "the node's own audit records",
 	"status": "what this node is running",
 }
 
 func cmdAgent(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary agent: expected a subcommand (plan)\n")
+		fmt.Fprintf(e.stderr, "nodary agent: expected a subcommand (plan, run)\n")
 		return ExitUsage
 	}
-	if args[0] == "plan" {
+	switch args[0] {
+	case "plan":
 		return cmdAgentPlan(e, args[1:])
+	case "run":
+		return cmdAgentRun(e, args[1:])
 	}
 	if what, ok := agentVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary agent %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan)\n", args[0])
+	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan or run)\n", args[0])
 	return ExitUsage
 }
 
@@ -180,3 +185,76 @@ func desiredDocument(e env, conf agent.Config, from string) (api.Desired, error)
 	err = json.NewDecoder(resp.Body).Decode(&doc)
 	return doc, err
 }
+
+// cmdAgentRun is the reconcile loop of docs/specs/03-agent.md §3.
+//
+// It runs in the foreground and logs to stderr, because systemd is what
+// supervises it: a daemon that forks, writes a pidfile and rotates its own logs
+// is reimplementing three things the service manager already does, and R5's
+// `nodary-agent.service` is where its lifetime belongs.
+func cmdAgentRun(e env, args []string) int {
+	fs := newFlagSet(e, "agent run")
+	confPath := fs.String("config", "", "agent.toml path")
+	unitDir := fs.String("unit-dir", systemdUnitDir, "where nodary-model@.service is written")
+	once := fs.Bool("once", false, "reconcile a single time and exit")
+	// The system manager needs root, which a GPU host's agent has and a
+	// developer does not. This is what makes the whole path — template,
+	// environment file, start, stop — exercisable without it. A user manager has
+	// no network cgroup controller, so IPAddressDeny= is inert there; it was
+	// never the egress control (docs/specs/03-agent.md §5), so nothing is lost
+	// that this scope was providing.
+	user := fs.Bool("user", false, "drive `systemctl --user`, for a host where this is not run as root")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+
+	confFile := orElse(*confPath, agent.ConfigPath())
+	conf, err := agent.LoadConfig(confFile)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent run: %v\n", err)
+		if os.IsNotExist(err) {
+			fmt.Fprintf(e.stderr, "  this host has not enrolled; run `nodary node enroll`\n")
+		}
+		return exitFor(err)
+	}
+	configDir := filepath.Dir(confFile)
+	guardrails, err := agent.LoadNodeConfig(filepath.Join(configDir, "node.toml"))
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent run: %v\n", err)
+		return exitFor(err)
+	}
+
+	host := agent.RealHost(*unitDir, configDir)
+	host.UserScope = *user
+	log := slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	d, err := agent.NewDaemon(conf, guardrails, host, log)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent run: %v\n", err)
+		return exitFor(err)
+	}
+
+	if *once {
+		// One pass, for an operator checking a change took and for the install
+		// path, which wants the first reconcile to have happened before it
+		// reports success.
+		doc, err := desiredDocument(e, conf, "")
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary agent run: %v\n", err)
+			return exitFor(err)
+		}
+		d.ReconcileOnce(context.Background(), doc)
+		return ExitOK
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Fprintf(e.stderr, "reconciling %s against %s\n", conf.Name, conf.Server)
+	if err := d.Run(ctx); err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent run: %v\n", err)
+		return ExitFailure
+	}
+	return ExitOK
+}
+
+// systemdUnitDir is where a system manager reads unit files.
+const systemdUnitDir = "/etc/systemd/system"
