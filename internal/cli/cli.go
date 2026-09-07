@@ -45,7 +45,6 @@ var planned = map[string]string{
 	"route":     "public model routing",
 	"limits":    "rate and budget limits",
 	"usage":     "usage reporting",
-	"policy":    "policy profiles",
 	"config":    "configuration revisions",
 	"backup":    "backup and restore",
 	"bundle":    "offline bundle creation",
@@ -82,12 +81,14 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdUser(e, args[1:])
 	case "token":
 		return cmdToken(e, args[1:])
+	case "policy":
+		return cmdPolicy(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user` and `token`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token` and `policy`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -115,6 +116,8 @@ Available in this release:
                          add | list | show | suspend | delete | totp
   token                Personal tokens, service keys and join tokens
                          create | list | revoke | join
+  policy               The posture: ceremony and retention
+                         show | apply | diff
 
 Specified, not yet implemented:
 `, versionString())

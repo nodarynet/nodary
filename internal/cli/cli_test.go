@@ -56,7 +56,13 @@ func TestVersionJSONIsStableAndCleanOnStdout(t *testing.T) {
 // Planned-but-unimplemented verbs must be distinguishable from typos: the
 // first is a wait, the second is a bug report.
 func TestPlannedVerbsFailAsUnimplementedNotUnknown(t *testing.T) {
-	for _, verb := range []string{"server", "node", "doctor", "policy", "bundle"} {
+	// Iterating `planned` rather than a copy of it: the two lists drifted the
+	// first time a planned verb was implemented, and a test that has to be
+	// edited when the code is correct is a test that will be edited wrongly.
+	if len(planned) == 0 {
+		t.Fatal("no planned verbs, so this asserts nothing")
+	}
+	for verb := range planned {
 		t.Run(verb, func(t *testing.T) {
 			code, stdout, stderr := run(t, verb)
 			if code != ExitFailure {
