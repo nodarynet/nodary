@@ -60,6 +60,14 @@ what explains *why* a constraint is set where it is.
 **Decided.** One singleton row holding the profile's TOML bytes, its name, and when it was
 applied. `show` and `diff` re-parse it rather than reading columns.
 
+**This contradicted [08 §1](../specs/08-data-model.md#1-schema)**, which specified
+`policy(name PK, body_toml, active, applied_by, applied_at)`. Per
+[the rules](README.md#the-rules) that should have been recorded here as an open item when the
+slice landed and was not — the omission is noted rather than quietly repaired. The spec has
+since been corrected to the singleton, with the reasoning in 08 §1: `applied_by` duplicates
+the audit record, `name PK` plus `active` admits having no active profile or two, and storing
+inactive profiles serves no verb.
+
 **Why.** [07 §4](../specs/07-identity-audit.md#4-policy-profiles) calls a profile "a single
 reviewable object", worth as much to an assessor as to a maintainer. Storing the source keeps
 it one object; storing sixteen columns turns it into sixteen facts that can disagree with the

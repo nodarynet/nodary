@@ -29,6 +29,7 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
 - [ ] **R2-08** `usage` and `usage_daily`
   - *done:* usage is a separate chain from audit and is never conflated with it — different volumes, different retention · [00 §3](../specs/00-overview.md#3-object-model)
 - [ ] **R2-09** `policy` and `join_token`
+  - *note:* the `policy` half landed early, in [R1d](../plans/R1d-policy.md), because R1-25 – R1-28 needed somewhere to keep the active profile. What remains here is `join_token`. [08 §1](../specs/08-data-model.md#1-schema) was corrected to the shape that shipped
 - [ ] **R2-10** No two deployments on a node may claim the same GPU index
   - *done:* rejected at the control plane with `409` · [11 §2](../specs/11-failure-modes.md#2-models-and-deployments)
   - *deps:* R2-01, R2-05

@@ -56,7 +56,7 @@ usage(id PK, ts, user_id, token_id, route, model_id, deployment_id, node_name,
 usage_daily(day, user_id, model_id, requests, prompt_tokens, completion_tokens,
             PRIMARY KEY (day, user_id, model_id))
 
-policy(name PK, body_toml, active, applied_by, applied_at)
+policy(singleton PK, name, source, applied_at)
 join_token(id PK, hash, prefix, uses_left, expires_at, created_by, created_at)
 ```
 
@@ -74,6 +74,18 @@ goes through the audit layer.
 first seal rather than at install, because until something is sealed there is nothing to
 lose — and from that point a mismatch is refused rather than answered by minting a fresh
 key, which would leave every sealed value permanently unreadable behind a clean startup.
+
+`policy` holds one row: the profile in force. It was specified as
+`policy(name PK, body_toml, active, applied_by, applied_at)` and corrected during
+[R1d](../plans/R1d-policy.md) for three reasons. `applied_by` duplicates the audit record,
+which is already the authoritative answer to who did what and would be a second answer able
+to disagree with it. `name PK` with an `active` flag admits states that cannot be true — no
+active profile, or two — where a singleton cannot. And storing profiles that are not in force
+supports a capability no verb offers: [07 §4](07-identity-audit.md#4-policy-profiles)'s
+`policy apply` takes a built-in embedded in the binary or a file an operator wrote, never a
+row. What is stored is the profile's own TOML source rather than a column per setting, so the
+"single reviewable object" 07 §4 describes stays one object; `policy show` re-parses those
+bytes and therefore cannot drift from what `policy apply` accepted.
 
 `user` records `totp_last_step` because a TOTP code is spent, not merely valid. RFC 6238
 codes stand for a whole 30-second step and a skew window widens that further, so a code
