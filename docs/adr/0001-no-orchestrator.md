@@ -48,6 +48,10 @@ nodary.
 skew, upgrade ordering. This is mitigated by keeping the agent deliberately boring: it renders
 files and reports status, and does not schedule, bin-pack or supervise. It is not eliminated.
 
+**The runtime was re-evaluated and containerd stands** —
+[ADR 0008](0008-container-runtime.md), on security and ease of deployment. What follows is the
+question that prompted it, kept because ADR 0008's "reconsider if" points back at it.
+
 **Reconsider the runtime, not the decision, if** `nodary-isolated` proves as awkward under
 CNI as it is under docker. [The spike](../spike-fips-and-manifest.md#--internal-silently-breaks-ingress--this-is-the-finding)
 found that docker's obvious isolation primitive silently destroys ingress, and §5's warning

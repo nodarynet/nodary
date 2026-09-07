@@ -86,6 +86,7 @@ functions, and every mutating call passes through the audit layer.
 | 0005 | [Editions, the licence key, and the advisory feed](docs/adr/0005-editions-and-the-advisory-feed.md) — the mechanism is free, the proving is paid |
 | 0006 | [The CUI boundary and the FIPS build](docs/adr/0006-cui-boundary-and-fips.md) — what nodary may hold, and the crypto that holds it |
 | 0007 | [The component manifest as an independent artifact](docs/adr/0007-independent-component-manifest.md) — patch on the customer's timeline, not ours |
+| 0008 | [containerd, not podman](docs/adr/0008-container-runtime.md) — measured on security and deployment |
 
 ### Implementation
 
