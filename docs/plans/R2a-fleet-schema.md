@@ -1,7 +1,7 @@
 # R2a — The fleet schema
 
 **Slice of:** [R2](../tasks/R2-control-plane.md) · **Tasks:** R2-01, R2-04 – R2-10 ·
-**Status:** in flight
+**Status:** complete
 
 The first slice of R2, and the one [S4 of the MVP route](mvp.md#4-the-route) starts with.
 It turns the fleet objects into state: nodes, models, staging, deployments, routes, limits,
@@ -47,8 +47,9 @@ the other handler does not have.
 
 ### R2-10 is an index, not a check at apply time
 
-**Decided.** A partial unique index over `(node_name, gpu_index)` for deployments in a live
-state, populated from a `deployment_gpu` table rather than from `gpus_json`.
+**Decided.** An unconditional unique index over `(node_name, gpu_index)`, populated from a
+`deployment_gpu` table rather than from `gpus_json`. A deployment holds its claim for as long
+as it exists.
 
 **Why.** [11 §2](../specs/11-failure-modes.md#2-models-and-deployments) makes "two deployments
 claim one GPU" a failure mode with a named owner, and
@@ -60,6 +61,18 @@ That needs the GPU index as a row, not an element inside a JSON array: SQLite ca
 unique index over the contents of `gpus_json`. So a deployment's GPUs are a child table, and
 `gpus_json` in [08 §1](../specs/08-data-model.md#1-schema) becomes the rendering rather than
 the storage.
+
+**The claim was going to expire with the deployment's liveness, and cannot.** The first
+version indexed only deployments in a live state, which needs the deployment's state in the
+index's `WHERE` clause — and **SQLite prohibits subqueries in a partial index predicate**,
+measured, not assumed. Reaching that state from here would mean copying it into
+`deployment_gpu` and keeping the copy in step, which is the write-path discipline this index
+exists to replace.
+
+Holding the claim through `stopped` and `failed` turns out to be the better rule anyway. A
+failed deployment on GPU 0 is one to fix and restart, not one to quietly build over; freeing
+the GPU means deleting the deployment, which is an explicit act by somebody and recorded —
+which is what this product does everywhere else.
 
 **Rejected — validate in the handler.** No schema change, and the error message is nicer. Two
 handlers and an agent all have to remember, and the first one that forgets produces exactly the
@@ -78,6 +91,14 @@ events tamper-evident at enormous cost or make administrative acts disposable.
 
 ## Steps
 
-- [ ] Migration `0006_fleet.sql` — every table, every state machine as a CHECK
-- [ ] `deployment_gpu` and the partial unique index that makes R2-10 structural
-- [ ] `internal/fleet` — the row types, and the reads a revision snapshot needs
+- [x] Migration `0006_fleet.sql` — every table, every state machine as a CHECK
+- [x] `deployment_gpu` and the unique index that makes R2-10 structural
+- [x] Tests that each constraint refuses what it should, and permits what it should
+
+**Moved out of this slice:** the row types and the reads a revision snapshot needs. They have
+no caller until [R2-11](../tasks/R2-control-plane.md) exists, and types written against no
+caller are types written against a guess. They land with revisions.
+
+**`join_token` was already built.** [R1c](R1c-identity.md) created it for `nodary token join`,
+so R2-09 is complete rather than partly done — both halves landed early, in the slices that
+needed them.

@@ -19,19 +19,20 @@ by accident.
 Each task is the migration plus the type, its state machine where it has one, and
 the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-schema)
 
-- [ ] **R2-01** `node` — inventory, offer, constraints, `reboot_policy`, states `pending → approved → ready → draining → departed` · [00 §3](../specs/00-overview.md#3-object-model)
+- [x] **R2-01** `node` — inventory, offer, constraints, `reboot_policy`, states `pending → approved → ready → draining → departed` · [00 §3](../specs/00-overview.md#3-object-model)
 - [ ] **R2-02** `refusal` — a node's rejection of a desired-state document, against node and revision · [12 §1](../specs/12-node-guardrails.md#1-where-they-apply)
 - [ ] **R2-03** `backend` and `derived_image` · [04 §9](../specs/04-backends.md#9-registering-a-backend)
-- [ ] **R2-04** `model` and `staging`, keyed `(model_id, node_name)`, states `absent → staging → verifying → staged | corrupt` · [05 §3](../specs/05-catalog.md#3-staging)
-- [ ] **R2-05** `deployment`, states `defined → staging → preparing → starting → ready → stopped | failed`
-- [ ] **R2-06** `route` and `route_member`
-- [ ] **R2-07** `limits` keyed `(subject_kind, subject_id)` · [06 §4](../specs/06-gateway.md#4-throttling)
-- [ ] **R2-08** `usage` and `usage_daily`
+- [x] **R2-04** `model` and `staging`, keyed `(model_id, node_name)`, states `absent → staging → verifying → staged | corrupt` · [05 §3](../specs/05-catalog.md#3-staging)
+- [x] **R2-05** `deployment`, states `defined → staging → preparing → starting → ready → stopped | failed`
+- [x] **R2-06** `route` and `route_member`
+- [x] **R2-07** `limits` keyed `(subject_kind, subject_id)` · [06 §4](../specs/06-gateway.md#4-throttling)
+- [x] **R2-08** `usage` and `usage_daily`
   - *done:* usage is a separate chain from audit and is never conflated with it — different volumes, different retention · [00 §3](../specs/00-overview.md#3-object-model)
-- [ ] **R2-09** `policy` and `join_token`
-  - *note:* the `policy` half landed early, in [R1d](../plans/R1d-policy.md), because R1-25 – R1-28 needed somewhere to keep the active profile. What remains here is `join_token`. [08 §1](../specs/08-data-model.md#1-schema) was corrected to the shape that shipped
-- [ ] **R2-10** No two deployments on a node may claim the same GPU index
+- [x] **R2-09** `policy` and `join_token`
+  - *note:* both halves landed early, in the slices that needed them: `policy` in [R1d](../plans/R1d-policy.md) for R1-25 – R1-28, and `join_token` in [R1c](../plans/R1c-identity.md) for `nodary token join`. [08 §1](../specs/08-data-model.md#1-schema) was corrected to the `policy` shape that shipped
+- [x] **R2-10** No two deployments on a node may claim the same GPU index
   - *done:* rejected at the control plane with `409` · [11 §2](../specs/11-failure-modes.md#2-models-and-deployments)
+  - *note:* a unique index over `(node_name, gpu_index)` on a `deployment_gpu` child table, so the two writers that will race for it — an HTTP handler and an agent reconcile, which cannot see each other's transaction — are refused by the database rather than by whichever of them remembered. It cannot be scoped to live deployments: SQLite prohibits subqueries in a partial index predicate, so a claim lasts as long as its deployment and freeing a GPU means deleting one · [R2a](../plans/R2a-fleet-schema.md)
   - *deps:* R2-01, R2-05
 
 ## Revisions
