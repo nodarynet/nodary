@@ -130,7 +130,7 @@ func (o *Options) setDefaults() {
 	}
 	if o.run == nil {
 		o.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-			return exec.CommandContext(ctx, name, args...).Output()
+			return exec.CommandContext(ctx, Resolve(name), args...).Output()
 		}
 	}
 	if o.MinModelsGB == 0 {
@@ -545,6 +545,45 @@ func totalRAMMiB() (int, error) {
 		return kb / 1024, nil
 	}
 	return 0, fmt.Errorf("cannot read MemTotal from /proc/meminfo")
+}
+
+// toolDirs are where a tool may live when it is not on PATH.
+//
+// **/usr/lib/wsl/lib is why this function exists.** On WSL2 the NVIDIA tools are
+// bind-mounted there and put on PATH by the login profile — which `sudo` then
+// drops, because its `secure_path` is a fixed list that does not include it. So
+// `nvidia-smi` resolves for the operator and not for root, and every check that
+// needs it fails on a host with a perfectly good GPU.
+//
+// That is not a corner case: the agent runs as root, `node install` runs under
+// sudo, and WSL2 is a platform docs/specs/01-install.md §8 supports. Found by
+// running the privileged verification on a real WSL2 host with an RTX 5090
+// attached, where preflight reported no driver at all.
+var toolDirs = []string{
+	"/usr/lib/wsl/lib", // WSL2's GPU tools; see above
+	"/usr/bin",
+	"/usr/local/bin",
+	"/usr/sbin",
+	"/usr/local/nvidia/bin",
+	"/opt/nvidia/bin",
+}
+
+// Resolve finds a tool by name, falling back to the known locations when PATH
+// does not have it.
+//
+// It returns the bare name when nothing is found, so the caller still gets the
+// ordinary "executable file not found in $PATH" rather than a confusing one.
+func Resolve(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range toolDirs {
+		candidate := dir + "/" + name
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate
+		}
+	}
+	return name
 }
 
 // isWSL is the same detection internal/agent uses for reboot_policy.
