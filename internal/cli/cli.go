@@ -145,12 +145,14 @@ func dispatch(e env, args []string) int {
 		return cmdServer(e, args[1:])
 	case "node":
 		return cmdNode(e, args[1:])
+	case "agent":
+		return cmdAgent(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server` and `node enroll`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll` and `agent plan`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -190,6 +192,8 @@ Available in this release:
                          install | start | status
   node                 GPU nodes
                          enroll  Join a control plane with a join token
+  agent                The node-side agent
+                         plan    Show what this node would do, and do none of it
 
 Specified, not yet implemented:
 `, versionString())
