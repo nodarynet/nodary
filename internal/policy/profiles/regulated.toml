@@ -1,0 +1,21 @@
+[policy]
+name = "regulated"
+
+require_totp             = true
+require_justification    = true
+min_justification_length = 12
+require_signed_artifacts = true
+allow_unattended_tokens  = false
+allow_custom_backends    = false
+allow_derived_images     = true    # a FIPS override is the motivating case, not the risk
+require_pinned_derives   = true
+
+egress_default           = "deny"
+model_origin_denylist    = ["CN"]
+model_origin_allowlist   = ["US", "FR", "GB", "CA", "DE"]
+require_model_manifest   = true
+
+audit_retention_days     = 1095
+usage_retention_days     = 90
+session_ttl_minutes      = 30
+token_max_ttl_days       = 365

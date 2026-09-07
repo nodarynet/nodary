@@ -8,7 +8,11 @@ go 1.25.0
 
 toolchain go1.27.0
 
-require github.com/gowebpki/jcs v1.0.1
+require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/gowebpki/jcs v1.0.1
+	modernc.org/sqlite v1.57.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -20,5 +24,4 @@ require (
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.57.0 // indirect
 )

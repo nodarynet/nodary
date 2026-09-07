@@ -1,0 +1,20 @@
+[policy]
+name = "default"
+
+require_totp             = false   # ceremony, not security: the session already authenticated
+require_justification    = false   # the audit record is still written, with actor and outcome
+min_justification_length = 0
+require_signed_artifacts = true    # free, and never the right thing to disable
+allow_unattended_tokens  = true    # scripts and cron are the normal case here
+allow_custom_backends    = true
+allow_derived_images     = true
+require_pinned_derives   = false
+
+egress_default           = "deny"  # a serving deployment needs no outbound path
+model_origin_allowlist   = []      # empty: any origin
+require_model_manifest   = false
+
+audit_retention_days     = 365
+usage_retention_days     = 90
+session_ttl_minutes      = 10080   # a week
+token_max_ttl_days       = 3650
