@@ -13,6 +13,19 @@ func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return runWithStdin(t, "", args...)
 }
 
+// runWithDefaultDB drives a verb whose behaviour differs for "no database at
+// the *default* location", pointing that location at a path the test owns.
+//
+// Without it those tests read whatever /var/lib/nodary is on the machine, and
+// they pass only on a host that has never had nodary installed — which is a
+// test that stops working the moment somebody runs the installer.
+func runWithDefaultDB(t *testing.T, defaultDB string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	e := env{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, defaultDB: defaultDB}
+	return dispatch(e, args), out.String(), errb.String()
+}
+
 func runWithStdin(t *testing.T, stdin string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	var out, errb bytes.Buffer

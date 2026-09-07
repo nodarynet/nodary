@@ -52,6 +52,18 @@ func resolveDB(flagValue string) (path string, explicit bool) {
 	return paths.Database(), false
 }
 
+// resolveDBIn is resolveDB with the environment's default, so a test can point
+// "the default location" somewhere it controls. See env.defaultDB.
+func resolveDBIn(e env, flagValue string) (path string, explicit bool) {
+	if flagValue != "" {
+		return flagValue, true
+	}
+	if e.defaultDB != "" {
+		return e.defaultDB, false
+	}
+	return paths.Database(), false
+}
+
 // openForReading opens the database read-only. Inspecting a chain must not
 // change the file being inspected, so this never migrates and never creates.
 func openForReading(e env, verb, path string) (*store.DB, bool) {
@@ -90,7 +102,7 @@ func cmdAuditVerify(e env, args []string) int {
 		return ExitUsage
 	}
 
-	path, explicit := resolveDB(*dbPath)
+	path, explicit := resolveDBIn(e, *dbPath)
 	report := verifyReport{}
 	// The judgement is audit's; this function only renders it. The CLI and the
 	// HTTP API have to reach the same answer by the same route.

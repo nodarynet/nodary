@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
-	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/store"
 )
 
@@ -141,16 +140,16 @@ func TestAuditVerifyJSONIsAStableDocumentOnStdout(t *testing.T) {
 // The case an auditor is in: a copy pulled from a SIEM, on a machine that has
 // never seen the database it came from.
 func TestAuditVerifyChecksAMirrorWithNoDatabase(t *testing.T) {
-	// This case is defined by the absence of a database at the default
-	// location, and internal/paths is deliberately not configurable — so the
-	// test can only assert it on a machine where nodary is not installed.
-	// Without this it opened the operator's real chain and compared the fixture
-	// against it, and the failure read as a defect in the code rather than in
-	// the machine.
-	if _, err := os.Stat(paths.Database()); err == nil {
-		t.Skipf("%s exists on this machine, so there is no no-database case to test",
-			paths.Database())
-	}
+	// This case is defined by the absence of a database at the *default*
+	// location, so the test points that location somewhere it owns.
+	//
+	// It used to skip when /var/lib/nodary/nodary.db existed. That guard was
+	// written for the machine that had nodary installed and it was not enough:
+	// `os.Stat` on a root-owned 0700 directory returns *permission denied*, not
+	// nil, so the skip did not fire and the test failed instead — which is
+	// exactly what happened the first time the privileged verification script
+	// ran on a developer's box.
+	absent := filepath.Join(t.TempDir(), "no-such-database.db")
 	dbPath, mirror := chain(t, 5)
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		os.Remove(dbPath + suffix)
@@ -165,7 +164,7 @@ func TestAuditVerifyChecksAMirrorWithNoDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := run(t, "audit", "verify", "--mirror", elsewhere)
+	code, stdout, stderr := runWithDefaultDB(t, absent, "audit", "verify", "--mirror", elsewhere)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr %q, stdout %q)", code, stderr, stdout)
 	}
@@ -622,7 +621,10 @@ func TestAuditVerifyNamesAFragmentAsOne(t *testing.T) {
 	writeFile(t, frag, strings.Join(lines[3:], "\n")+"\n")
 
 	// Alone: verified, but said to be a fragment, and exit 0 — it is not damage.
-	code, stdout, stderr := run(t, "audit", "verify", "--mirror", frag)
+	// The default location is pointed at nothing, so this asserts the same
+	// thing on a host that has had nodary installed and one that has not.
+	absent := filepath.Join(t.TempDir(), "no-such-database.db")
+	code, stdout, stderr := runWithDefaultDB(t, absent, "audit", "verify", "--mirror", frag)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0 — a fragment is not damage (stderr %q, stdout %q)", code, stderr, stdout)
 	}
@@ -656,7 +658,8 @@ func TestAuditVerifyAnchorFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := run(t, "audit", "verify", "--mirror", frag, "--anchor", "3:"+third.Hash)
+	absent := filepath.Join(t.TempDir(), "no-such-database.db")
+	code, stdout, stderr := runWithDefaultDB(t, absent, "audit", "verify", "--mirror", frag, "--anchor", "3:"+third.Hash)
 	if code != ExitOK {
 		t.Fatalf("exit = %d (stderr %q, stdout %q)", code, stderr, stdout)
 	}
@@ -665,7 +668,7 @@ func TestAuditVerifyAnchorFlag(t *testing.T) {
 	}
 
 	// A wrong anchor is a refusal, not a pass.
-	code, _, _ = run(t, "audit", "verify", "--mirror", frag, "--anchor", "3:"+strings.Repeat("a", 64))
+	code, _, _ = runWithDefaultDB(t, absent, "audit", "verify", "--mirror", frag, "--anchor", "3:"+strings.Repeat("a", 64))
 	if code != ExitFailure {
 		t.Errorf("exit = %d, want 1 for a fragment that does not join", code)
 	}

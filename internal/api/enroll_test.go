@@ -183,6 +183,12 @@ func TestTheNodeEnrollsAgainstTheRealControlPlane(t *testing.T) {
 	res, err := agent.Enroll(context.Background(), agent.EnrollOptions{
 		Server: f.srv.URL, Token: f.joinToken(1), CAFingerprint: pin,
 		Name: "gpu-01", Dir: dir,
+		// Pointed at a path this test owns. Left empty it reads
+		// /etc/nodary/node.toml, so the test would depend on whether the
+		// machine running it has had nodary installed — and on a host where
+		// that directory is root-owned and 0700, it fails with a permission
+		// error that has nothing to do with enrolment.
+		NodeConfig: filepath.Join(dir, "node.toml"),
 	})
 	if err != nil {
 		t.Fatalf("enroll: %v", err)
@@ -239,9 +245,10 @@ func TestEnrollmentRefusesAnUnpinnedControlPlane(t *testing.T) {
 		wrong = right[:len(right)-1] + "1"
 	}
 
+	dir := t.TempDir()
 	_, err := agent.Enroll(context.Background(), agent.EnrollOptions{
 		Server: f.srv.URL, Token: f.joinToken(1), CAFingerprint: wrong,
-		Name: "gpu-01", Dir: t.TempDir(),
+		Name: "gpu-01", Dir: dir, NodeConfig: filepath.Join(dir, "node.toml"),
 	})
 	if !errors.Is(err, agent.ErrPin) {
 		t.Fatalf("error = %v, want ErrPin", err)

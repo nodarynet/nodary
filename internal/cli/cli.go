@@ -44,6 +44,19 @@ type env struct {
 	// TOTP code and then a confirmation --- is exactly that case, and the
 	// symptom is a silent cancellation rather than an error.
 	in *bufio.Reader
+	// defaultDB replaces paths.Database() when a flag does not name one.
+	//
+	// It exists because several verbs behave differently for "no database at
+	// the *default* location" than for "no database at the path you named" —
+	// `audit verify --mirror` is the case, and it is deliberate. Testing that
+	// without a seam means testing against whatever /var/lib/nodary happens to
+	// be on the machine, which is how this appeared: a privileged install
+	// created a root-owned 0700 directory, and three tests that had always
+	// passed started failing on a developer's box for a reason unrelated to
+	// anything they assert.
+	//
+	// Empty in production, always.
+	defaultDB string
 	// tty reports that there is a human who can answer a prompt. It is a field
 	// rather than a check on stdin because an io.Reader cannot be asked, and
 	// because a test needs to drive both sides of docs/specs/07-identity-audit.md
