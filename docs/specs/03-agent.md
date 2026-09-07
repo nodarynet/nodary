@@ -154,10 +154,10 @@ EnvironmentFile=/etc/nodary/deployments/%i.env
 ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-%i
 ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-%i \
     --gpus '"device=${NODARY_GPUS}"' \
-    --network nodary-isolated \
+    --network ${NODARY_NETWORK} \
     -v ${NODARY_MODELS_DIR}:${NODARY_MOUNT_PATH}:ro \
     -p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT} \
-    ${NODARY_IMAGE} ${NODARY_ARGS}
+    ${NODARY_IMAGE} $NODARY_ARGS
 ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-%i
 Restart=always
 RestartSec=10s
@@ -172,6 +172,20 @@ WantedBy=multi-user.target
 
 The agent writes only `/etc/nodary/deployments/<id>.env` and calls `systemctl`. It contains no
 supervision logic; systemd owns restart, backoff and process lifetime.
+
+`${NODARY_NETWORK}` rather than a literal, because §2's document carries `network` per
+deployment. It is `nodary-isolated` for everything that serves, and a template that hardcoded
+it would make the document's field a lie.
+
+**`$NODARY_ARGS` is unbraced and every other variable is braced, and the difference is
+load-bearing.** systemd splits `$FOO` at whitespace into separate arguments and passes
+`${FOO}` as a single argument, never split. The argument list has to be split; an image
+reference must not be. With `${NODARY_ARGS}` the model server receives its entire argv as one
+string and exits on an unrecognised argument — a failure that surfaces on a GPU host as a
+container that will not start, a long way from its cause. Measured on systemd 255.
+
+The same fact is why an `extra_args` entry containing whitespace is **refused** rather than
+quoted: no quoting convention applied on this side survives that expansion.
 
 ## 7. GPU assignment, health, restart, reboot
 

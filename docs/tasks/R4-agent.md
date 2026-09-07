@@ -37,7 +37,8 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 - [ ] **R4-10** `POST /api/v1/agent/events` with a bounded queue that spills to disk; an overflow is itself recorded · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
 - [ ] **R4-11** Protocol version handling: an agent outside the server's supported range stops reconciling, keeps running what is already up, and reports `incompatible` · [03 §4](../specs/03-agent.md#4-version-skew)
   - *done:* it does not guess
-- [ ] **R4-12** Reconnect behaviour: exponential backoff with jitter; on reconnect the agent reconciles forward and never replays intermediate revisions · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
+- [x] **R4-12** Reconnect behaviour: exponential backoff with jitter; on reconnect the agent reconciles forward and never replays intermediate revisions · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
+  - full jitter — a uniform draw from `[0, backoff)`. Anything narrower leaves a fleet's retries correlated, and arriving together the moment a control plane recovers is the second outage
 
 ## Guardrails
 
@@ -56,10 +57,18 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 
 ## Reconcile and runtime
 
-- [ ] **R4-18** The reconcile loop: idempotent, convergent, observing actual state rather than assuming it caused it · [03 §3](../specs/03-agent.md#3-reconcile-loop)
+- [x] **R4-18** The reconcile loop: idempotent, convergent, observing actual state rather than assuming it caused it · [03 §3](../specs/03-agent.md#3-reconcile-loop)
   - *done:* the fixed ordering holds — weights before prepare, prepare before start, stop before weight removal, GPU released before reassignment
-- [ ] **R4-19** `nodary-model@.service` template and `/etc/nodary/deployments/<id>.env`; the agent writes the env file and calls `systemctl` and holds no supervision logic of its own · [03 §6](../specs/03-agent.md#6-unit-template)
-- [ ] **R4-20** Health polling every 10s; three consecutive failures mark `unhealthy` and remove the deployment from its route · [03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)
+  - the env file is compared before it is written, and only a real change restarts a unit. The failure this prevents is not a wasted write: it is a model server restarting every fifteen seconds forever, dropping in-flight requests each time
+  - the loop stops `nodary-model@*` and nothing else. A node is rarely only a nodary node ([12](../specs/12-node-guardrails.md)), and stopping "anything unrecognised" on a machine somebody else also uses is the most destructive thing this codebase could do. The scoping is in the `list-units` glob, not in a filter applied afterwards
+  - `prepare` is R6-06 and is not in this build, so the ordering rule it belongs to is untested rather than satisfied
+- [x] **R4-19** `nodary-model@.service` template and `/etc/nodary/deployments/<id>.env`; the agent writes the env file and calls `systemctl` and holds no supervision logic of its own · [03 §6](../specs/03-agent.md#6-unit-template)
+  - **the template in 03 §6 was wrong and is corrected.** `${NODARY_ARGS}` passes the whole argument list as a *single* argument; systemd splits `$FOO` at whitespace and never splits `${FOO}`. The model server would have received its entire argv as one string and exited on an unrecognised argument — on a GPU host, as a container that will not start, a long way from the cause. Measured on systemd 255 and asserted in both directions
+  - the agent rewrites the template when it drifts. The variable names there and in the plan are one contract in two places, and a hand-edited template that no longer reads `NODARY_ARGS` starts a model server with no arguments at all
+- [x] **R4-20** Health polling every 10s; three consecutive failures mark `unhealthy` and remove the deployment from its route · [03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)
+  - the agent **reports** and does not act. 03 §7 gives the two halves to different sides: the agent marks it, the control plane removes it from its route. A route is fleet state — another node may hold the last ready replica — so a node withdrawing itself would be deciding on information it does not have. The route half is R3
+  - below the threshold it is `unknown`, never `healthy`: reporting healthy after a probe this node just watched fail would assert something it saw not happen. One success clears the count, because every extra probe is time a serving deployment spends out of its route
+  - the probe only ever asks `127.0.0.1`, which is the only address 03 §5 publishes to
 - [ ] **R4-21** Failure handling: crash-loop backoff, `failed` after N restarts in a window, last 100 log lines captured, `ready_timeout_s` enforced · [11 §2](../specs/11-failure-modes.md#2-models-and-deployments)
 - [ ] **R4-22** Rolling restart that never drops the last ready replica; fewer than two replicas requires `--allow-downtime` · [03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)
 - [ ] **R4-23** GPU assignment double-checked on the node before start; a conflict is refused and reported · [03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)
