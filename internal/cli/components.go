@@ -9,12 +9,17 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"crypto/tls"
 	"errors"
+	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/paths"
+	"net/http"
+	"os"
 	"path/filepath"
+	"time"
 )
 
 func cmdComponents(e env, args []string) int {
@@ -272,8 +277,9 @@ func cmdComponentsFetch(e env, args []string) int {
 	platform := fs.String("platform", "host", "platform to resolve for: host, or linux/amd64")
 	dir := fs.String("dir", "", "the cache directory (default /var/lib/nodary/dist)")
 	role := fs.String("role", "", "only components for this role: server or node")
-	from := fs.String("from", "",
-		"fetch through a control plane's mirror instead of upstream, e.g. https://host:8443")
+	mirror := fs.Bool("mirror", false,
+		"fetch through this node's control plane instead of upstream; requires an enrolled node")
+	confPath := fs.String("config", "", "agent.toml path, for --mirror")
 	ownership := fs.String("record", "", "where to record what was placed (default /etc/nodary/components.json)")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -313,9 +319,19 @@ func cmdComponentsFetch(e env, args []string) int {
 	if cache == "" {
 		cache = filepath.Join(paths.DataDir, "dist")
 	}
-	got, err := components.Fetch(context.Background(), want, components.FetchOptions{
-		Dir: cache, Platform: plat, BaseURL: mirrorURL(*from),
-	})
+	opts := components.FetchOptions{Dir: cache, Platform: plat}
+	if *mirror {
+		// The mirror is behind the same mTLS as the rest of the agent protocol
+		// (docs/specs/01-install.md §3), so only an enrolled node can reach it
+		// — which is the point: a host that has not joined has no business
+		// pulling a fleet's pinned runtime.
+		base, client, code := mirrorClient(e, orElse(*confPath, agent.ConfigPath()))
+		if code != ExitOK {
+			return code
+		}
+		opts.BaseURL, opts.Client = base, client
+	}
+	got, err := components.Fetch(context.Background(), want, opts)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary components fetch: %v\n", err)
 		// A digest mismatch is not a network problem and must not read like
@@ -359,11 +375,33 @@ func cmdComponentsFetch(e env, args []string) int {
 	return ExitOK
 }
 
-// mirrorURL turns a control-plane base URL into the dist path a node fetches
-// from. Empty stays empty, which means fetch from upstream.
-func mirrorURL(server string) string {
-	if server == "" {
-		return ""
+// mirrorClient builds the pinned, certificate-presenting client a node uses to
+// reach its control plane's cache.
+//
+// Everything it needs is already in agent.toml, which is why --mirror takes no
+// URL: a node fetches from *its* control plane, and one it had to be told about
+// separately would be one nobody pinned.
+func mirrorClient(e env, confPath string) (string, *http.Client, int) {
+	conf, err := agent.LoadConfig(confPath)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary components fetch: %v\n", err)
+		if os.IsNotExist(err) {
+			fmt.Fprintf(e.stderr, "  --mirror needs an enrolled node; run `nodary node enroll` first\n")
+		}
+		return "", nil, exitFor(err)
 	}
-	return strings.TrimRight(server, "/") + api.Prefix + "/agent/dist"
+	pair, err := tls.LoadX509KeyPair(conf.Certificate, conf.Key)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary components fetch: loading this node's certificate: %v\n", err)
+		return "", nil, ExitFailure
+	}
+	client, err := agent.Client(conf.CAFingerprint, &pair)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary components fetch: %v\n", err)
+		return "", nil, ExitFailure
+	}
+	// Longer than the agent's own 90-second budget: a component is tens of
+	// megabytes and a long-poll is a few hundred bytes.
+	client.Timeout = 30 * time.Minute
+	return strings.TrimRight(conf.Server, "/") + api.Prefix + "/agent/dist", client, ExitOK
 }
