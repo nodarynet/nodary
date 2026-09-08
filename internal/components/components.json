@@ -27,6 +27,7 @@
       "version": "2.3.4",
       "kind": "archive",
       "roles": [
+        "server",
         "node"
       ],
       "group": "runtime",
@@ -39,7 +40,8 @@
           "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-arm64.tar.gz",
           "sha256": "a985fbb7e18fc0362d31a055338f5d7b0e087a3e27f14c70d1c5965399a29f95"
         }
-      }
+      },
+      "notes": "The control plane runs LiteLLM as a container (00 \u00a72, 00 \u00a77), so the runtime is not a node-only concern."
     },
     {
       "name": "dcgm-exporter",
@@ -114,6 +116,7 @@
       "version": "2.3.5",
       "kind": "archive",
       "roles": [
+        "server",
         "node"
       ],
       "group": "runtime",
@@ -126,7 +129,8 @@
           "url": "https://github.com/containerd/nerdctl/releases/download/v2.3.5/nerdctl-2.3.5-linux-arm64.tar.gz",
           "sha256": "76ced9bd0d03f6140f9cf7b927958b654cb8d5ecd3c58af585d096c8bdf9d6c2"
         }
-      }
+      },
+      "notes": "The control plane runs LiteLLM as a container (00 \u00a72, 00 \u00a77), so the runtime is not a node-only concern."
     },
     {
       "name": "prometheus",
@@ -150,6 +154,7 @@
       "version": "1.5.1",
       "kind": "binary",
       "roles": [
+        "server",
         "node"
       ],
       "group": "runtime",
@@ -162,7 +167,8 @@
           "url": "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc.arm64",
           "sha256": "ca70e7dbd6616ca782a59b5d3ac86909123fdaa9fa3f89dcf29051c70eee7ce9"
         }
-      }
+      },
+      "notes": "The control plane runs LiteLLM as a container (00 \u00a72, 00 \u00a77), so the runtime is not a node-only concern."
     },
     {
       "name": "sglang",

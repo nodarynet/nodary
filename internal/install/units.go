@@ -219,13 +219,54 @@ OOMScoreAdjust=-999
 WantedBy=multi-user.target
 `
 
+// litellmUnit runs the OpenAI-compatible data plane.
+//
+// [00 §7](../specs/00-overview.md#7-why-litellm-stays): nodary owns identity,
+// quota, metering and audit; LiteLLM owns OpenAI compatibility, routing,
+// retries and fallbacks. It runs stateless behind one master key and needs no
+// database, which is why this unit mounts a configuration and nothing else.
+//
+// **`--network host`, and that is not laziness.** A deployment publishes its
+// port on the host's loopback (03 §5, `-p 127.0.0.1:…`), and a container on a
+// bridge cannot reach the host's 127.0.0.1. Sharing the host namespace is what
+// lets the data plane reach the models; it binds 127.0.0.1:4000 itself, so
+// nothing it serves is reachable off-box either.
+//
+// The image comes from an environment file rather than being written into the
+// unit, for the reason a deployment's image does: an upgrade rewrites one value
+// instead of rewriting a unit systemd has to be told about.
+const litellmUnit = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=LiteLLM, the OpenAI-compatible data plane for nodary
+After=containerd.service
+Requires=containerd.service
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/nodary/litellm.env
+ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-litellm
+ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-litellm     --network host     -v /etc/nodary/litellm.yaml:/etc/litellm/config.yaml:ro     ${NODARY_LITELLM_IMAGE}     --config /etc/litellm/config.yaml --host 127.0.0.1 --port 4000
+ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-litellm
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+`
+
 // Units are what an install writes, by role.
 func Units(role string) map[string]string {
 	switch role {
 	case "server":
 		return map[string]string{
+			// containerd here too: the control plane runs LiteLLM as a
+			// container, so the runtime is not a node-only concern. Its unit is
+			// upstream's, placed by nodary, because the release tarball ships
+			// none — see containerdUnit.
+			"containerd.service":     containerdUnit,
 			"nodary-server.service":  serverUnit,
 			"nodary-gateway.service": gatewayUnit,
+			"nodary-litellm.service": litellmUnit,
 		}
 	case "node":
 		return map[string]string{

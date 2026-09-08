@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/gateway"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -215,11 +217,32 @@ func cmdServerInstall(e env, args []string) int {
 	}
 
 	// 3. Resolve the node runtime into the mirror.
+	var fetched []components.Fetched
 	if *offline {
 		report(e, []install.Step{{Name: "components",
 			Detail: "skipped by --offline; nodes will fetch whatever is already in the mirror"}})
 	} else {
-		fetchIntoMirror(e, ctx, filepath.Dir(s.db.Path()))
+		fetched = fetchIntoMirror(e, ctx, filepath.Dir(s.db.Path()))
+	}
+
+	// The control plane runs LiteLLM as a container ([00 §2](../specs/00-overview.md#2-topology),
+	// [00 §7](../specs/00-overview.md#7-why-litellm-stays)), so it needs a
+	// runtime of its own — the manifest gave containerd, nerdctl and runc to
+	// nodes only, which left the control-plane host with no way to run the data
+	// plane its own topology diagram puts on it.
+	//
+	// Placed from what was just fetched, so the mirror and the host cannot hold
+	// different builds of the same pinned digest. Anything already present is
+	// left alone and recorded as found, which is what makes this safe on a
+	// --with-node box where the node half places the same three.
+	if len(fetched) > 0 {
+		record := filepath.Join(dir, components.OwnershipFile)
+		placed, err := install.PlaceComponents(ctx, fetched, o, record, versionString())
+		if err != nil {
+			fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "runtime", err)
+		} else {
+			report(e, placed)
+		}
 	}
 
 	// The units, so `systemctl enable --now nodary-server` works. Written
@@ -234,16 +257,26 @@ func cmdServerInstall(e env, args []string) int {
 	// The gateway's master key. Generated here and never a default: one built
 	// in would be the same key on every install, which is no key at all
 	// (docs/specs/06-gateway.md §1).
-	gwEnv := filepath.Join(dir, "gateway.env")
-	if _, err := os.Stat(gwEnv); os.IsNotExist(err) {
-		master := "sk-nodary-" + randomToken()
-		if err := os.WriteFile(gwEnv, []byte("NODARY_MASTER_KEY="+master+"\n"), 0o640); err != nil {
-			fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
-			return ExitFailure
-		}
-		report(e, []install.Step{{Name: "gateway key", Changed: true, Detail: gwEnv}})
-	} else {
-		report(e, []install.Step{{Name: "gateway key", Detail: gwEnv}})
+	//
+	// Read back when it already exists, because the same key has to appear in
+	// two places — the gateway's environment and LiteLLM's configuration — and
+	// a re-run that regenerated it would leave the two disagreeing, which
+	// presents as every inference request failing to authenticate upstream.
+	master, code := ensureGatewayKey(e, dir)
+	if code != ExitOK {
+		return code
+	}
+
+	// The data plane's configuration, and the image that serves it.
+	//
+	// **Render() had no caller.** It has been able to produce this file since
+	// R3-16 asserted the logging settings inside it, and nothing ever wrote one
+	// — so LiteLLM was configured in principle and absent in practice, which is
+	// the other half of why no model could be served. An empty `model_list` is
+	// the ordinary state of a fresh control plane and Render says so; routes
+	// fill it in as deployments become ready.
+	if code := writeLiteLLM(e, dir, master); code != ExitOK {
+		return code
 	}
 
 	// Last: hand everything just written to the account the units run as. The
@@ -305,7 +338,12 @@ func cmdServerInstall(e env, args []string) int {
 	// in 01 §4's printed position: the control plane opens the same database,
 	// and there is no reason to have two writers on it while the install is
 	// still minting credentials into it.
-	for _, unit := range []string{"nodary-server.service"} {
+	// containerd before the data plane, and the data plane before the control
+	// plane: nodary-litellm.service Requires=containerd.service, and the
+	// gateway proxies to LiteLLM. systemd would order these itself; starting
+	// them in this order means a failure is reported against the thing that
+	// actually failed rather than against whatever depended on it.
+	for _, unit := range []string{"containerd.service", "nodary-litellm.service", "nodary-server.service"} {
 		step, err := install.Start(ctx, unit, o)
 		if err != nil {
 			// Not fatal. Everything is written and correct; what failed is the
@@ -587,20 +625,20 @@ func randomToken() string {
 // The platform is this host's. A control plane serving nodes of another
 // architecture needs `components fetch --platform` as well, which is what that
 // verb is for.
-func fetchIntoMirror(e env, ctx context.Context, dataDir string) {
+func fetchIntoMirror(e env, ctx context.Context, dataDir string) []components.Fetched {
 	m, ok := loadManifest(e)
 	if !ok {
-		return
+		return nil
 	}
 	plat := resolvePlatform("host")
 	want, err := mirrorComponents(m, plat)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
-		return
+		return nil
 	}
 	if len(want) == 0 {
 		report(e, []install.Step{{Name: "components", Detail: "nothing to resolve for " + plat}})
-		return
+		return nil
 	}
 
 	cache := filepath.Join(dataDir, "dist")
@@ -616,7 +654,7 @@ func fetchIntoMirror(e env, ctx context.Context, dataDir string) {
 		fmt.Fprintf(e.stdout, "%s %-18s nodes cannot bootstrap until this succeeds; "+
 			"re-run the install or `nodary components fetch --role node`\n",
 			mark(preflight.LevelWarn), "")
-		return
+		return nil
 	}
 	// Downloaded and already-correct are reported apart, because that is the
 	// only way an operator can tell a re-run from a first run — the same reason
@@ -632,6 +670,7 @@ func fetchIntoMirror(e env, ctx context.Context, dataDir string) {
 		detail += " (all present and verified)"
 	}
 	report(e, []install.Step{{Name: "components", Changed: downloaded > 0, Detail: detail}})
+	return fetched
 }
 
 // mirrorComponents is what the mirror must hold, separated from fetching it so
@@ -660,4 +699,101 @@ func mirrorComponents(m *components.Manifest, plat string) ([]components.Compone
 		want = append(want, c)
 	}
 	return want, nil
+}
+
+// ensureGatewayKey returns the master key, creating it on a first install.
+func ensureGatewayKey(e env, dir string) (string, int) {
+	path := filepath.Join(dir, "gateway.env")
+	if body, err := os.ReadFile(path); err == nil {
+		key := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(body)), "NODARY_MASTER_KEY="))
+		if key == "" {
+			fmt.Fprintf(e.stderr, "nodary server install: %s holds no NODARY_MASTER_KEY\n", path)
+			return "", ExitFailure
+		}
+		report(e, []install.Step{{Name: "gateway key", Detail: path}})
+		return key, ExitOK
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return "", ExitFailure
+	}
+
+	key := "sk-nodary-" + randomToken()
+	if err := os.WriteFile(path, []byte("NODARY_MASTER_KEY="+key+"\n"), 0o640); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return "", ExitFailure
+	}
+	report(e, []install.Step{{Name: "gateway key", Changed: true, Detail: path}})
+	return key, ExitOK
+}
+
+// writeLiteLLM writes the data plane's configuration and pins the image that
+// reads it.
+//
+// The configuration is checked with the gateway's own assertion before it is
+// written, not after. docs/plans/pivot-cmmc.md makes LiteLLM a compliance
+// surface: inside a CUI boundary a configuration that failed to pin request
+// logging off is an incident, and one that reached the disk would be in force
+// the moment systemd started the unit.
+func writeLiteLLM(e env, dir, master string) int {
+	body := gateway.LiteLLMConfig{MasterKey: master}.Render()
+	if err := gateway.AssertLoggingOff(body); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+	// 0640: it holds the master key in clear, which is the one credential
+	// LiteLLM accepts.
+	conf := filepath.Join(dir, "litellm.yaml")
+	existing, _ := os.ReadFile(conf)
+	if !bytes.Equal(existing, body) {
+		if err := os.WriteFile(conf, body, 0o640); err != nil {
+			fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+			return ExitFailure
+		}
+	}
+	report(e, []install.Step{{Name: "litellm config",
+		Changed: !bytes.Equal(existing, body), Detail: conf}})
+
+	m, ok := loadManifest(e)
+	if !ok {
+		return ExitFailure
+	}
+	image, err := imageFor(m, "litellm", resolvePlatform("host"))
+	if err != nil {
+		// Not fatal: everything else is installed and correct, and the unit
+		// will refuse to start with a message naming the missing value rather
+		// than running an unpinned image.
+		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "litellm image", err)
+		return ExitOK
+	}
+	envPath := filepath.Join(dir, "litellm.env")
+	prior, _ := os.ReadFile(envPath)
+	if err := os.WriteFile(envPath, []byte("NODARY_LITELLM_IMAGE="+image+"\n"), 0o644); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+	report(e, []install.Step{{Name: "litellm image",
+		Changed: strings.TrimSpace(string(prior)) != "NODARY_LITELLM_IMAGE="+image, Detail: image}})
+	return ExitOK
+}
+
+// imageFor resolves a component's pinned image reference for a platform.
+//
+// By digest, which is what the manifest holds: a tag is a name somebody can
+// move, and the whole point of pinning is that the bytes are the same ones the
+// manifest was written against.
+func imageFor(m *components.Manifest, name, platform string) (string, error) {
+	for _, c := range m.Components {
+		if c.Name != name {
+			continue
+		}
+		art, ok := c.Platforms[platform]
+		if !ok {
+			return "", fmt.Errorf("the manifest pins no %s for %s", name, platform)
+		}
+		if art.Image == "" {
+			return "", fmt.Errorf("the manifest's %s entry for %s names no image", name, platform)
+		}
+		return art.Image, nil
+	}
+	return "", fmt.Errorf("the manifest has no %s component", name)
 }

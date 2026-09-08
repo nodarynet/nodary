@@ -327,7 +327,36 @@ else
   fi
 fi
 
-say "13. R5-28 — can a container actually see the GPU?"
+say "13. The data plane is running"
+# LiteLLM is what the gateway proxies to (00 §7). Nothing ran it until R5-29,
+# so a completion could not have been served whatever else worked.
+if systemctl is-active --quiet nodary-litellm.service 2>/dev/null; then
+  ok "nodary-litellm is active"
+  if curl -fsS --max-time 5 http://127.0.0.1:4000/health/liveliness >/dev/null 2>&1 ||
+     curl -fsS --max-time 5 http://127.0.0.1:4000/health/readiness >/dev/null 2>&1; then
+    ok "it answers on 127.0.0.1:4000"
+  else
+    bad "nothing answers on 127.0.0.1:4000, so the gateway has no upstream"
+    journalctl -u nodary-litellm.service -n 10 --no-pager | sed 's/^/    /'
+  fi
+else
+  bad "nodary-litellm did not start"
+  journalctl -u nodary-litellm.service -n 15 --no-pager | sed 's/^/    /'
+fi
+# The configuration is a compliance surface: pivot §3 makes "LiteLLM began
+# writing request bodies somewhere" an incident rather than a nuisance.
+if [ -f /etc/nodary/litellm.yaml ]; then
+  miss=""
+  for k in turn_off_message_logging store_prompts_in_spend_logs disable_spend_logs disable_error_logs; do
+    grep -q "$k" /etc/nodary/litellm.yaml || miss="$miss $k"
+  done
+  if [ -z "$miss" ]; then ok "the configuration pins request logging off"
+  else bad "the configuration omits:$miss"; fi
+else
+  bad "/etc/nodary/litellm.yaml was not written"
+fi
+
+say "14. R5-28 — can a container actually see the GPU?"
 # The question nothing else answers, and the one that decides whether this host
 # can serve a model at all. `nodary-model@.service` runs `nerdctl run --gpus`,
 # and nerdctl 2.x resolves that through the NVIDIA Container Toolkit's CDI spec.
@@ -356,7 +385,7 @@ else
   fi
 fi
 
-say "14. doctor, as the node"
+say "15. doctor, as the node"
 "$BIN" doctor 2>&1 | sed 's/^/  /'
 
 # --- summary ------------------------------------------------------------------
