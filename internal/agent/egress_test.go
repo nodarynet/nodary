@@ -153,11 +153,12 @@ func TestTheIsolatedNetworkConfigurationDeniesWhatItMust(t *testing.T) {
 	var conf struct {
 		Name    string `json:"name"`
 		Plugins []struct {
-			Type      string          `json:"type"`
-			IsGateway *bool           `json:"isGateway"`
-			IPMasq    *bool           `json:"ipMasq"`
-			DNS       *map[string]any `json:"dns"`
-			IPAM      struct {
+			Type             string          `json:"type"`
+			IsDefaultGateway *bool           `json:"isDefaultGateway"`
+			IPMasq           *bool           `json:"ipMasq"`
+			DNS              *map[string]any `json:"dns"`
+			SetMarkChain     string          `json:"externalSetMarkChain"`
+			IPAM             struct {
 				Routes []any `json:"routes"`
 			} `json:"ipam"`
 		} `json:"plugins"`
@@ -173,8 +174,15 @@ func TestTheIsolatedNetworkConfigurationDeniesWhatItMust(t *testing.T) {
 	if bridge.Type != "bridge" {
 		t.Fatalf("first plugin = %q, want bridge", bridge.Type)
 	}
-	if bridge.IsGateway == nil || *bridge.IsGateway {
-		t.Error("isGateway is not false; the container would get a default route")
+	// `isDefaultGateway`, not `isGateway`. This assertion used to name the
+	// second, on the reasoning that it "would give the container a default
+	// route" — it does not. `isGateway` puts an address on the *bridge*, which
+	// is what gives the host a route into the subnet; `isDefaultGateway` is what
+	// installs a default route in the container. Asserting the wrong one held
+	// the configuration at a setting where portmap's DNAT pointed at an address
+	// the host could not reach, so every published port was installed and dead.
+	if bridge.IsDefaultGateway == nil || *bridge.IsDefaultGateway {
+		t.Error("isDefaultGateway is not false; the container would get a default route")
 	}
 	if bridge.IPMasq == nil || *bridge.IPMasq {
 		t.Error("ipMasq is not false; a route added by hand inside the container would reach out")
@@ -199,6 +207,16 @@ func TestTheIsolatedNetworkConfigurationDeniesWhatItMust(t *testing.T) {
 	}
 	if !hasPortmap {
 		t.Error("no portmap plugin: the gateway could not reach a deployment at all")
+	}
+	// And portmap must create its own mark chain. Pointed at `KUBE-MARK-MASQ`,
+	// which only kube-proxy creates, the whole attach fails on any host that is
+	// not a Kubernetes node — measured, as a container that started and was torn
+	// down with the chain named in the error.
+	for _, p := range conf.Plugins {
+		if p.Type == "portmap" && p.SetMarkChain != "" {
+			t.Errorf("portmap defers to the chain %q; on a host that does not create it, "+
+				"no deployment can publish a port", p.SetMarkChain)
+		}
 	}
 }
 

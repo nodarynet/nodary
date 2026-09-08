@@ -260,8 +260,12 @@ else
   # else, which is how a missing iptables read as a registry problem.
   if ! PULL=$(nerdctl pull --quiet alpine:3 2>&1); then
     skip "no test image, so this host cannot prove the row: $(printf '%s' "$PULL" | tail -1)"
+  # busybox httpd, not `sleep`: the ingress half of this row is whether the
+  # gateway could actually reach a model, and nothing answering on port 80
+  # cannot tell a working port mapping from a broken one.
   elif RUNERR=$(nerdctl run -d --name nodary-verify --network nodary-isolated \
-       -p 127.0.0.1:19099:80 alpine:3 sleep 600 2>&1); then
+       -p 127.0.0.1:19099:80 alpine:3 \
+       sh -c 'printf nodary > /tmp/index.html; httpd -f -p 80 -h /tmp' 2>&1); then
     ok "a container started on nodary-isolated"
     PID=$(nerdctl inspect --format '{{.State.Pid}}' nodary-verify 2>/dev/null)
     if [ -n "$PID" ] && [ "$PID" != "0" ]; then
@@ -272,13 +276,20 @@ else
       else
         bad "NOT ISOLATED — see the probe output above"
       fi
-      # And the other half: the published port must still be listening.
-      # docs/spike-fips-and-manifest.md found a configuration that passed the
-      # isolation check while being silently unreachable.
-      if ss -ltn 2>/dev/null | grep -q '127.0.0.1:19099'; then
-        ok "the published port is listening on 127.0.0.1 (ingress survives)"
+      # And the other half, asked by connecting rather than by looking. A
+      # published port under CNI is an iptables DNAT rule and not a listening
+      # socket, so `ss -ltn` shows nothing here even when it works — and it
+      # shows nothing when the DNAT points at an address the host has no route
+      # to, which is the silently-unreachable configuration R4-26 exists to
+      # catch. Only a request can tell those apart.
+      sleep 1
+      if ! command -v curl >/dev/null 2>&1; then
+        skip "curl is not installed, so ingress could not be proven"
+      elif curl -fsS --max-time 5 http://127.0.0.1:19099/ >/dev/null 2>&1; then
+        ok "the published port answers on 127.0.0.1 (ingress survives)"
       else
-        bad "the published port is NOT listening — isolation broke ingress, which is the trap R4-26 exists to catch"
+        bad "the published port does not answer — isolation broke ingress, the trap R4-26 exists to catch"
+        nerdctl logs nodary-verify 2>&1 | tail -3 | sed 's/^/    /'
       fi
     else
       bad "could not find the container's pid"

@@ -28,8 +28,8 @@ const IsolatedConfName = "10-nodary-isolated.conflist"
 //
 // Three properties, and each is doing work:
 //
-//   - `isGateway: false` and no `routes` entry — the container gets an address
-//     on the bridge and **no default route**. This is the control.
+//   - no `routes` entry and `isDefaultGateway: false` — the container gets an
+//     address on the bridge and **no default route**. This is the control.
 //   - `ipMasq: false` — nothing NATs this subnet out, so even a route added by
 //     hand inside the container reaches nowhere.
 //   - an empty `dns` — the container's resolv.conf names no resolver.
@@ -48,9 +48,25 @@ func isolatedConf() map[string]any {
 		"name":       api.IsolatedNetwork,
 		"plugins": []any{
 			map[string]any{
-				"type":             "bridge",
-				"bridge":           "nodary0",
-				"isGateway":        false,
+				"type":   "bridge",
+				"bridge": "nodary0",
+				// The bridge holds an address, so the host has a route into the
+				// subnet. **Without one, portmap's DNAT rewrites the destination
+				// to an address the host cannot reach**, and the published port
+				// is installed and silently dead — which is the exact trap this
+				// network exists to avoid, arrived at from the other direction.
+				//
+				// It does not weaken the control. `isDefaultGateway` stays false
+				// and no route is listed, so the container can address the host
+				// on its own subnet and nothing beyond it. That reachability is
+				// inherent: the gateway has to reach the model.
+				//
+				// It is also what the two mitigations below were always for. The
+				// bridge plugin turns on IPv4 forwarding when it holds a gateway
+				// address, so EnsureIsolatedNetwork turns forwarding off for this
+				// interface and drops forwarded traffic from the subnet in
+				// nftables. With `isGateway: false` those two guarded nothing.
+				"isGateway":        true,
 				"isDefaultGateway": false,
 				"forceAddress":     false,
 				"ipMasq":           false,
@@ -68,10 +84,21 @@ func isolatedConf() map[string]any {
 			// gateway able to reach a model that can reach nothing, and it is
 			// the half that docker's `--internal` silently discards — the trap
 			// the spike found and R4-26 exists to assert against.
+			//
+			// No `externalSetMarkChain`. It names a chain for portmap to jump to
+			// instead of creating its own, and `KUBE-MARK-MASQ` — which this
+			// carried, copied from a Kubernetes example — is kube-proxy's. On a
+			// host that is not a Kubernetes node it does not exist, and portmap
+			// fails the whole attach:
+			//
+			//	plugin type="portmap" failed (add): unable to setup DNAT:
+			//	Chain 'KUBE-MARK-MASQ' does not exist
+			//
+			// Omitted, portmap creates CNI-HOSTPORT-SETMARK itself, which is
+			// what a standalone host needs.
 			map[string]any{
-				"type":                 "portmap",
-				"capabilities":         map[string]any{"portMappings": true},
-				"externalSetMarkChain": "KUBE-MARK-MASQ",
+				"type":         "portmap",
+				"capabilities": map[string]any{"portMappings": true},
 			},
 		},
 	}
