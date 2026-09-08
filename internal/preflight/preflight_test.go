@@ -205,3 +205,45 @@ func listenSomewhere(t *testing.T) int {
 	t.Cleanup(func() { ln.Close() })
 	return ln.Addr().(*net.TCPAddr).Port
 }
+
+// TestANodeWithoutIPTablesIsRefused is the case a privileged run found.
+//
+// The isolated network's portmap plugin is pure iptables, so on a host without
+// it every deployment fails at CNI attach — the container is created and torn
+// down, and containerd's journal shows only a shim that disconnected. Preflight
+// is where that has to be said, because it is the only place that says it
+// before anything is installed.
+//
+// nft is the opposite call: its rule is defence in depth, so its absence warns.
+func TestANodeWithoutIPTablesIsRefusedAndWithoutNFTIsWarned(t *testing.T) {
+	// An empty PATH and a HOME with nothing in it: Resolve still walks toolDirs,
+	// so this asserts against the real host. Skipped where iptables exists,
+	// because then there is nothing to observe.
+	if found(Resolve("iptables")) {
+		t.Skip("this host has iptables; the refusal cannot be observed here")
+	}
+	if c := checkIPTables(Options{Role: RoleNode}); c.Level != LevelFail {
+		t.Errorf("iptables missing: level = %q, want %q", c.Level, LevelFail)
+	}
+	if c := checkIPTables(Options{Role: RoleServer}); c.Level != LevelSkip {
+		t.Errorf("a control plane runs no containers: level = %q, want %q", c.Level, LevelSkip)
+	}
+	if !found(Resolve("nft")) {
+		c := checkNFT(Options{Role: RoleNode})
+		if c.Level != LevelWarn {
+			t.Errorf("nft missing: level = %q, want %q — the missing route is the control", c.Level, LevelWarn)
+		}
+	}
+}
+
+// TestResolveFindsWhatIsThere pins found() to Resolve's contract: a bare name
+// means nothing was located, and treating that as a hit would make every
+// tool check pass on every host.
+func TestResolveFindsWhatIsThere(t *testing.T) {
+	if !found(Resolve("sh")) {
+		t.Error("sh was not found, so found() disagrees with Resolve")
+	}
+	if found(Resolve("nodary-no-such-tool")) {
+		t.Error("a tool that does not exist was reported as found")
+	}
+}

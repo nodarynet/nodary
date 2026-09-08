@@ -254,8 +254,14 @@ elif ! systemctl is-active --quiet containerd.service 2>/dev/null && ! pgrep -x 
   skip "containerd is not running; see step 8"
 else
   nerdctl rm -f nodary-verify >/dev/null 2>&1
-  if nerdctl run -d --name nodary-verify --network nodary-isolated \
-       -p 127.0.0.1:19099:80 alpine:3 sleep 600 >/dev/null 2>&1; then
+  # The pull is separate and its output is kept. "cannot fetch an image" and
+  # "cannot attach to nodary-isolated" are unrelated failures, and inside a
+  # single `run` they looked identical — a truncated progress bar and nothing
+  # else, which is how a missing iptables read as a registry problem.
+  if ! PULL=$(nerdctl pull --quiet alpine:3 2>&1); then
+    skip "no test image, so this host cannot prove the row: $(printf '%s' "$PULL" | tail -1)"
+  elif RUNERR=$(nerdctl run -d --name nodary-verify --network nodary-isolated \
+       -p 127.0.0.1:19099:80 alpine:3 sleep 600 2>&1); then
     ok "a container started on nodary-isolated"
     PID=$(nerdctl inspect --format '{{.State.Pid}}' nodary-verify 2>/dev/null)
     if [ -n "$PID" ] && [ "$PID" != "0" ]; then
@@ -280,7 +286,15 @@ else
     nerdctl rm -f nodary-verify >/dev/null 2>&1
   else
     bad "could not start a container on nodary-isolated"
-    nerdctl run --rm --network nodary-isolated alpine:3 true 2>&1 | sed 's/^/    /' | head -5
+    printf '%s\n' "$RUNERR" | tail -3 | sed 's/^/    /'
+    # Which half? Without a published port the portmap plugin is never invoked,
+    # and portmap is pure iptables. A host with no iptables fails here and
+    # nowhere else, which is what made this row so hard to read.
+    if nerdctl run --rm --network nodary-isolated alpine:3 true >/dev/null 2>&1; then
+      bad "the network attaches; it is the published port that fails (portmap needs iptables)"
+    else
+      bad "the network itself does not attach; the port mapping is not the cause"
+    fi
   fi
 fi
 

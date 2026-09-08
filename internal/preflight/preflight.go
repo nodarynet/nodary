@@ -160,12 +160,14 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkDisk("disk: models", o.ModelsDir, o.MinModelsGB))
 	add(checkDisk("disk: components", o.DataDir, o.MinDataGB))
 	add(checkPorts(o))
+	add(checkIPTables(o))
 
 	// Warnings. 01 §11: these do not block.
 	add(checkSwap())
 	add(checkLSM(ctx, o))
 	add(checkRAMPerGPU(ctx, o))
 	add(checkEncryptedRoot())
+	add(checkNFT(o))
 
 	sort.SliceStable(r.Checks, func(i, j int) bool {
 		return levelRank(r.Checks[i].Level) < levelRank(r.Checks[j].Level)
@@ -603,4 +605,66 @@ func inUse(port int) bool {
 	}
 	ln.Close()
 	return false
+}
+
+// found reports whether Resolve located a real executable.
+//
+// Resolve returns the bare name when it finds nothing, so that a caller who
+// goes on to exec it gets the ordinary "not found in $PATH". Here the question
+// is the opposite one, and an absolute path is the answer.
+func found(path string) bool { return strings.HasPrefix(path, "/") }
+
+// checkIPTables is a node-role hard failure, and it took a privileged run on a
+// real host to find it.
+//
+// The isolated network's second plugin is `portmap`, which is what puts a
+// deployment's port on 127.0.0.1 (internal/agent/network.go). portmap is
+// implemented entirely in terms of the `iptables` command. On a host without
+// it, CNI attach fails *after* the container is created, so the container is
+// torn down immediately and the only trace in containerd's journal is a shim
+// that connected and disconnected 300ms later — a symptom that names nothing.
+//
+// So a GPU host with no iptables can run no deployment at all, and until this
+// check nothing said so. Measured on a WSL2 host that has neither iptables nor
+// nft, where `nerdctl run --network nodary-isolated -p …` failed exactly this
+// way.
+func checkIPTables(o Options) Check {
+	c := Check{Name: "iptables"}
+	if o.Role == RoleServer {
+		c.Level, c.Detail = LevelSkip, "not required for a control plane"
+		return c
+	}
+	if path := Resolve("iptables"); found(path) {
+		c.Level, c.Detail = LevelOK, path
+		return c
+	}
+	c.Level = LevelFail
+	c.Detail = "not found; the CNI portmap plugin is pure iptables, " +
+		"so no deployment could publish its port. `apt install iptables`"
+	return c
+}
+
+// checkNFT is a warning, because what it enables is defence in depth.
+//
+// nodary adds one nftables rule that drops forwarded traffic from the isolated
+// subnet. The control that actually isolates a deployment is the absence of a
+// route and a gateway, and that holds whether or not the rule is there — which
+// is why EnsureIsolatedNetwork writes the CNI configuration before it reaches
+// for nft, and why a host without nft still gets an isolated network.
+//
+// Worth saying, not worth blocking.
+func checkNFT(o Options) Check {
+	c := Check{Name: "nftables"}
+	if o.Role == RoleServer {
+		c.Level, c.Detail = LevelSkip, "not required for a control plane"
+		return c
+	}
+	if path := Resolve("nft"); found(path) {
+		c.Level, c.Detail = LevelOK, path
+		return c
+	}
+	c.Level = LevelWarn
+	c.Detail = "not found; the isolated network's drop rule cannot be added. " +
+		"The missing route still isolates a deployment. `apt install nftables`"
+	return c
 }
