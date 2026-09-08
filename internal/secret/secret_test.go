@@ -559,3 +559,58 @@ func TestOpenRejectsShortAndUnknownFormats(t *testing.T) {
 		})
 	}
 }
+
+// TestASystemdCredentialIsAcceptedAsSystemdPlacesIt is the case a privileged
+// run found.
+//
+// nodary-server.service loads the sealing key with LoadCredential= so that
+// 01 §12's 0400 root:root can stand while the unit runs unprivileged. In a
+// system unit with User= systemd places the copy at **0440** — root-owned,
+// group-readable by the service account — and the 0400-or-nothing check refused
+// it, so the control plane 500'd on the first request that needed a secret:
+//
+//	refusing to replace the existing key at
+//	/run/credentials/nodary-server.service/secret.key: ... is 0440, want 0400
+//
+// The check that has to survive is the one that would be a leak.
+func TestASystemdCredentialIsAcceptedAsSystemdPlacesIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.key")
+	if _, err := Create(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// As systemd leaves it for a system unit with User=.
+	if err := os.Chmod(path, 0o440); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); !errors.Is(err, ErrBadPermissions) {
+		t.Fatalf("outside a credentials directory 0440 must still be refused, got %v", err)
+	}
+
+	t.Setenv("CREDENTIALS_DIRECTORY", dir)
+	if _, err := Load(path); err != nil {
+		t.Errorf("a credential systemd placed was refused: %v", err)
+	}
+
+	// And the half that still holds: readable by anyone on the host is a leak
+	// wherever the file sits.
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); !errors.Is(err, ErrBadPermissions) {
+		t.Errorf("a world-readable credential was accepted: %v", err)
+	}
+
+	// A key beside the credentials directory is not a credential.
+	other := filepath.Join(t.TempDir(), "secret.key")
+	if _, err := Create(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(other, 0o440); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(other); !errors.Is(err, ErrBadPermissions) {
+		t.Errorf("CREDENTIALS_DIRECTORY relaxed the check for a file outside it: %v", err)
+	}
+}

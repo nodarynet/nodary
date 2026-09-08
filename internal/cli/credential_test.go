@@ -15,9 +15,12 @@ import (
 // root.
 //
 // Measured on systemd 255: LoadCredential= places the file at
-// $CREDENTIALS_DIRECTORY/<id>, mode 0400, owned by the unit's User=. That
-// satisfies both of internal/secret's checks — no group or other bits, and
-// owned by the reader — where the file in /etc satisfies neither.
+// $CREDENTIALS_DIRECTORY/<id>. In a *system* unit with User= it is 0440,
+// root-owned and group-readable by the service account; a user unit shows 0400
+// only because there the unit's user is already the owner. internal/secret
+// accepts systemd's placement for exactly that reason — see checkAccess, which
+// this test's first version was written against a user-unit measurement and got
+// wrong.
 func TestTheKeyComesFromSystemdsCredentialDirectoryWhenItIsThere(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CREDENTIALS_DIRECTORY", dir)

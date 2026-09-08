@@ -302,11 +302,7 @@ func readKey(path string) (keyMaterial, error) {
 	if !fi.Mode().IsRegular() {
 		return keyMaterial{}, fmt.Errorf("%w: %s is not a regular file", ErrBadPermissions, path)
 	}
-	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
-		return keyMaterial{}, fmt.Errorf("%w: %s is %#o, want %#o",
-			ErrBadPermissions, path, perm, paths.ModeSecretKey)
-	}
-	if err := checkOwner(fi, path); err != nil {
+	if err := checkAccess(fi, path); err != nil {
 		return keyMaterial{}, err
 	}
 
@@ -480,4 +476,54 @@ func (k *Key) Open(kind, id string, ciphertext []byte) ([]byte, error) {
 		return nil, ErrBadCiphertext
 	}
 	return plaintext, nil
+}
+
+// inCredentialDirectory reports whether path is a credential systemd placed.
+//
+// nodary-server.service carries `LoadCredential=secret.key:/etc/nodary/secret.key`
+// so that 01 §12's `0400 root:root` can stand while the unit runs unprivileged:
+// systemd reads the key as root and drops a copy into a ramfs mounted only
+// inside that unit's namespace.
+func inCredentialDirectory(path string) bool {
+	dir := os.Getenv("CREDENTIALS_DIRECTORY")
+	if dir == "" {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	return filepath.Dir(abs) == filepath.Clean(dir)
+}
+
+// checkAccess refuses a key anyone else can read.
+//
+// For a key nodary placed the rule is 01 §12's: 0400, owned by the reader.
+//
+// For one systemd placed, neither the mode nor the owner is nodary's to insist
+// on. **Measured on systemd 255: a system unit with `User=` gets the credential
+// at 0440, root-owned and group-readable by the service account** — a user unit
+// shows 0400 only because there the unit's user is already the owner. Demanding
+// 0400 refused the key the control plane had been handed, which is what a
+// privileged run reported:
+//
+//	refusing to replace the existing key at
+//	/run/credentials/nodary-server.service/secret.key: ... is 0440, want 0400
+//
+// What still holds is the half that would be a leak — nothing readable by
+// "other" — and the rest of the guarantee is the mount rather than the bits: a
+// per-unit ramfs is not visible to any other process on the host.
+func checkAccess(fi os.FileInfo, path string) error {
+	if inCredentialDirectory(path) {
+		if perm := fi.Mode().Perm(); perm&0o007 != 0 {
+			return fmt.Errorf("%w: %s is %#o and readable by anyone on this host",
+				ErrBadPermissions, path, perm)
+		}
+		return nil
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("%w: %s is %#o, want %#o",
+			ErrBadPermissions, path, perm, paths.ModeSecretKey)
+	}
+	return checkOwner(fi, path)
 }
