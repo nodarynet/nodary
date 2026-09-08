@@ -147,6 +147,8 @@ func dispatch(e env, args []string) int {
 		return cmdPolicy(e, args[1:])
 	case "license":
 		return cmdLicense(e, args[1:])
+	case "advisory":
+		return cmdAdvisory(e, args[1:])
 	case "evidence":
 		return cmdEvidence(e, args[1:])
 	case "config":
@@ -205,6 +207,8 @@ Available in this release:
                          apply | show
   evidence             The signed evidence bundle (commercial)
                          export
+  advisory             Published advisories against the digests this build pins
+                         check
   config               Configuration revisions
                          show | list | diff | export | apply | rollback | verify
   server               Control plane lifecycle

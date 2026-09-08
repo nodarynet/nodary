@@ -69,10 +69,18 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 
 ## Flaw remediation
 
-- [ ] **R9-14** The advisory feed format: signed, mapping component digest → advisory → recommended digest · [pivot §2.5](../plans/pivot-cmmc.md#25-the-advisory-feed-is-ours-signed-and-generated-rather-than-curated)
+- [x] **R9-14** The advisory feed format: signed, mapping component digest → advisory → recommended digest · [pivot §2.5](../plans/pivot-cmmc.md#25-the-advisory-feed-is-ours-signed-and-generated-rather-than-curated)
   - *done:* a revision carries an explicit statement of what the feed is — a report of what public sources say about digests we pin — and what it is not, which is a warranty
-- [ ] **R9-15** `nodary advisory check` — feed revisions matched against pinned digests
+  - the statement is **enforced at parse time**: a revision without one does not decode. [ADR 0005 §3](../adr/0005-editions-and-the-advisory-feed.md) requires it *inside every revision, not only in documentation, because the revision is what outlives the sales conversation*, and that is the difference between a requirement and a note somebody remembers
+  - matching is on the **digest**, never the version. A version string is what a project calls a release; a digest is what is on the disk, which is the whole point of [ADR 0007](../adr/0007-independent-component-manifest.md). `sha256:AAAA` and `aaaa` are the same artifact, because treating them as different would report a clean install — the one wrong answer this must never give
+  - an unknown field is **refused, not ignored**: silently dropping a key is how a revision comes to say less than its publisher thinks it does, and the dropped one could be the one that matters
+  - **its own key, not the licence key**, though the mechanism is R9-02's. A licence signs entitlements — low volume, long-lived, a key that can live offline — while a revision is *generated in CI* ([ADR 0005 §3](../adr/0005-editions-and-the-advisory-feed.md)), so its key must be reachable from a pipeline. One key for both would put a CI-accessible secret in the position of also minting licences, and a feed-key rotation would invalidate every licence in the field
+- [x] **R9-15** `nodary advisory check` — feed revisions matched against pinned digests
   - *done:* an empty signed feed produces an honest empty result rather than an error; verification reuses the same trust root as R9-02
+  - it prints **how many digests it checked**, because "nothing found" and "nothing looked at" read identically and only one is good news
+  - **no licence gate.** [ADR 0005 §1](../adr/0005-editions-and-the-advisory-feed.md) puts the mechanism free and the content paid, and possession of a *current* signed revision is itself the entitlement — an old one is worth nothing, which is what a subscription sells. Gating the verb as well would only stop somebody reading content we had already given them, so `internal/advisory` holds no licence check at all
+  - a missing feed and an empty feed are different answers. A site with no subscription is told there is no feed; a revision that found nothing says so and names the revision it read
+  - there is **no unsigned mode**. An attacker who can substitute a feed can tell a site its runtime is fine, which is a more useful lie than any single forged advisory
   - *deps:* R9-14
 - [ ] **R9-16** A known advisory with no decision after a configured interval becomes a POA&M item with a clock
   - *done:* inaction is visible. The property that nothing changes without an explicit human act is not weakened · [pivot §6](../plans/pivot-cmmc.md#6-flaw-remediation--spec-14-adr-0007)

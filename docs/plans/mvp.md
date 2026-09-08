@@ -226,4 +226,4 @@ owes, and does not pre-empt them:
 - [ ] S5 — R4 thin
 - [ ] S6 — R3 thin
 - [ ] S7 — R5 thin
-- [ ] S8 — the advisory feed's format and an empty signed revision
+- [x] S8 — the advisory feed's format and an empty signed revision
