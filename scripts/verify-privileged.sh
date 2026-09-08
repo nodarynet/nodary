@@ -327,7 +327,36 @@ else
   fi
 fi
 
-say "13. doctor, as the node"
+say "13. R5-28 — can a container actually see the GPU?"
+# The question nothing else answers, and the one that decides whether this host
+# can serve a model at all. `nodary-model@.service` runs `nerdctl run --gpus`,
+# and nerdctl 2.x resolves that through the NVIDIA Container Toolkit's CDI spec.
+# Everything upstream of this can pass while a deployment still starts a
+# container with no device and fails as "cannot find CUDA".
+if ! command -v nerdctl >/dev/null 2>&1; then
+  skip "nerdctl is not available"
+elif ! command -v nvidia-ctk >/dev/null 2>&1 && ! command -v nvidia-container-cli >/dev/null 2>&1; then
+  skip "the NVIDIA Container Toolkit is not installed; preflight refuses a node without it"
+elif ! command -v nvidia-smi >/dev/null 2>&1 && [ ! -x /usr/lib/wsl/lib/nvidia-smi ]; then
+  skip "no nvidia-smi on this host, so there is no GPU to pass through"
+else
+  nerdctl rm -f nodary-gpu >/dev/null 2>&1
+  # The driver's own image, matched to the driver already present. `nvidia-smi`
+  # inside the container is the whole assertion: it runs only if the device,
+  # the libraries and the driver all arrived.
+  if GPUERR=$(nerdctl run --rm --name nodary-gpu --gpus all \
+       nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi -L 2>&1); then
+    ok "a container sees the GPU: $(printf '%s' "$GPUERR" | head -1)"
+  else
+    bad "a container cannot see the GPU; no deployment on this host could serve a model"
+    printf '%s\n' "$GPUERR" | tail -4 | sed 's/^/    /'
+    if command -v nvidia-ctk >/dev/null 2>&1 && [ ! -e /etc/cdi/nvidia.yaml ] && [ ! -e /var/run/cdi/nvidia.yaml ]; then
+      bad "no CDI spec exists; nerdctl 2.x needs one: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"
+    fi
+  fi
+fi
+
+say "14. doctor, as the node"
 "$BIN" doctor 2>&1 | sed 's/^/  /'
 
 # --- summary ------------------------------------------------------------------

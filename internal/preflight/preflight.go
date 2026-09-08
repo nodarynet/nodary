@@ -161,6 +161,7 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkDisk("disk: components", o.DataDir, o.MinDataGB))
 	add(checkPorts(o))
 	add(checkIPTables(o))
+	add(checkContainerToolkit(o))
 
 	// Warnings. 01 §11: these do not block.
 	add(checkSwap())
@@ -666,5 +667,48 @@ func checkNFT(o Options) Check {
 	c.Level = LevelWarn
 	c.Detail = "not found; the isolated network's drop rule cannot be added. " +
 		"The missing route still isolates a deployment. `apt install nftables`"
+	return c
+}
+
+// checkContainerToolkit is what lets a container see a GPU at all.
+//
+// `nodary-model@.service` runs `nerdctl run --gpus …`, and nerdctl resolves that
+// through the NVIDIA Container Toolkit — in 2.x by way of a CDI spec that
+// `nvidia-ctk cdi generate` writes. Without the toolkit the flag resolves to
+// nothing and every deployment starts a container with no device, which surfaces
+// as a model server that cannot find CUDA rather than as anything naming the
+// toolkit.
+//
+// **nodary does not install it**, which is the call docs/specs/01-install.md §8
+// already makes for the packet filter. Upstream publishes the toolkit only as
+// distribution packages — the release assets are a tarball *of `.deb`s and
+// `.rpm`s*, not the flat binary archive containerd, runc and nerdctl ship — and
+// one of them is a shared library needing a loader path. Unpacking that by hand
+// would be nodary reimplementing dpkg. It is also coupled to the driver, which
+// 01 §8 already refuses to touch on WSL2 because installing one there breaks the
+// passthrough.
+//
+// So the host provides it, and preflight says so before anything is installed
+// rather than after a deployment has failed for a reason naming something else.
+func checkContainerToolkit(o Options) Check {
+	c := Check{Name: "container toolkit"}
+	if o.Role == RoleServer {
+		c.Level, c.Detail = LevelSkip, "not required for a control plane"
+		return c
+	}
+	if path := Resolve("nvidia-ctk"); found(path) {
+		c.Level, c.Detail = LevelOK, path
+		return c
+	}
+	// The older entry point, for a host carrying libnvidia-container-tools and
+	// not the newer package. Reported ok with the name, because what matters is
+	// whether a GPU can reach a container, not which generation did it.
+	if path := Resolve("nvidia-container-cli"); found(path) {
+		c.Level, c.Detail = LevelOK, path+" (no nvidia-ctk; CDI generation unavailable)"
+		return c
+	}
+	c.Level = LevelFail
+	c.Detail = "not found; `nerdctl --gpus` cannot pass a GPU into a container without the " +
+		"NVIDIA Container Toolkit, and every deployment would start with no device"
 	return c
 }

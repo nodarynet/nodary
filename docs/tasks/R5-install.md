@@ -120,6 +120,12 @@ than reopening a complete [R0](R0-release.md), which is where R0's own follow-up
 - [ ] **R5-26** The FIPS artifact ships through the four existing channels · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* a second artifact, not a second pipeline. This works only because the binary is static and the SQLite driver is `modernc` rather than cgo — BoringCrypto needs cgo and would break the property [R0-16](R0-release.md) asserts in CI
   - *deps:* R5-25
+- [x] **R5-28** The NVIDIA Container Toolkit is the **host's** to provide, and preflight refuses a node without it · [01 §8](../specs/01-install.md#8-platform-support)
+  - *done:* a node with no toolkit is refused before anything is installed, rather than after a deployment has failed for a reason naming something else
+  - **it is not a component nodary fetches**, and 01 §1 and §5 are corrected to stop saying it is. Measured: upstream publishes the toolkit only as distribution packages — the release assets are a tarball *of `.deb`s and `.rpm`s*, not the flat binary archive containerd, runc and nerdctl ship — and one of them is a shared library needing a loader path. Placing it would be nodary reimplementing dpkg
+  - it is also **versioned against the driver**, and [01 §8](../specs/01-install.md#8-platform-support) already establishes that nodary must not touch the driver on WSL2, where installing one breaks the passthrough
+  - this is why no model had ever run. `nodary-model@.service` runs `nerdctl run --gpus …`, nerdctl 2.x resolves that through a CDI spec `nvidia-ctk cdi generate` writes, and without it a deployment starts a container with **no device** — surfacing as a model server that cannot find CUDA, naming neither the toolkit nor the flag
+  - [`scripts/verify-privileged.sh`](../../scripts/verify-privileged.sh) step 13 runs `nvidia-smi` **inside a container**, which is the only assertion that covers the device, the libraries and the driver together
 - [ ] **R5-27** The component manifest becomes separately versioned and separately signed, superseding the binary's embedded copy
   - *done:* the embedded manifest remains a floor and a signed revision supersedes it, verified identically and delivered online or through `nodary bundle create`. Without this a customer's patch timeline is coupled to our release cadence while their assessor holds them to a window we do not control · [pivot §6](../plans/pivot-cmmc.md#adr-0007--the-component-manifest-becomes-an-independent-artifact)
   - *deps:* R5-13

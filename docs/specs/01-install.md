@@ -12,8 +12,14 @@ Three objects, named distinctly. "Bundle" refers to the third and only the third
 | **Offline bundle** | The binary plus components resolved from the manifest | GB, site-dependent |
 
 The binary is the only thing any channel ships. Components — containerd, `nerdctl`, runc, CNI
-plugins, the NVIDIA container toolkit, LiteLLM, Prometheus, Grafana, `dcgm-exporter` — are
-resolved at install time against the embedded manifest, or supplied by a bundle.
+plugins, LiteLLM, Prometheus, Grafana, `dcgm-exporter` — are resolved at install time against
+the embedded manifest, or supplied by a bundle.
+
+**The NVIDIA Container Toolkit is not among them**, though earlier drafts listed it. Upstream
+publishes it only as distribution packages — the release assets are a tarball *of `.deb`s and
+`.rpm`s*, not the flat binary archive the others ship — and one of them is a shared library
+needing a loader path. It is also coupled to the driver, which §8 already refuses to touch on
+WSL2. The host provides it and preflight requires it; see §8.
 
 ```sh
 nodary components list                # what this binary pins, and where it fetches from
@@ -124,7 +130,7 @@ pip install nodary && nodary node install --server … --token … --ca-fingerpr
 ```
 
 1. **Preflight** (§11).
-2. Fetch components from the control plane's mirror — containerd, `nerdctl`, CNI plugins, the NVIDIA container toolkit — digest-verified against the embedded manifest. Skip anything already present at an acceptable version.
+2. Fetch components from the control plane's mirror — containerd, `nerdctl`, CNI plugins, runc — digest-verified against the embedded manifest. Skip anything already present at an acceptable version. The NVIDIA Container Toolkit is **not** fetched; §8 says why, and preflight has already refused the install without it.
 3. Create the `nodary-isolated` CNI network ([03](03-agent.md#5-egress-isolation)).
 4. Enroll ([02](02-enrollment.md)). Obtain a client certificate. This step is also `nodary node enroll` on its own, because a node past certificate expiry must re-enroll ([02 §3](02-enrollment.md#3-certificate-lifecycle)) and that is not a reinstall — the components, the network and the units are all still in place, and only the identity has lapsed.
 5. Write `/etc/nodary/agent.toml`; install and start `nodary-agent` and `dcgm-exporter`.
@@ -240,6 +246,11 @@ anything is installed:
 | :--- | :--- |
 | `iptables` | The CNI `portmap` plugin is implemented entirely in terms of the `iptables` command, and `portmap` is what publishes a deployment's port on `127.0.0.1`. Without it CNI attach fails *after* the container is created, so a deployment is torn down leaving only a shim that connected and disconnected. A hard failure. |
 | `nftables` | Only for the rule that drops forwarded traffic from the isolated subnet. A warning: the absent route and gateway are what isolate a deployment, and they hold either way. |
+| NVIDIA Container Toolkit | `nodary-model@.service` runs `nerdctl run --gpus …`, and nerdctl resolves that through the toolkit — in 2.x by way of a CDI spec `nvidia-ctk cdi generate` writes. Without it the flag resolves to nothing and a deployment starts a container with **no device**, failing as a model server that cannot find CUDA rather than as anything naming the toolkit. A hard failure. |
+
+Shipping the toolkit was considered and rejected for the same reason as `iptables`, plus one
+more: it is versioned against the driver, and §8's WSL2 note already establishes that nodary
+must not touch the driver on the platform where a lot of this capacity lives.
 
 Shipping nodary's own `iptables` was considered and rejected. A second binary beside the
 host's splits `iptables-legacy` from `iptables-nft`, and rules written into a table nothing is
