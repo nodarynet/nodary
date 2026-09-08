@@ -14,14 +14,17 @@ import (
 
 func cmdGateway(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary gateway: expected a subcommand (start)\n")
+		fmt.Fprintf(e.stderr, "nodary gateway: expected a subcommand (start, sync)\n")
 		return ExitUsage
 	}
-	if args[0] != "start" {
-		fmt.Fprintf(e.stderr, "nodary gateway: unknown subcommand %q (want start)\n", args[0])
-		return ExitUsage
+	switch args[0] {
+	case "start":
+		return cmdGatewayStart(e, args[1:])
+	case "sync":
+		return cmdGatewaySync(e, args[1:])
 	}
-	return cmdGatewayStart(e, args[1:])
+	fmt.Fprintf(e.stderr, "nodary gateway: unknown subcommand %q (want start or sync)\n", args[0])
+	return ExitUsage
 }
 
 // cmdGatewayStart serves docs/specs/06-gateway.md's OpenAI surface.

@@ -356,6 +356,16 @@ else
   bad "/etc/nodary/litellm.yaml was not written"
 fi
 
+# And the verb that re-renders it as routes appear. A fresh control plane has
+# none, so this asserts the idempotent path: it reports no change and does not
+# restart a unit for nothing.
+if "$BIN" gateway sync --dry-run >/dev/null 2>&1; then
+  ok "gateway sync reads the routes and agrees with what is on disk"
+else
+  bad "gateway sync failed"
+  "$BIN" gateway sync --dry-run 2>&1 | tail -3 | sed 's/^/    /'
+fi
+
 say "14. R5-28 — can a container actually see the GPU?"
 # The question nothing else answers, and the one that decides whether this host
 # can serve a model at all. `nodary-model@.service` runs `nerdctl run --gpus`,

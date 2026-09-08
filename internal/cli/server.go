@@ -705,7 +705,7 @@ func mirrorComponents(m *components.Manifest, plat string) ([]components.Compone
 func ensureGatewayKey(e env, dir string) (string, int) {
 	path := filepath.Join(dir, "gateway.env")
 	if body, err := os.ReadFile(path); err == nil {
-		key := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(body)), "NODARY_MASTER_KEY="))
+		key := trimEnvValue(string(body), "NODARY_MASTER_KEY")
 		if key == "" {
 			fmt.Fprintf(e.stderr, "nodary server install: %s holds no NODARY_MASTER_KEY\n", path)
 			return "", ExitFailure
@@ -796,4 +796,18 @@ func imageFor(m *components.Manifest, name, platform string) (string, error) {
 		return art.Image, nil
 	}
 	return "", fmt.Errorf("the manifest has no %s component", name)
+}
+
+// trimEnvValue reads one KEY=value out of a systemd environment file.
+//
+// A file rather than a flag because that is how systemd hands a secret to a
+// unit without it appearing in anybody's process list.
+func trimEnvValue(body, key string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, key+"="); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
 }

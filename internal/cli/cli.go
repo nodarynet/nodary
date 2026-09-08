@@ -223,6 +223,7 @@ Available in this release:
                          egress-probe   The three checks, in this namespace
   gateway              The inference API
                          start   Serve the OpenAI surface, metered
+                         sync    Re-render the data plane from current routes
   limits               Rate and budget limits (recorded; not yet enforced)
                          show | set
   usage                Metered requests — counts, never content
