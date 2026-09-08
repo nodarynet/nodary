@@ -143,8 +143,20 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("no --name and no hostname to fall back on: %w", err)
 		}
-		opt.Name = strings.ToLower(host)
+		opt.Name = host
 	}
+	// Canonicalised however the name arrived, not only when it came from the
+	// hostname. A hostname is case-insensitive — `Fractal` and `fractal` are one
+	// host — but a node name becomes a certificate common name, a systemd
+	// instance after `%i`, a container name and a directory, and none of those
+	// agree about case. The control plane stores one form and reads it back out
+	// of the certificate's CN on every authenticated request
+	// (internal/api/agent.go), so the two have to be the same string.
+	//
+	// This used to hang off the default, which meant `--name "$(hostname -s)"`
+	// took the other route and reached the control plane as `Fractal`, where it
+	// was refused — the same host, spelled the way the host spells it.
+	opt.Name = strings.ToLower(strings.TrimSpace(opt.Name))
 	if strings.TrimSpace(opt.Token) == "" {
 		return Result{}, fmt.Errorf("%w: a join token is required; mint one with `nodary token join`", ErrBadConfig)
 	}

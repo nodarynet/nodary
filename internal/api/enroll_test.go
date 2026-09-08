@@ -342,3 +342,47 @@ func TestTheMirrorIsNotAnOpenFileServer(t *testing.T) {
 		}
 	}
 }
+
+// TestAHostnameEnrollsHoweverTheHostSpellsIt is the case a privileged run found.
+//
+// `nodary node install --name "$(hostname -s)"` on a box called `Fractal` was
+// refused: the name is a perfectly good hostname, and hostnames are
+// case-insensitive, but nodeNamePattern is not — deliberately, because the name
+// also becomes a certificate CN, a systemd instance and a directory. The agent
+// canonicalises, and it has to do so for a name given explicitly and not only
+// for one it took from the hostname.
+//
+// The CN is checked alongside the record because internal/api/agent.go reads
+// the node's identity back out of it on every request: a certificate issued for
+// `Fractal` against a node stored as `fractal` would enroll and then never
+// authenticate.
+func TestAHostnameEnrollsHoweverTheHostSpellsIt(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+
+	res, err := agent.Enroll(context.Background(), agent.EnrollOptions{
+		Server: f.srv.URL, Token: f.joinToken(1),
+		CAFingerprint: agent.Fingerprint(f.srv.Certificate().Raw),
+		Name:          "Fractal", Dir: dir,
+		NodeConfig: filepath.Join(dir, "node.toml"),
+	})
+	if err != nil {
+		t.Fatalf("a host called Fractal could not enroll: %v", err)
+	}
+	if res.Node != "fractal" {
+		t.Errorf("enrolled as %q, want the canonical %q", res.Node, "fractal")
+	}
+
+	block, _ := pem.Decode([]byte(res.Certificate))
+	if block == nil {
+		t.Fatal("no certificate returned")
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaf.Subject.CommonName != res.Node {
+		t.Errorf("certificate CN is %q and the node is %q; the agent protocol reads the CN",
+			leaf.Subject.CommonName, res.Node)
+	}
+}
