@@ -221,6 +221,30 @@ There is no native Windows build and there will not be one: Windows containers r
 images, and the model servers are Linux images. Both wrapper channels are configured so a
 native Windows install fails at resolution with a comprehensible message.
 
+### What nodary places, and what the host provides
+
+nodary places versioned artifacts from its own manifest — containerd, runc, nerdctl and the
+CNI plugins — each fetched through its own mirror, verified by hash, and recorded in
+`components.json` so that uninstall removes exactly what was added ([§10](#10-uninstall)).
+
+**It does not use the host's package manager.** `apt install` has none of those properties:
+unpinned, unverified against the manifest, not cleanly removable, and it needs a distribution
+mirror — which is the wrong dependency for the air-gapped hosts [§6](#6-offline-install)
+exists for. It is also the kind of unannounced change that fails a change-control review on
+exactly the hosts this product is for.
+
+So the host provides its own packet filter, and [preflight](#11-preflight) says so before
+anything is installed:
+
+| Required on a node | Why |
+| :--- | :--- |
+| `iptables` | The CNI `portmap` plugin is implemented entirely in terms of the `iptables` command, and `portmap` is what publishes a deployment's port on `127.0.0.1`. Without it CNI attach fails *after* the container is created, so a deployment is torn down leaving only a shim that connected and disconnected. A hard failure. |
+| `nftables` | Only for the rule that drops forwarded traffic from the isolated subnet. A warning: the absent route and gateway are what isolate a deployment, and they hold either way. |
+
+Shipping nodary's own `iptables` was considered and rejected. A second binary beside the
+host's splits `iptables-legacy` from `iptables-nft`, and rules written into a table nothing is
+reading is a worse failure than a missing package, because it looks like success.
+
 ### Windows hosts run as WSL2 nodes
 
 A Windows machine with an NVIDIA GPU joins the fleet by running nodary **inside WSL2**, where
@@ -234,12 +258,13 @@ desktop with a good card, already running Windows, not worth reinstalling.
 wsl --install -d Ubuntu          # once, on the Windows host
 ```
 
-Then, inside the distribution, the normal node install. Three things differ, and preflight
+Then, inside the distribution, the normal node install. Four things differ, and preflight
 checks all of them (§11):
 
 - **The GPU driver comes from Windows.** CUDA passes through to WSL2 from the host driver, and `libcuda` is provided at `/usr/lib/wsl/lib`. **Installing an NVIDIA driver inside the distribution breaks the passthrough** — nodary skips driver installation on WSL and says so.
 - **systemd is opt-in.** WSL2 runs it only when `/etc/wsl.conf` contains `[boot]` / `systemd=true`, followed by `wsl --shutdown` on the host.
 - **The distribution does not start at boot.** Nothing runs until something invokes it, so a rebooted Windows host comes back with no agent unless a scheduled task starts the distribution at logon.
+- **A fresh WSL2 distribution has no packet filter.** Ubuntu under WSL2 ships without `iptables` or `nft`, so the host cannot publish a deployment's port until they are installed. Found by running the privileged verification on a real WSL2 host.
 
 Two performance traps, reported as warnings rather than failures: the models directory must be
 on the distribution's own filesystem and never under `/mnt/c`, where 9p makes staging
