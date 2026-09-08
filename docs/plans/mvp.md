@@ -223,7 +223,11 @@ owes, and does not pre-empt them:
 - [x] S2 — R1d policy, R1e attestation — R1 complete, 36 of 36
 - [x] S3 — evidence export and the licence key
 - [x] S4 — R2 thin — 28 of 42; the MVP subset complete
-- [ ] S5 — R4 thin
-- [ ] S6 — R3 thin
-- [ ] S7 — R5 thin
+- [x] S5 — R4 thin — every listed row except **R6-02**, which stays partial by design: vLLM and
+  SGLang are embedded, and llama.cpp and TensorRT-LLM need `[backend.extra]` and
+  `[backend.prepare]`. A descriptor embedded whose features are unimplemented would be a
+  backend the binary claims to support and cannot run
+- [x] S6 — R3 thin
+- [x] S7 — R5 thin — verified as root on a real host: 36 checks, 0 failures, including a live
+  container on `nodary-isolated` proving egress dead and ingress alive
 - [x] S8 — the advisory feed's format and an empty signed revision
