@@ -258,3 +258,78 @@ func Start(ctx context.Context, unit string, o Options) (Step, error) {
 	step.Changed, step.Detail = true, "enabled and started"
 	return step, nil
 }
+
+// EnsureBinary places this executable at docs/specs/01-install.md §12's
+// location and points `current` at it.
+//
+// **The units must not invoke the binary wherever it happened to be at install
+// time.** They carry `PrivateTmp=true` and `ProtectHome=true`, so a binary
+// under /tmp or /home is invisible to the service — systemd reports
+// `203/EXEC`, which says nothing about why. That is not hypothetical: it is
+// what a privileged run of scripts/verify-privileged.sh reported, from a build
+// in /tmp.
+//
+// 01 §2 step 4 has install.sh do this before it `exec`s the binary, and 01 §12
+// fixes the paths. Doing it here as well means an install started any other way
+// — a package manager, a copy, a `go build` — lands in the same place, and the
+// unit's ExecStart is a path that exists for the service rather than for the
+// person who ran the install.
+func EnsureBinary(version string, o Options) (Step, string, error) {
+	o.setDefaults()
+	self, err := os.Executable()
+	if err != nil {
+		return Step{}, "", err
+	}
+	self, _ = filepath.EvalSymlinks(self)
+
+	versioned := o.path(paths.VersionedBinary(version))
+	stable := o.path(paths.Binary())
+	step := Step{Name: "binary", Detail: versioned}
+
+	if same, _ := sameFile(self, versioned); same {
+		// Already in place; still make sure `current` points at it.
+		if err := linkCurrent(o, version); err != nil {
+			return step, stable, err
+		}
+		return step, stable, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(versioned), 0o755); err != nil {
+		return step, "", err
+	}
+	if err := copyExecutable(self, versioned); err != nil {
+		return step, "", fmt.Errorf("placing the binary at %s: %w", versioned, err)
+	}
+	if err := linkCurrent(o, version); err != nil {
+		return step, "", err
+	}
+	step.Changed, step.Detail = true, versioned+" (current → "+version+")"
+	return step, stable, nil
+}
+
+// linkCurrent points /opt/nodary/current at one version.
+//
+// Replaced atomically through a temporary name: a symlink removed and recreated
+// has a window in which every unit's ExecStart does not resolve, and an upgrade
+// is exactly when something is likely to restart.
+func linkCurrent(o Options, version string) error {
+	dir := o.path(paths.OptDir)
+	link := filepath.Join(dir, "current")
+	tmp := filepath.Join(dir, ".current.tmp")
+	_ = os.Remove(tmp)
+	if err := os.Symlink(version, tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, link)
+}
+
+func sameFile(a, b string) (bool, error) {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(ai, bi), nil
+}

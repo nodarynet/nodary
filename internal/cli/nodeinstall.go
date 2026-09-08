@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/nodarynet/nodary/internal/agent"
+	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/preflight"
@@ -50,7 +51,7 @@ func cmdNodeInstall(e env, args []string) int {
 	}
 
 	ctx := context.Background()
-	o := install.Options{Root: *root, Binary: selfPath()}
+	o := install.Options{Root: *root}
 	configDir := filepath.Join(*root, "/etc/nodary")
 	models := orElse(*modelsDir, agent.DefaultModelsDir())
 
@@ -122,6 +123,12 @@ func cmdNodeInstall(e env, args []string) int {
 		return ExitFailure
 	}
 	report(e, steps)
+
+	if step, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
+		fmt.Fprintf(e.stdout, "%s binary             %v\n", mark(preflight.LevelWarn), err)
+	} else {
+		report(e, []install.Step{step})
+	}
 
 	// 4. Fetch the runtime through the control plane's mirror, and place it.
 	conf, err := agent.LoadConfig(confPath)
@@ -224,13 +231,4 @@ func report(e env, steps []install.Step) {
 		}
 		fmt.Fprintf(e.stdout, "%s %-18s %s\n", m, s.Name, detail)
 	}
-}
-
-// selfPath is this binary, for the unit's ExecStart.
-func selfPath() string {
-	p, err := os.Executable()
-	if err != nil {
-		return "/usr/local/bin/nodary"
-	}
-	return p
 }

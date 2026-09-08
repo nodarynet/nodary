@@ -14,6 +14,7 @@
 #   /opt/cni/bin/       the CNI plugins
 #   /etc/cni/net.d/     10-nodary-isolated.conflist
 #   /etc/systemd/system nodary-server, nodary-gateway, nodary-agent, containerd
+#   /opt/nodary/        the binary, versioned, with a `current` symlink
 #   /etc/nodary/        configuration, PKI, the sealing key
 #   /var/lib/nodary/    database, component cache, models
 #   /var/log/nodary/    the audit mirror
@@ -73,7 +74,7 @@ cleanup() {
     echo "  components nodary PLACED (remove by hand if you want them gone):"
     grep -B2 '"placed": true' /etc/nodary/components.json 2>/dev/null | grep '"path"' | sed 's/^/    /'
   fi
-  rm -rf /etc/nodary /var/lib/nodary /var/log/nodary
+  rm -rf /etc/nodary /var/lib/nodary /var/log/nodary /opt/nodary
   userdel nodary 2>/dev/null && echo "  removed the nodary user"
   rm -f "$BIN"
   echo
@@ -118,7 +119,17 @@ else
   bad "secret.key was not created"
 fi
 
-say "3. Units are written and load"
+say "3. The binary is at 01 §12's location"
+# The units carry PrivateTmp=true, so a binary in /tmp is invisible to the
+# service and systemd reports 203/EXEC. Measured: same binary, PrivateTmp on
+# exits 203 and off exits 0.
+if [ -x /opt/nodary/current/nodary ]; then
+  ok "/opt/nodary/current/nodary → $(readlink /opt/nodary/current)"
+else
+  bad "/opt/nodary/current/nodary is missing; the units will fail with 203/EXEC"
+fi
+
+say "4. Units are written and load"
 for u in nodary-server nodary-gateway; do
   if [ -f "/etc/systemd/system/$u.service" ]; then ok "$u.service written"; else bad "$u.service missing"; fi
 done
@@ -129,7 +140,7 @@ else
   bad "systemd will not load nodary-server.service"
 fi
 
-say "4. The control plane starts under systemd"
+say "5. The control plane starts under systemd"
 systemctl enable --now nodary-server.service >/dev/null 2>&1
 sleep 3
 if systemctl is-active --quiet nodary-server.service; then
@@ -139,7 +150,7 @@ else
   journalctl -u nodary-server.service -n 20 --no-pager | sed 's/^/    /'
 fi
 
-say "5. R5-06/R5-07 — components resolve into the mirror"
+say "6. R5-06/R5-07 — components resolve into the mirror"
 if "$BIN" components fetch --role node >/dev/null 2>&1; then
   n=$(ls /var/lib/nodary/dist 2>/dev/null | wc -l)
   ok "$n artifacts in /var/lib/nodary/dist"
@@ -147,7 +158,7 @@ else
   bad "components fetch failed"
 fi
 
-say "6. R5-09 — node install on this same host (--with-node shape)"
+say "7. R5-09 — node install on this same host (--with-node shape)"
 TOK=$("$BIN" token join --uses 1 --yes --justify "privileged verification" 2>/dev/null | tail -1)
 if [ -z "$TOK" ]; then bad "could not mint a join token"; fi
 if "$BIN" node install --server "https://127.0.0.1:$PORT" --token "$TOK" \
@@ -157,7 +168,7 @@ else
   bad "node install failed"
 fi
 
-say "7. containerd is running"
+say "8. containerd is running"
 # The containerd release tarball ships no unit; nodary places one. Without it
 # nodary-model@.service's Requires=containerd.service resolves to nothing.
 if systemctl is-active --quiet containerd.service; then
@@ -167,7 +178,7 @@ else
   journalctl -u containerd.service -n 15 --no-pager 2>/dev/null | sed 's/^/    /'
 fi
 
-say "8. The placed runtime actually runs"
+say "9. The placed runtime actually runs"
 for b in containerd nerdctl runc; do
   if command -v "$b" >/dev/null 2>&1 && "$b" --version >/dev/null 2>&1; then
     ok "$b: $($b --version 2>&1 | head -1)"
@@ -179,7 +190,7 @@ for p in bridge portmap host-local; do
   if [ -x "/opt/cni/bin/$p" ]; then ok "CNI $p present"; else bad "CNI $p missing"; fi
 done
 
-say "9. R4-26 — the nodary-isolated network exists"
+say "10. R4-26 — the nodary-isolated network exists"
 if [ -f /etc/cni/net.d/10-nodary-isolated.conflist ]; then
   ok "the CNI configuration is written"
   # The three properties that make it the control.
@@ -202,7 +213,7 @@ else
   skip "nft is not installed, so the drop rule could not be added"
 fi
 
-say "10. The agent is running and reports in"
+say "11. The agent is running and reports in"
 if systemctl is-active --quiet nodary-agent.service; then
   ok "nodary-agent is active"
   sleep 16   # one heartbeat
@@ -216,13 +227,13 @@ else
   journalctl -u nodary-agent.service -n 20 --no-pager | sed 's/^/    /'
 fi
 
-say "11. R4-29 — a REAL container, and is it actually isolated?"
+say "12. R4-29 — a REAL container, and is it actually isolated?"
 # This is the row nothing else can prove. A container on nodary-isolated, and
 # the probe run inside its namespace.
 if ! command -v nerdctl >/dev/null 2>&1; then
   skip "nerdctl is not available"
 elif ! systemctl is-active --quiet containerd.service 2>/dev/null && ! pgrep -x containerd >/dev/null; then
-  skip "containerd is not running; see step 7"
+  skip "containerd is not running; see step 8"
 else
   nerdctl rm -f nodary-verify >/dev/null 2>&1
   if nerdctl run -d --name nodary-verify --network nodary-isolated \
@@ -255,7 +266,7 @@ else
   fi
 fi
 
-say "12. doctor, as the node"
+say "13. doctor, as the node"
 "$BIN" doctor 2>&1 | sed 's/^/  /'
 
 # --- summary ------------------------------------------------------------------

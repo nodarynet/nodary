@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/preflight"
@@ -63,7 +64,7 @@ func cmdServerInstall(e env, args []string) int {
 	}
 
 	ctx := context.Background()
-	o := install.Options{Root: *root, Binary: selfPath(), User: *svcUser}
+	o := install.Options{Root: *root, User: *svcUser}
 
 	// 1. Preflight. docs/specs/01-install.md §4 step 1: abort on any hard
 	// failure, printing every failure at once.
@@ -101,6 +102,15 @@ func cmdServerInstall(e env, args []string) int {
 		fmt.Fprintf(e.stdout, "%s layout             %v\n", mark(preflight.LevelWarn), err)
 	} else {
 		report(e, steps)
+	}
+
+	// The binary at docs/specs/01-install.md §12's location, before the units
+	// that invoke it. Not fatal unprivileged: the units are then written
+	// pointing at a path that will exist once somebody installs properly.
+	if step, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
+		fmt.Fprintf(e.stdout, "%s binary             %v\n", mark(preflight.LevelWarn), err)
+	} else {
+		report(e, []install.Step{step})
 	}
 
 	// --root prefixes the *default* path only. An explicit --config is taken as

@@ -72,3 +72,18 @@ func Credentials() (string, error) {
 	}
 	return filepath.Join(home, ".nodary", "credentials"), nil
 }
+
+// OptDir is where the binary lives, versioned, with a `current` symlink.
+// docs/specs/01-install.md §12.
+const OptDir = "/opt/nodary"
+
+// Binary is the stable path a systemd unit invokes.
+//
+// Through `current` rather than a version, so an upgrade flips one symlink and
+// every unit follows without being rewritten (01 §9).
+func Binary() string { return filepath.Join(OptDir, "current", "nodary") }
+
+// VersionedBinary is where one version's binary is placed.
+func VersionedBinary(version string) string {
+	return filepath.Join(OptDir, version, "nodary")
+}

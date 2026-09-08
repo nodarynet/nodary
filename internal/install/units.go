@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/nodarynet/nodary/internal/paths"
 )
 
 // Runner executes a command. Injected for the same reason internal/agent's Host
@@ -65,7 +67,10 @@ func (o *Options) setDefaults() {
 		o.UnitDir = "/etc/systemd/system"
 	}
 	if o.Binary == "" {
-		o.Binary = "/usr/local/bin/nodary"
+		// The stable path, not wherever this process happens to be: the units
+		// carry PrivateTmp and ProtectHome, and a binary under /tmp or /home is
+		// invisible to the service. See EnsureBinary.
+		o.Binary = paths.Binary()
 	}
 }
 
