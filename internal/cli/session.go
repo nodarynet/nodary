@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -214,6 +215,18 @@ func resolvePrincipal(e env, verb string, db *store.DB, credsPath string,
 	}
 
 	creds, err := identity.LoadCredentials(path)
+	if err != nil && !explicit && errors.Is(err, fs.ErrPermission) {
+		// The default path is unreachable, not unusable. `ProtectHome=true`
+		// makes /home mode 000 inside the unit — measured on systemd 255 — so
+		// stat(2) on a credentials file that has never existed returns EACCES
+		// rather than ENOENT. That is the "no home directory" case above wearing
+		// a different errno, and reading it as a broken credential refuses to
+		// start the control plane on a host where nothing is wrong.
+		//
+		// Only for the default path: a file the operator named is still
+		// reported, because a permission error on one they chose is news.
+		return localPrincipal(), true
+	}
 	if err != nil {
 		// A credentials file that exists and cannot be used is reported, never
 		// stepped over: falling back to local would silently act as an
