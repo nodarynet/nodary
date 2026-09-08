@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"crypto/rand"
@@ -239,8 +242,42 @@ func cmdServerInstall(e env, args []string) int {
 	}
 	report(e, owned)
 
+	// The first administrator, as a one-time link rather than an account this
+	// install invents. R5-08 is one line — **no default password ever exists** —
+	// and every other shape creates one: a generated password printed here is a
+	// default until somebody changes it, and a /setup left open until first use
+	// is a default that lasts until somebody notices.
+	//
+	// Minting replaces any link still outstanding, so re-running the install on
+	// a control plane nobody finished setting up hands the operator a working
+	// one instead of a dead one they cannot see.
+	var setupURL string
+	if _, err := s.log.Act(ctx, audit.Request{
+		Actor:  s.who.Actor,
+		Action: "installation.setup-link",
+	}, func(m audit.Mutation) error {
+		token, _, err := identity.MintSetup(ctx, m, s.now)
+		if err != nil {
+			return err
+		}
+		setupURL = api.SetupURL("https://"+firstHost(hosts, *bind), token)
+		return nil
+	}); errors.Is(err, identity.ErrSetupDone) {
+		setupURL = ""
+	} else if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+
 	fmt.Fprintln(e.stdout, fingerprint)
 	fmt.Fprintf(e.stderr, "Wrote %s. The control plane serves on %s.\n", conf, c.Bind)
+	if setupURL != "" {
+		fmt.Fprintf(e.stderr, "\nOpen this once, within %d minutes, to create the first administrator:\n\n  %s\n\n"+
+			"  Nobody — including this install — knows a password until somebody sets one there.\n",
+			int(identity.SetupTTL.Minutes()), setupURL)
+	} else {
+		fmt.Fprintf(e.stderr, "\nThis control plane already has an administrator; no setup link was issued.\n")
+	}
 	fmt.Fprintf(e.stderr, "\nNodes pin that fingerprint. On each GPU host:\n\n")
 	fmt.Fprintf(e.stderr, "  nodary node install --server https://%s --token nodary_jt_… \\\n      --ca-fingerprint %s\n\n",
 		firstHost(hosts, *bind), fingerprint)
@@ -338,10 +375,31 @@ func splitList(s string) []string {
 	return out
 }
 
+// firstHost is the address an operator will actually type, host **and port**.
+//
+// Both halves are load-bearing and both were missing. A named --host is a name,
+// not an address: printing `https://nodary.example.internal` for a control
+// plane on :8443 gives a setup link and a join command that quietly connect to
+// 443. And the default --bind is `0.0.0.0:8443`, so an install with no --host
+// printed `https://0.0.0.0:8443` — a wildcard is what to listen on and never
+// what to connect to.
+//
+// So: the port always comes from --bind, and the host is the first real name
+// given, falling back to this machine's own when the bind names no address a
+// client could use.
 func firstHost(hosts []string, bind string) string {
+	host, port, err := net.SplitHostPort(bind)
+	if err != nil {
+		return bind
+	}
 	for _, h := range hosts {
 		if h != "localhost" && h != "127.0.0.1" {
-			return h
+			return net.JoinHostPort(h, port)
+		}
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		if name, err := os.Hostname(); err == nil && name != "" {
+			return net.JoinHostPort(strings.ToLower(name), port)
 		}
 	}
 	return bind

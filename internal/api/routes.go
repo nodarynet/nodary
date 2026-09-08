@@ -35,6 +35,12 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/agent/status", s.agentStatus)
 	h("GET", "/agent/dist/{name}", s.serveDist)
 
+	// The one address a person opens rather than a program calls, so it sits at
+	// the root and not under Prefix. Unauthenticated, like enrolment, and for
+	// the same reason: it runs before the credential it creates exists.
+	mux.HandleFunc("GET "+SetupPath, s.setup)
+	mux.HandleFunc("POST "+SetupPath, s.setup)
+
 	// Auth — R2-25.
 	h("POST", "/auth/login", s.login)
 	h("POST", "/auth/logout", s.logout)
