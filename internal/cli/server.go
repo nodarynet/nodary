@@ -63,6 +63,8 @@ func cmdServerInstall(e env, args []string) int {
 	host := fs.String("host", "", "hostname operators and nodes will use (repeatable, comma-separated)")
 	root := fs.String("root", "", "install into this prefix instead of / (for testing; nothing is started)")
 	svcUser := fs.String("user", "nodary", "the service account; empty runs as root")
+	withNode := fs.Bool("with-node", false,
+		"also install this host as a GPU node of the control plane it just created (00 §2)")
 	offline := fs.Bool("offline", false,
 		"do not contact any upstream source; the mirror is whatever is already in the data directory")
 	skipPreflight := fs.Bool("skip-preflight", false,
@@ -328,7 +330,96 @@ func cmdServerInstall(e env, args []string) int {
 		firstHost(hosts, *bind), joinToken, fingerprint)
 	fmt.Fprintf(e.stderr, "  That token enrols one node and expires in an hour; `nodary token join` mints more.\n\n")
 	fmt.Fprintf(e.stderr, "The agent CA is separate from that certificate and its key is sealed\nunder %s.\n", s.keyPath)
+
+	if *withNode {
+		return installLocalNode(e, s, *root, *bind, fingerprint)
+	}
 	return ExitOK
+}
+
+// installLocalNode is docs/specs/00-overview.md §2's single-box deployment: the
+// control plane and one GPU host on the same machine.
+//
+// It **composes the two installs** rather than reimplementing either, for the
+// reason `node install` itself composes `components fetch` and `node enroll` —
+// the path an operator would take by hand is the path this takes, so there is
+// one implementation to be wrong about. It is also the shape
+// scripts/verify-privileged.sh has been exercising all along, now as one verb.
+func installLocalNode(e env, s *session, root, bind, fingerprint string) int {
+	if root != "" {
+		// A staged install starts nothing, so there is no control plane to
+		// enroll into. Said rather than attempted: the failure would otherwise
+		// be a connection refused that names none of this.
+		fmt.Fprintf(e.stderr, "\nnodary server install: --with-node needs a running control plane, "+
+			"and --root stages one without starting it.\n")
+		return ExitUsage
+	}
+
+	// 127.0.0.1, not the printed hostname. The server certificate always covers
+	// it (EnsureServerCertificate seeds `localhost` and `127.0.0.1` before any
+	// --host), so the single-box case never depends on the operator having named
+	// this machine correctly.
+	_, port, err := net.SplitHostPort(bind)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: cannot read a port from %q: %v\n", bind, err)
+		return ExitFailure
+	}
+	addr := net.JoinHostPort("127.0.0.1", port)
+
+	// **The control plane has to be listening.** `systemctl enable --now`
+	// returns once the unit is active, and `Type=exec` means active as soon as
+	// the binary has been exec'd — not once it holds the port. Enrolling into
+	// that gap fails with `connection refused`, which would show up as an
+	// install that works most of the time.
+	fmt.Fprintf(e.stderr, "\nWaiting for the control plane on %s…\n", addr)
+	if !waitForListener(addr, 30*time.Second) {
+		fmt.Fprintf(e.stderr, "nodary server install: nothing is listening on %s after 30s.\n"+
+			"  `systemctl status nodary-server` says why; then `nodary node install` finishes this.\n", addr)
+		return ExitFailure
+	}
+
+	// Its own token. The one already printed is for a *remote* node, and
+	// spending it here would hand the operator a command that fails the first
+	// time they run it somewhere else.
+	var token string
+	if _, err := s.log.Act(context.Background(), audit.Request{
+		Actor: s.who.Actor, Action: "token.join",
+	}, func(m audit.Mutation) error {
+		_, plain, err := identity.MintJoinToken(context.Background(), m, s.who.Role, s.now,
+			s.who.Actor.ID, 1, s.now.Add(time.Hour))
+		token = plain
+		return err
+	}); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+
+	fmt.Fprintf(e.stderr, "\n== Installing this host as a node ==\n")
+	return cmdNodeInstall(e, []string{
+		"--server", "https://" + addr, "--token", token, "--ca-fingerprint", fingerprint,
+	})
+}
+
+// waitForListener returns once something accepts on addr, or the deadline
+// passes.
+//
+// A TCP connect rather than a request: the question is whether the port is
+// held, and the enrolment immediately after is the real test of whether the
+// control plane works. Answering the smaller question keeps this from having
+// its own opinion about what "ready" means.
+func waitForListener(addr string, within time.Duration) bool {
+	deadline := time.Now().Add(within)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 func cmdServerStart(e env, args []string) int {

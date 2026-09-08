@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/components"
 )
@@ -77,5 +80,57 @@ func TestOfflineInstallContactsNothing(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("--offline fetched %d artifact(s); it must contact nothing", len(entries))
+	}
+}
+
+// TestWithNodeRefusesAStagedInstall names the one combination that cannot work.
+//
+// `--root` writes a control plane without starting it, so there is nothing for
+// the local node to enroll into. Left to run, the failure is a connection
+// refused from the middle of a node install, which names none of this.
+func TestWithNodeRefusesAStagedInstall(t *testing.T) {
+	a := newAppliance(t)
+	code, _, stderr := runWithStdin(t, "", "server", "install",
+		"--root", a.dir, "--with-node", "--offline", "--db", a.db, "--secret-key", a.key,
+		"--config", filepath.Join(a.dir, "server.toml"),
+		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443")
+	if code != ExitUsage {
+		t.Errorf("exit %d, want ExitUsage", code)
+	}
+	if !strings.Contains(stderr, "--root") {
+		t.Errorf("the refusal does not name the flag that caused it: %s", stderr)
+	}
+}
+
+// TestWaitForListenerWaitsAndGivesUp covers the race `--with-node` exists in.
+//
+// `systemctl enable --now` returns once the unit is active, and Type=exec means
+// active as soon as the binary is exec'd — not once it holds the port. Without
+// this the enrolment lands in that gap and the install works most of the time.
+func TestWaitForListenerWaitsAndGivesUp(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if !waitForListener(ln.Addr().String(), 2*time.Second) {
+		t.Error("did not see a listener that was already accepting")
+	}
+
+	// A port nothing holds: it has to give up rather than block, and it has to
+	// take about as long as it was told to.
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := free.Addr().String()
+	free.Close()
+
+	start := time.Now()
+	if waitForListener(addr, time.Second) {
+		t.Error("reported a listener on a closed port")
+	}
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond || elapsed > 5*time.Second {
+		t.Errorf("gave up after %v, want about a second", elapsed)
 	}
 }

@@ -67,7 +67,13 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - *done:* ownership is recorded, never inferred at uninstall time
   - the record distinguishes **placed by nodary** from **found already present and acceptable**, and only the first is ever removable. A host may already have containerd, installed by its operator and in use by something else; removing it because the name appears in nodary's manifest would take that down — on a machine [12](../specs/12-node-guardrails.md) opens by pointing out is rarely only a nodary node
   - written as each artifact lands rather than at the end, so an install killed halfway leaves a record of exactly what it had placed
-- [ ] **R5-12** The `--with-node` single-box deployment · [00 §2](../specs/00-overview.md#2-topology)
+- [x] **R5-12** The `--with-node` single-box deployment · [00 §2](../specs/00-overview.md#2-topology)
+  - it **composes the two installs** rather than reimplementing either, for the reason `node install` composes `components fetch` and `node enroll`: the path an operator would take by hand is the path this takes, so there is one implementation to be wrong about. It is the shape [`scripts/verify-privileged.sh`](../../scripts/verify-privileged.sh) has been running as two steps all along
+  - it **waits for the port**. `systemctl enable --now` returns once the unit is active, and `Type=exec` means active as soon as the binary has been exec'd — not once it holds the port. Enrolling into that gap fails with `connection refused`, which would show up as an install that works most of the time
+  - it enrols against `127.0.0.1`, never the printed hostname: `EnsureServerCertificate` seeds `localhost` and `127.0.0.1` before any `--host`, so the single-box case never depends on the operator having named the machine correctly
+  - it mints its **own** join token. Spending the printed one would hand the operator a command that fails the first time they run it on another host
+  - `--with-node` with `--root` is refused by name: a staged install starts nothing, so there is nothing to enrol into
+  - *unverified:* the single command has not been run as root. Every path it calls has been — this is `server install` followed by the `node install` that [`scripts/verify-privileged.sh`](../../scripts/verify-privileged.sh) proves in 36 checks
 
 ## Offline
 
