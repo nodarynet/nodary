@@ -13,6 +13,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/preflight"
@@ -138,6 +139,42 @@ func cmdServerInstall(e env, args []string) int {
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
+	}
+
+	// Record which key seals this database, before anything is sealed with it.
+	//
+	// R1-36's refusal — "this database was sealed under a different key" — is
+	// armed only once the installation row names one, and on a fresh control
+	// plane nothing named one. BindKey had a single caller, the first TOTP seal,
+	// and internal/identity/keybind.go anticipated exactly this gap: *"it moves
+	// when a second subsystem seals something -- R2-40's CA key is the first
+	// candidate"*. R2-40 arrived; the binding did not follow. So a control plane
+	// whose only sealed material was the agent CA started happily under a
+	// replaced secret.key and made that CA permanently unreadable — the
+	// unrecoverable path 11 §5 is about, with nothing said.
+	//
+	// Measured on a fresh install before this: `SELECT secret_key_id FROM
+	// installation` returned no row at all.
+	//
+	// Only when unbound, so re-running the install does not append a record
+	// saying nothing happened. An install that predates this binds on its next
+	// run, which is how an existing control plane gets the protection.
+	if bound, err := identity.BoundKeyID(ctx, s.db.Read()); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	} else if bound == "" {
+		if _, err := s.log.Act(ctx, audit.Request{
+			Actor:  s.who.Actor,
+			Action: "installation.bind-key",
+			Target: &audit.Target{Kind: "installation", ID: key.ID()},
+		}, func(m audit.Mutation) error {
+			return identity.BindKey(ctx, m, s.now, key)
+		}); err != nil {
+			fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+			return ExitFailure
+		}
+		report(e, []install.Step{{Name: "sealing key", Changed: true,
+			Detail: "bound to " + key.ID() + "; a different key will now be refused"}})
 	}
 
 	// 0700: it holds the agent CA's sealed key (docs/specs/01-install.md §12).

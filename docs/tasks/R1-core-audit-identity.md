@@ -90,6 +90,8 @@ front of the same core functions.
   - *deps:* R1-04, R1-18
 - [x] **R1-36** Record the active key id, and refuse to start under a key that does not match it · [11 §5](../specs/11-failure-modes.md#5-recovery)
   - *done:* deleting `/etc/nodary/secret.key` and restarting is refused rather than silently minting a fresh key. Today the two are indistinguishable, so the recovery path and the unrecoverable one look identical — every TOTP seed, the LiteLLM key and the CA key become permanently unreadable, with a clean startup to say nothing is wrong. The id belongs in a table, so it lands with the schema rather than in R1a
+  - **the binding was armed and the arming was not.** `BindKey` had one caller, the first TOTP seal, so a control plane that had enrolled nobody named no key at all — while `server install` had already sealed the agent CA under it. Measured on a fresh install: `SELECT secret_key_id FROM installation` returned no row, and swapping `secret.key` was accepted in silence. `server install` now binds before it seals anything, which is the order the property needs
+  - the gap was anticipated in place: internal/identity/keybind.go says *"it moves when a second subsystem seals something -- R2-40's CA key is the first candidate"*. R2-40 landed and the binding did not follow it, which is worth remembering about notes that name their own successor
   - *deps:* R1-03, R1-04
 - [x] **R1-20** Roles `viewer`, `user`, `operator`, `admin` and the permission checks between them · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
   - *done:* an `operator` can restart a model and cannot approve a node

@@ -2,12 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
+	"github.com/nodarynet/nodary/internal/secret"
+	"github.com/nodarynet/nodary/internal/store"
 )
 
 // TestTheKeyComesFromSystemdsCredentialDirectoryWhenItIsThere covers the path
@@ -87,4 +91,70 @@ func TestAnUnreachableHomeIsNotABrokenCredential(t *testing.T) {
 	if who.Actor.Method != "local" {
 		t.Errorf("acted with method %q, want \"local\"", who.Actor.Method)
 	}
+}
+
+// TestServerInstallBindsTheSealingKey arms R1-36 on a fresh control plane.
+//
+// BindKey had exactly one caller — the first TOTP seal — while the agent CA's
+// private key is sealed by `server install` itself. So a control plane that had
+// enrolled nobody named no key, and internal/identity's refusal, whose whole
+// job is to stop a replaced secret.key going unnoticed, never fired. Measured
+// before the fix: `SELECT secret_key_id FROM installation` returned no row.
+//
+// The consequence is the unrecoverable one: nodary starts cleanly under the new
+// key, the agent CA can never be decrypted again, and the first symptom is an
+// enrolment failing much later for a reason that names none of this.
+func TestServerInstallBindsTheSealingKey(t *testing.T) {
+	a := newAppliance(t)
+	code, _, stderr := runWithStdin(t, "", "server", "install",
+		"--root", a.dir, "--db", a.db, "--secret-key", a.key,
+		"--config", filepath.Join(a.dir, "server.toml"),
+		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443")
+	if code != ExitOK {
+		t.Fatalf("server install: exit %d, %s", code, stderr)
+	}
+
+	db, err := store.Open(context.Background(), a.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bound, err := identity.BoundKeyID(context.Background(), db.Read())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound == "" {
+		t.Fatal("the install sealed the agent CA and bound no key; a replaced secret.key would go unnoticed")
+	}
+
+	// And it is the key that is actually there, not any string.
+	k, err := secret.Load(a.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound != k.ID() {
+		t.Errorf("bound to %q, but the key on disk is %q", bound, k.ID())
+	}
+
+	// Re-running does not append a second record saying nothing happened.
+	before := auditRecords(t, db)
+	if code, _, stderr := runWithStdin(t, "", "server", "install",
+		"--root", a.dir, "--db", a.db, "--secret-key", a.key,
+		"--config", filepath.Join(a.dir, "server.toml"),
+		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443"); code != ExitOK {
+		t.Fatalf("re-running the install: exit %d, %s", code, stderr)
+	}
+	if after := auditRecords(t, db); after != before {
+		t.Errorf("a re-run added %d audit record(s) for a binding that already existed", after-before)
+	}
+}
+
+func auditRecords(t *testing.T, db *store.DB) int {
+	t.Helper()
+	var n int
+	if err := db.Read().QueryRow(`SELECT count(*) FROM audit`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
