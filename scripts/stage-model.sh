@@ -48,12 +48,27 @@ for t in curl python3 sha256sum; do
   command -v "$t" >/dev/null 2>&1 || { printf '%s is required\n' "$t" >&2; exit 1; }
 done
 
+# A gated repository — every Gemma, Llama and Mistral release — answers 401
+# without one. Measured: google/gemma-3n-E2B-it and google/gemma-3-1b-it both
+# refuse an anonymous config.json while Qwen/Qwen2.5-0.5B-Instruct redirects to
+# a CDN. Accept the licence on huggingface.co, then:
+#   sudo HF_TOKEN=hf_… ./scripts/stage-model.sh google/gemma-3n-E2B-it
+AUTH=()
+if [ -n "${HF_TOKEN:-}" ]; then
+  AUTH=(-H "Authorization: Bearer $HF_TOKEN")
+  printf '  using HF_TOKEN for a gated repository\n'
+fi
+
 DIR="$MODELS_DIR/hub/models--${REPO//\//--}"
 printf '\033[1m== Staging %s\033[0m\n  into %s\n\n' "$REPO" "$DIR"
 
-# The file list, from the API rather than guessed. A repo that is gated answers
-# with an error here rather than with a directory of HTML error pages.
-FILES=$(curl -fsSL "https://huggingface.co/api/models/$REPO" | python3 -c '
+# The file list, from the API rather than guessed, so a repository that adds a
+# shard does not need this script edited.
+#
+# Listing succeeds anonymously even for a gated repository — measured: the API
+# answers for google/gemma-3n-E2B-it and the *download* is what returns 401. So
+# the gate is caught below, at the first file, not here.
+FILES=$(curl -fsSL "${AUTH[@]}" "https://huggingface.co/api/models/$REPO" | python3 -c '
 import json, sys
 r = json.load(sys.stdin)
 names = [f["rfilename"] for f in r.get("siblings", [])]
@@ -77,9 +92,21 @@ for f in $FILES; do
   printf '  ↓ %s\n' "$f"
   # -C - resumes a partial file; --fail so an HTML error page never lands where
   # a tensor should be.
-  if ! curl -fL --progress-bar -C - -o "$DIR/$f" \
+  if ! curl -fL --progress-bar -C - "${AUTH[@]}" -o "$DIR/$f" \
        "https://huggingface.co/$REPO/resolve/main/$f"; then
-    printf '  ✘ %s failed; nothing was staged\n' "$f" >&2
+    code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" \
+      "https://huggingface.co/$REPO/resolve/main/$f")
+    case "$code" in
+      401|403)
+        # The common case, and worth naming: every Gemma, Llama and Mistral
+        # release is gated, and "`.gitattributes` failed" says nothing about why.
+        printf '\n  ✘ %s is gated (HTTP %s).\n' "$REPO" "$code" >&2
+        printf '    Accept its licence at https://huggingface.co/%s, then re-run with\n' "$REPO" >&2
+        printf '    HF_TOKEN set to a token that has access:\n' >&2
+        printf '      sudo HF_TOKEN=hf_… %s %s\n' "$0" "$REPO" >&2
+        ;;
+      *) printf '\n  ✘ %s failed (HTTP %s); nothing was staged\n' "$f" "$code" >&2 ;;
+    esac
     exit 1
   fi
 done
