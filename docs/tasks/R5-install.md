@@ -31,8 +31,14 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 ## Install
 
-- [ ] **R5-05** `nodary server install` — the ten ordered, idempotent steps · [01 §4](../specs/01-install.md#4-server-install)
+- [x] **R5-05** `nodary server install` — the ten ordered, idempotent steps · [01 §4](../specs/01-install.md#4-server-install)
   - *done:* every prompt has a flag equivalent and `--non-interactive` requires them all and never prompts; the binary reopens `/dev/tty`, which is why `install.sh` `exec`s rather than runs and returns
+  - the install **resolves the node runtime into the mirror**, which is the half [01 §3](../specs/01-install.md#3-bootstrap-order) makes load-bearing: only the control-plane host contacts an upstream source, so an empty mirror is a fleet that cannot be built — and the symptom appears on a *different* machine, much later. Four artifacts, 108 MB, digest-verified; a re-run re-verifies in 0.08s and says so rather than reporting a change
+  - **step 2's component selection is deliberately not implemented.** Every server-role component in the manifest is an `image` — LiteLLM, Prometheus and Grafana are pulled from a registry by digest, not staged into a file cache — and no unit in this slice runs one, so `--components minimal|all` would offer a choice between two sets the install cannot act on. `Manifest.Select` already implements the semantics for when there is something to select; it had **no caller at all** before this row
+  - a fetch that fails is a **warning naming the consequence**, not a failure: everything else about the control plane is correct, and rolling back because a CDN was unreachable would leave nothing to retry from. `--offline` skips it outright, for an install from a bundle
+  - the units are started **after** every write, not in §4's printed position: the control plane opens the same database, and there is no reason to have two writers on it while the install is still minting credentials into it
+  - step 10 prints a **real** join token rather than `nodary_jt_…`. One use, one hour — long enough to walk to the GPU host, short enough that the scrollback stops being a way in
+  - *deferred:* a control plane serving nodes of another architecture still needs `nodary components fetch --platform`; the install resolves for its own host only
 - [x] **R5-06** Component resolution into `/var/lib/nodary/dist/`, digest-checked against the embedded manifest, skipping anything already present and correct
   - verify-**then**-rename: an artifact is hashed in a temporary file and only then moved into place, so a killed fetch leaves a temporary file rather than something that looks complete. Same rule [05 §3](../specs/05-catalog.md#3-staging) applies to weights, same reason
   - "already present and correct" is checked by **digest, not presence**, which is what makes re-running an install re-verify rather than re-download — and what catches a tampered cache instead of trusting it because the file exists. A cached artifact whose digest is wrong is **refused, not replaced**: overwriting would erase the only evidence that something put a different file where nodary keeps a pinned one

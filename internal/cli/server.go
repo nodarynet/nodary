@@ -17,6 +17,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -62,6 +63,8 @@ func cmdServerInstall(e env, args []string) int {
 	host := fs.String("host", "", "hostname operators and nodes will use (repeatable, comma-separated)")
 	root := fs.String("root", "", "install into this prefix instead of / (for testing; nothing is started)")
 	svcUser := fs.String("user", "nodary", "the service account; empty runs as root")
+	offline := fs.Bool("offline", false,
+		"do not contact any upstream source; the mirror is whatever is already in the data directory")
 	skipPreflight := fs.Bool("skip-preflight", false,
 		"do not run the host checks. Records that they were skipped; it does not make them pass")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -209,7 +212,15 @@ func cmdServerInstall(e env, args []string) int {
 		return ExitFailure
 	}
 
-	// 3. The units, so `systemctl enable --now nodary-server` works. Written
+	// 3. Resolve the node runtime into the mirror.
+	if *offline {
+		report(e, []install.Step{{Name: "components",
+			Detail: "skipped by --offline; nodes will fetch whatever is already in the mirror"}})
+	} else {
+		fetchIntoMirror(e, ctx, filepath.Dir(s.db.Path()))
+	}
+
+	// The units, so `systemctl enable --now nodary-server` works. Written
 	// after server.toml, because the unit's ExecStart reads it at startup.
 	units, err := install.WriteUnits(ctx, "server", o)
 	if err != nil {
@@ -270,6 +281,39 @@ func cmdServerInstall(e env, args []string) int {
 		return ExitFailure
 	}
 
+	// 10. A join token, so the printed command is one an operator can run rather
+	// than one they have to complete. It expires in an hour and enrols one node
+	// (02 §4: minutes to hours), which is the shape of a credential printed to a
+	// terminal — long enough to walk to the GPU host, short enough that the
+	// scrollback stops being a way in.
+	var joinToken string
+	if _, err := s.log.Act(ctx, audit.Request{
+		Actor: s.who.Actor, Action: "token.join",
+	}, func(m audit.Mutation) error {
+		_, plain, err := identity.MintJoinToken(ctx, m, s.who.Role, s.now,
+			s.who.Actor.ID, 1, s.now.Add(time.Hour))
+		joinToken = plain
+		return err
+	}); err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+
+	// 8, last. The units are started after every write this install makes, not
+	// in 01 §4's printed position: the control plane opens the same database,
+	// and there is no reason to have two writers on it while the install is
+	// still minting credentials into it.
+	for _, unit := range []string{"nodary-server.service"} {
+		step, err := install.Start(ctx, unit, o)
+		if err != nil {
+			// Not fatal. Everything is written and correct; what failed is the
+			// starting, and an operator can see why with `systemctl status`.
+			fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "start", err)
+		} else {
+			report(e, []install.Step{step})
+		}
+	}
+
 	fmt.Fprintln(e.stdout, fingerprint)
 	fmt.Fprintf(e.stderr, "Wrote %s. The control plane serves on %s.\n", conf, c.Bind)
 	if setupURL != "" {
@@ -280,8 +324,9 @@ func cmdServerInstall(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "\nThis control plane already has an administrator; no setup link was issued.\n")
 	}
 	fmt.Fprintf(e.stderr, "\nNodes pin that fingerprint. On each GPU host:\n\n")
-	fmt.Fprintf(e.stderr, "  nodary node install --server https://%s --token nodary_jt_… \\\n      --ca-fingerprint %s\n\n",
-		firstHost(hosts, *bind), fingerprint)
+	fmt.Fprintf(e.stderr, "  nodary node install --server https://%s --token %s \\\n      --ca-fingerprint %s\n\n",
+		firstHost(hosts, *bind), joinToken, fingerprint)
+	fmt.Fprintf(e.stderr, "  That token enrols one node and expires in an hour; `nodary token join` mints more.\n\n")
 	fmt.Fprintf(e.stderr, "The agent CA is separate from that certificate and its key is sealed\nunder %s.\n", s.keyPath)
 	return ExitOK
 }
@@ -428,4 +473,100 @@ func randomToken() string {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+// fetchIntoMirror is 01 §4 step 3: the cache every GPU host bootstraps from.
+//
+// **It resolves the node set, not the server's own.** docs/specs/01-install.md
+// §3 is the reason this belongs in the install rather than in a verb somebody
+// remembers to run: only the control-plane host ever contacts an upstream
+// source, and every node fetches this cache over mTLS. A control plane with an
+// empty mirror is one where `node install` fails on a machine with no internet
+// — which is the machine this product is for.
+//
+// 01 §4 step 2 also has the operator choose the server's own stack, `minimal`
+// or `all`. That is **not implemented, deliberately**: every server-role
+// component in the manifest is an `image` — LiteLLM, Prometheus and Grafana are
+// pulled by a container runtime from a registry by digest, not staged into a
+// file cache — and no unit in this slice runs one. A `--components` flag today
+// would offer a choice between two sets the install cannot act on, which is
+// worse than not offering it. Manifest.Select already implements the semantics
+// for when there is something to select.
+//
+// The platform is this host's. A control plane serving nodes of another
+// architecture needs `components fetch --platform` as well, which is what that
+// verb is for.
+func fetchIntoMirror(e env, ctx context.Context, dataDir string) {
+	m, ok := loadManifest(e)
+	if !ok {
+		return
+	}
+	plat := resolvePlatform("host")
+	want, err := mirrorComponents(m, plat)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return
+	}
+	if len(want) == 0 {
+		report(e, []install.Step{{Name: "components", Detail: "nothing to resolve for " + plat}})
+		return
+	}
+
+	cache := filepath.Join(dataDir, "dist")
+	fetched, err := components.Fetch(ctx, want, components.FetchOptions{Dir: cache, Platform: plat})
+	if err != nil {
+		// A warning, not a failure. Everything else about this control plane is
+		// correct, and an install that rolled back because a CDN was
+		// unreachable would leave nothing behind for the operator to retry
+		// from. What it must not do is stay quiet: an empty mirror is a fleet
+		// that cannot be built, and the symptom appears on a *different*
+		// machine much later.
+		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "components", err)
+		fmt.Fprintf(e.stdout, "%s %-18s nodes cannot bootstrap until this succeeds; "+
+			"re-run the install or `nodary components fetch --role node`\n",
+			mark(preflight.LevelWarn), "")
+		return
+	}
+	// Downloaded and already-correct are reported apart, because that is the
+	// only way an operator can tell a re-run from a first run — the same reason
+	// every other step here says whether it changed anything.
+	var downloaded int
+	for _, f := range fetched {
+		if f.Placement == components.PlacedFetched {
+			downloaded++
+		}
+	}
+	detail := fmt.Sprintf("%d in %s for nodes to fetch", len(fetched), cache)
+	if downloaded == 0 {
+		detail += " (all present and verified)"
+	}
+	report(e, []install.Step{{Name: "components", Changed: downloaded > 0, Detail: detail}})
+}
+
+// mirrorComponents is what the mirror must hold, separated from fetching it so
+// that the decision can be asserted without a network.
+//
+// **The node set.** Getting this wrong is invisible on the control plane and
+// fatal on a GPU host: `node install` on a machine with no internet reaches an
+// empty mirror and stops, one machine and some hours away from the change that
+// caused it.
+func mirrorComponents(m *components.Manifest, plat string) ([]components.Component, error) {
+	selected, err := m.Select(components.RoleNode, "minimal")
+	if err != nil {
+		return nil, err
+	}
+	// Images are pulled by the container runtime from a registry by digest,
+	// which is a different mechanism with different credentials — and a
+	// platform with no source for a component is not a component to fetch.
+	var want []components.Component
+	for _, c := range selected {
+		if c.Kind == components.KindImage {
+			continue
+		}
+		if _, ok := c.Platforms[plat]; !ok {
+			continue
+		}
+		want = append(want, c)
+	}
+	return want, nil
 }

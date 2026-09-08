@@ -107,7 +107,7 @@ func TestAnUnreachableHomeIsNotABrokenCredential(t *testing.T) {
 func TestServerInstallBindsTheSealingKey(t *testing.T) {
 	a := newAppliance(t)
 	code, _, stderr := runWithStdin(t, "", "server", "install",
-		"--root", a.dir, "--db", a.db, "--secret-key", a.key,
+		"--root", a.dir, "--offline", "--db", a.db, "--secret-key", a.key,
 		"--config", filepath.Join(a.dir, "server.toml"),
 		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443")
 	if code != ExitOK {
@@ -142,7 +142,7 @@ func TestServerInstallBindsTheSealingKey(t *testing.T) {
 	// the property and not a proxy for it.
 	before := bindRecords(t, db)
 	if code, _, stderr := runWithStdin(t, "", "server", "install",
-		"--root", a.dir, "--db", a.db, "--secret-key", a.key,
+		"--root", a.dir, "--offline", "--db", a.db, "--secret-key", a.key,
 		"--config", filepath.Join(a.dir, "server.toml"),
 		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443"); code != ExitOK {
 		t.Fatalf("re-running the install: exit %d, %s", code, stderr)
