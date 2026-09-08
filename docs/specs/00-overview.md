@@ -23,8 +23,26 @@ models, directing nodes, issuing tokens, and metering usage. Nodes run container
 systemd, honour a small set of local guardrails ([12](12-node-guardrails.md)), and report
 status.
 
+### Who this is for
+
+**A small regulated site that handles CUI and has to answer for it** — a supplier with a
+handful of GPU hosts, subject to CMMC Level 2 and NIST SP 800-171, whose obligation is to write
+a System Security Plan and keep it true.
+
+That obligation belongs to the organisation operating the system and cannot be delegated to a
+vendor. What nodary does is make it cheap to discharge: it implements mechanisms an SSP
+describes, and it produces the record showing they were in force — in a form an assessor can
+check **without trusting nodary**, since `sha256sum` and `minisign` are enough
+([13](13-evidence.md)).
+
+The homelab is the same product without the paperwork, and it is now the community edition
+rather than the target. Nothing is gated behind that: every mechanism is Apache 2.0, and the
+commercial edition sells only what turns records into a deliverable a human reads
+([ADR 0005](../adr/0005-editions-and-the-advisory-feed.md)).
+
 ### Non-goals
 
+- **Not a compliance product.** nodary does not assess, certify, or make anyone compliant, and it makes no zero-trust claim. **No practice is discharged by installing it**: every control still has an owner inside the customer's organisation, and the SSP's accuracy is theirs. nodary's contribution is narrower and worth stating exactly — it enforces particular mechanisms, and it records what happened so that a person writing an SSP is describing something they can show rather than something they believe.
 - **Not a scheduler.** Placement is explicit: a deployment names its node and its GPU indices. No bin-packing, no autoscaling, no preemption.
 - **Not multi-tenant isolation.** Users are distinguished for attribution and quota, not sandboxed from one another.
 - **Not highly available.** One control plane. It is restartable and its state is a single file; that is the recovery story.
@@ -44,8 +62,13 @@ authority. Those are deployment configuration and policy.
 | Policy | Control-plane database, as a profile | origin denylist, require re-auth, deny egress |
 
 A regulated posture — CMMC, FedRAMP, or an internal standard — is expressed as a **policy
-profile** ([07](07-identity-audit.md#4-policy-profiles)), never as compiled-in behaviour. The
-profile a fresh install runs is `default`, which suits a homelab; `regulated` is opt-in.
+profile** ([07](07-identity-audit.md#4-policy-profiles)), never as compiled-in behaviour.
+
+The profile a fresh install runs is `default`, and it stays `default` even though the regulated
+site is now the primary audience. `regulated` is a posture somebody *adopts*, and adopting it
+is an act with an author and a justification in the chain. An install that silently arrived
+there would put a claim in the record that nobody made, and would leave the first honest
+question an assessor asks — who turned this on, and when — with no answer.
 
 ## 2. Topology
 
@@ -121,6 +144,7 @@ retained, declarative *ownership* is not.
 | Deployment → network | Isolated namespace with no route off-box; continuously asserted ([03](03-agent.md#5-egress-isolation)) |
 | Client → gateway | Bearer token resolved to a person; quota and model allowlist enforced ([06](06-gateway.md)) |
 | Operator → mutation | Preview, justification, re-authentication, hash-bound apply ([07](07-identity-audit.md)) |
+| CUI → nodary | Prompt and completion content never crosses it. The metering schema is **closed** — no free-text body field exists to write into — a test fails if content reaches the database or a log, and LiteLLM's request logging is pinned off with the pinning asserted ([ADR 0006](../adr/0006-cui-boundary-and-fips.md)) |
 
 ## 6. Component inventory
 

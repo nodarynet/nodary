@@ -336,15 +336,28 @@ leaving a gap an assessor has to ask about.
 ## 7. Spec corrections this plan owes
 
 Per [the rules](README.md#the-rules), a plan that finds a spec wrong records it as an open
-item until the spec is corrected. All of these are open.
+item until the spec is corrected.
 
-| Document | Correction |
-| :--- | :--- |
-| [00 §1](../specs/00-overview.md#1-scope) | Target inverts: regulated small site primary, homelab is the community edition. `default` stays the fresh-install profile — say why |
-| [00 §5](../specs/00-overview.md#5-trust-boundaries) | Add the CUI boundary row |
+| Document | Correction | |
+| :--- | :--- | :--- |
+| [00 §1](../specs/00-overview.md#1-scope) | Target inverts: regulated small site primary, homelab is the community edition. `default` stays the fresh-install profile — say why | done |
+| [00 §5](../specs/00-overview.md#5-trust-boundaries) | Add the CUI boundary row | done |
+| [07 §5](../specs/07-identity-audit.md#5-control-mapping) | Rewrite against 800-171 practice identifiers, transcribed from the publication. Reframe the opening | **open** — [R9-19](../tasks/R9-evidence-remediation.md), and it needs the publication in hand |
+| `README.md` | Lead with the CUI and CMMC framing; editions table; the notary thesis becomes the headline rather than a footnote | done |
 
-| [07 §5](../specs/07-identity-audit.md#5-control-mapping) | Rewrite against 800-171 practice identifiers, transcribed from the publication. Reframe the opening |
-| `README.md` | Lead with the CUI and CMMC framing; editions table; the notary thesis becomes the headline rather than a footnote |
+### The framing the corrections landed on
+
+**nodary assists an organisation in discharging an obligation that stays theirs.** It is not a
+compliance product, it does not assess or certify, and it makes **no zero-trust claim**. No
+practice is discharged by installing it: every control still has an owner inside the customer,
+and the accuracy of the SSP is theirs.
+
+Said that way the product's contribution is narrow and defensible — it enforces particular
+mechanisms and records what happened, so that somebody writing an SSP describes what they can
+show rather than what they believe. It is also the framing the code already had: the evidence
+bundle verifies with `sha256sum` and `minisign` alone, the control index refuses to guess a
+mapping and says `"status": "unmapped"`, and the advisory feed carries its own statement that
+it is a report and not a warranty. What was missing was saying it where a reader arrives.
 
 ## 8. New documents
 
