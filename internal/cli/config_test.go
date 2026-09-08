@@ -388,7 +388,11 @@ name = "chat"
 	if code == ExitOK {
 		t.Fatal("a route pointing at nothing was applied")
 	}
-	if !strings.Contains(stderr, "dep-1") || !strings.Contains(stderr, "does not exist") {
+	// "this control plane does not have", not "does not exist in this
+	// configuration": a partial document is the ordinary case and is meant to
+	// reference objects it does not restate, so the message has to point at the
+	// fleet rather than send the operator back to their file.
+	if !strings.Contains(stderr, "dep-1") || !strings.Contains(stderr, "does not have") {
 		t.Errorf("the refusal does not name what is missing:\n%s", stderr)
 	}
 	if strings.Contains(stderr, "FOREIGN KEY") {

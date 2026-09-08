@@ -125,7 +125,13 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 				return err
 			}
 			if exists == 0 {
-				return fmt.Errorf("deployment %q names %s %q, which does not exist in this configuration",
+				// "this control plane", not "this configuration": the check is
+				// a query against the database, and a partial document —
+				// which is the ordinary case, since --prune defaults off — is
+				// meant to reference objects it does not restate. Sending an
+				// operator back to their file to look for a node that is
+				// missing from the *fleet* is the wrong direction.
+				return fmt.Errorf("deployment %q names %s %q, which this control plane does not have",
 					d.ID, ref.what, ref.id)
 			}
 		}
@@ -215,7 +221,7 @@ func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 				return err
 			}
 			if exists == 0 {
-				return fmt.Errorf("route %q names deployment %q, which does not exist in this configuration",
+				return fmt.Errorf("route %q names deployment %q, which this control plane does not have",
 					r.Name, mem.DeploymentID)
 			}
 			if _, err := tx.ExecContext(ctx,
