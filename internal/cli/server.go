@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"crypto/rand"
 	"encoding/hex"
@@ -350,6 +351,12 @@ func cmdServerStatus(e env, args []string) int {
 		res, err := audit.VerifyDB(context.Background(), db)
 		doc["audit_records"] = res.Records
 		doc["audit_ok"] = err == nil && res.OK()
+		// An installation nobody has finished setting up is worth saying out
+		// loud: the window closes silently, and the only other symptom is a
+		// login that nobody on earth can perform.
+		if pending, err := identity.SetupPending(context.Background(), db.Read(), time.Now()); err == nil {
+			doc["setup_pending"] = pending
+		}
 	} else {
 		doc["database"] = "unreadable"
 	}
@@ -357,7 +364,8 @@ func cmdServerStatus(e env, args []string) int {
 	if *format == "json" {
 		return writeJSON(e, "server status", doc)
 	}
-	for _, k := range []string{"installed", "bind", "tls_certificate", "audit_records", "audit_ok", "detail"} {
+	for _, k := range []string{"installed", "bind", "tls_certificate", "setup_pending",
+		"audit_records", "audit_ok", "detail"} {
 		if v, ok := doc[k]; ok {
 			fmt.Fprintf(e.stdout, "%-16s %v\n", k, v)
 		}
