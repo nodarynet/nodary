@@ -224,13 +224,28 @@ constraints would loosen. Loosening is permitted; doing it silently is not.
 
 ## 5. Control mapping
 
-Most deployments will never need this section. It is here for the site that has to show an
-assessor where its evidence lives — a small business under NIST SP 800-171 or CMMC 2.0, rather
-than the homelab the `default` profile is written for.
+This section is for the primary audience: a small site under NIST SP 800-171 or CMMC Level 2
+that has to show an assessor where its evidence lives ([00 §1](00-overview.md#1-scope)). A
+homelab can skip it.
+
+**It shows where evidence lives. It does not discharge a control.** Every practice still has an
+owner inside the operating organisation, and the accuracy of the System Security Plan is
+theirs — nodary's part is to make a claim in that plan something they can show. A row here
+means "when the `regulated` profile is active, the mechanism named on the right is what an
+assessor would be shown", and nothing more.
 
 The mapping assumes the `regulated` profile is active.
 
-| Control family | Satisfied by |
+> **These are 800-53 control families, and an SSP cites 800-171 practice identifiers.** The two
+> are related and are not interchangeable, and the transcription is owed rather than done:
+> [R9-19](../tasks/R9-evidence-remediation.md) rewrites this table against the practice
+> identifiers **transcribed from the publication itself**. Until that lands, treat the left
+> column as an orientation and not as something to paste into a plan. A practice identifier
+> recalled rather than transcribed is the one error in this document that a customer would
+> carry into an assessment, which is why it is left visible rather than guessed at — the same
+> reason `controls.json` ships every entry as `"status": "unmapped"`.
+
+| Control family (800-53) | Satisfied by |
 | :--- | :--- |
 | AU-2, AU-3, AU-12 | Audit chain — who, what, when, where, outcome |
 | AU-9 | Hash chain, append-only mirror, store separate from what it audits |
@@ -242,4 +257,5 @@ The mapping assumes the `regulated` profile is active.
 | SI-7 | Signed release artifacts, digest-pinned components, weights manifests, `audit verify` |
 | SC-7 | Egress isolation with continuous assertion ([03](03-agent.md#5-egress-isolation)) |
 
-This is a mapping, not a certification. It shows where the evidence lives.
+This is a mapping, not a certification, and not an assessment. It shows where the evidence
+lives.

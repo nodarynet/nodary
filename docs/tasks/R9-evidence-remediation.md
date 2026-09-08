@@ -93,8 +93,10 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 
 ## The mapping
 
-- [ ] **R9-19** Rewrite [07 §5](../specs/07-identity-audit.md#5-control-mapping) against 800-171 practice identifiers, transcribed from the publication
+- [~] **R9-19** Rewrite [07 §5](../specs/07-identity-audit.md#5-control-mapping) against 800-171 practice identifiers, transcribed from the publication
   - *done:* transcribed from the publication itself, not from memory and not from a model, and the section's opening — "most deployments will never need this section" — is reframed for the audience the pivot chose · [pivot §5](../plans/pivot-cmmc.md#the-mapping-is-owed-a-verification-pass)
+  - **the reframe is done; the transcription is not, and deliberately so.** The table still carries 800-53 control families, and the section now says so in a block quote rather than letting the left column look like something to paste into a plan. A practice identifier recalled rather than transcribed is the one error in this document a customer would carry into an assessment — the same reason `controls.json` ships every entry as `"status": "unmapped"` rather than guessing
+  - *blocked on:* the publication in hand. This row does not close from memory
   - *deps:* R9-20
 - [ ] **R9-20** Settle which revision the narratives target
   - *done:* CMMC 2.0 Level 2 is understood to assess against 800-171 Rev 2 while Rev 3 exists and renumbers. Confirmed against the current rule rather than assumed, and recorded with the migration it implies
