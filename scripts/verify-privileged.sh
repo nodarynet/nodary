@@ -119,6 +119,24 @@ else
   bad "secret.key was not created"
 fi
 
+# The install runs as root; the units do not. Every file the service opens has
+# to belong to the service account, or `server start` dies with
+# `open /etc/nodary/server.toml: permission denied` — which is exactly what a
+# privileged run reported before install.EnsureOwnership existed.
+check_owner() {
+  local path="$1" want="$2"
+  if [ ! -e "$path" ]; then bad "$path does not exist"; return; fi
+  local got; got=$(stat -c '%U:%G' "$path")
+  if [ "$got" = "$want" ]; then ok "$path is $got"; else bad "$path is $got, want $want"; fi
+}
+check_owner /etc/nodary/server.toml nodary:nodary
+check_owner /etc/nodary/pki nodary:nodary
+check_owner /var/lib/nodary/nodary.db nodary:nodary
+# And the one that must NOT be handed over: the unit reads it as a systemd
+# credential instead, so the account running the network-facing process cannot
+# read the key that decrypts every TOTP seed and the agent CA.
+check_owner /etc/nodary/secret.key root:root
+
 say "3. The binary is at 01 §12's location"
 # The units carry PrivateTmp=true, so a binary in /tmp is invisible to the
 # service and systemd reports 203/EXEC. Measured: same binary, PrivateTmp on

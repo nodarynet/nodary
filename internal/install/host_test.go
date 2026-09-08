@@ -80,3 +80,24 @@ func TestEnsureBinaryPlacesAndLinks(t *testing.T) {
 		t.Errorf("the previous version was removed: %v", err)
 	}
 }
+
+// TestTheSealingKeyIsNeverChownedAwayFromRoot pins the two halves of the
+// arrangement together.
+//
+// 01 §12 keeps /etc/nodary/secret.key at 0400 root:root while the unit runs as
+// an unprivileged account, which is only possible because the unit loads it as
+// a systemd credential. Two ways to break that: drop the LoadCredential line,
+// or add the key to what the install chowns. Either alone leaves a control
+// plane that cannot read its own sealing key, or a sealing key readable by the
+// network-facing process — and both look harmless in review.
+func TestTheSealingKeyIsNeverChownedAwayFromRoot(t *testing.T) {
+	for _, p := range serviceOwned {
+		if p == paths.SecretKey() {
+			t.Fatalf("the install chowns %s to the service account; 01 §12 says root:root", p)
+		}
+	}
+	want := "LoadCredential=secret.key:" + paths.SecretKey()
+	if !strings.Contains(serverUnit, want) {
+		t.Errorf("nodary-server.service does not carry %q, so it cannot read the key it may not own", want)
+	}
+}

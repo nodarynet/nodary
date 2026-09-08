@@ -336,3 +336,11 @@ node will not return after a Windows reboot; a models directory under `/mnt/c`; 
 
 Built-in backend descriptors are embedded in the binary; `/etc/nodary/backends/` holds only
 operator-added ones ([04](04-backends.md#1-why-descriptors-rather-than-plugins)).
+
+`secret.key` is the one file the service account does not own, and that only works because
+`nodary-server.service` carries `LoadCredential=secret.key:/etc/nodary/secret.key`: systemd
+reads it as root before dropping privileges and places a copy in a tmpfs owned by the unit's
+user. Without that line the control plane cannot read its own sealing key; with it, a
+file-read bug in the network-facing process cannot reach the key on disk. Everything else in
+`/etc/nodary` and all of `/var/lib/nodary` is chowned to the service account by the install
+itself — `install.EnsureOwnership`, its last step.

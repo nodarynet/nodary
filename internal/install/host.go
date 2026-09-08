@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -332,4 +334,91 @@ func sameFile(a, b string) (bool, error) {
 		return false, err
 	}
 	return os.SameFile(ai, bi), nil
+}
+
+// serviceOwned is what the control plane and the gateway open once they are
+// running as the service account.
+//
+// **secret.key is deliberately absent.** 01 §12 keeps it 0400 root:root, and
+// nodary-server.service passes it in with `LoadCredential=` instead. Adding it
+// here would make the install quietly undo that.
+var serviceOwned = []string{
+	filepath.Join(paths.ConfigDir, "server.toml"),
+	filepath.Join(paths.ConfigDir, "gateway.env"),
+	filepath.Join(paths.ConfigDir, "pki"),
+	paths.DataDir,
+	paths.LogDir,
+}
+
+// EnsureOwnership hands those files to the account the units run as.
+//
+// `server install` runs as root and everything it creates is root:root; the
+// units run as `nodary`. Every file the service opens has to be owned by that
+// account or the install has produced a system that cannot start — and that is
+// not hypothetical. A privileged run of scripts/verify-privileged.sh reported
+//
+//	nodary server start: open /etc/nodary/server.toml: permission denied
+//
+// from a control plane whose own installer had written the file seconds
+// earlier. EnsureLayout already chowns the directories; nothing chowned what
+// was written into them afterwards, which is everything that matters: the
+// database, the PKI, and the two configuration files.
+//
+// Last step of the install, rather than at each write site, because that is
+// where it can be true of everything at once: the certificates, the database
+// and its write-ahead log are all created at different points and by different
+// packages.
+func EnsureOwnership(o Options) ([]Step, error) {
+	o.setDefaults()
+	if o.User == "" || o.Root != "" {
+		// Running as root, or staged into a prefix that is nobody's to own.
+		return nil, nil
+	}
+	u, err := user.Lookup(o.User)
+	if err != nil {
+		return nil, nil // EnsureUser has already said so
+	}
+	uid, gid := -1, -1
+	fmt.Sscan(u.Uid, &uid)
+	fmt.Sscan(u.Gid, &gid)
+	if uid < 0 || gid < 0 {
+		return nil, nil
+	}
+
+	var steps []Step
+	for _, path := range serviceOwned {
+		changed, err := chownTree(path, uid, gid)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return steps, fmt.Errorf("giving %s to %s: %w", path, o.User, err)
+		}
+		steps = append(steps, Step{Name: "own: " + filepath.Base(path), Changed: changed,
+			Detail: path + " → " + o.User})
+	}
+	return steps, nil
+}
+
+// chownTree gives one path, and everything under it, to uid:gid.
+//
+// Lchown rather than Chown: a symlink planted in the tree would otherwise let
+// whoever planted it redirect a root-run chown at a file outside it.
+func chownTree(root string, uid, gid int) (bool, error) {
+	var changed bool
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) == uid && int(st.Gid) == gid {
+			return nil
+		}
+		changed = true
+		return os.Lchown(p, uid, gid)
+	})
+	return changed, err
 }

@@ -192,6 +192,16 @@ func cmdServerInstall(e env, args []string) int {
 		report(e, []install.Step{{Name: "gateway key", Detail: gwEnv}})
 	}
 
+	// Last: hand everything just written to the account the units run as. The
+	// install is root and the service is not, so this is what makes the
+	// difference between a system that is installed and one that starts.
+	owned, err := install.EnsureOwnership(o)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
+	}
+	report(e, owned)
+
 	fmt.Fprintln(e.stdout, fingerprint)
 	fmt.Fprintf(e.stderr, "Wrote %s. The control plane serves on %s.\n", conf, c.Bind)
 	fmt.Fprintf(e.stderr, "\nNodes pin that fingerprint. On each GPU host:\n\n")

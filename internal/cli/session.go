@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +50,28 @@ func resolveKey(flagValue string) string {
 	if flagValue != "" {
 		return flagValue
 	}
+	// Under systemd the key arrives as a credential rather than as a file the
+	// process opens itself. nodary-server.service carries
+	// `LoadCredential=secret.key:/etc/nodary/secret.key`, which lets 01 §12's
+	// 0400 root:root stand while the unit runs as an unprivileged account:
+	// systemd reads it as root and places a copy in a tmpfs owned by the
+	// service user, so internal/secret's "owned by the reader" check still
+	// holds and a file-read bug in the API cannot reach /etc/nodary/secret.key.
+	//
+	// Only when the file is actually there. $CREDENTIALS_DIRECTORY is set for
+	// any unit with any credential, and a unit that has others but not this one
+	// must still fall through to the real path.
+	if dir := os.Getenv("CREDENTIALS_DIRECTORY"); dir != "" {
+		if p := filepath.Join(dir, "secret.key"); fileExists(p) {
+			return p
+		}
+	}
 	return paths.SecretKey()
+}
+
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // credentialsFlag registers --credentials.

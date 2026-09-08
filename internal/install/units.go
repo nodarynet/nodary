@@ -101,6 +101,13 @@ ExecStart=%[1]s server start
 Restart=always
 RestartSec=5s
 %[2]s
+# The sealing key is 01 §12's 0400 root:root and this unit is not root, so it
+# arrives through systemd: read as root, placed in a tmpfs owned by the service
+# account, exported as $CREDENTIALS_DIRECTORY. Chowning the key to the service
+# account instead would work and would mean the account running the
+# network-facing process can read the key that decrypts every TOTP seed and the
+# agent CA. See resolveKey in internal/cli/session.go.
+LoadCredential=secret.key:/etc/nodary/secret.key
 # The control plane reads /etc/nodary and writes its database and audit mirror.
 # Nothing else on the filesystem is writable, so a compromise of this process is
 # not a compromise of the host.
