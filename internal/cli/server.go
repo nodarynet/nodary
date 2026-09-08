@@ -119,10 +119,10 @@ func cmdServerInstall(e env, args []string) int {
 	// The binary at docs/specs/01-install.md §12's location, before the units
 	// that invoke it. Not fatal unprivileged: the units are then written
 	// pointing at a path that will exist once somebody installs properly.
-	if step, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
+	if steps, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
 		fmt.Fprintf(e.stdout, "%s binary             %v\n", mark(preflight.LevelWarn), err)
 	} else {
-		report(e, []install.Step{step})
+		report(e, steps)
 	}
 
 	// --root prefixes the *default* path only. An explicit --config is taken as

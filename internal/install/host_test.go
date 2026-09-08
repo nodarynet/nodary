@@ -45,11 +45,11 @@ func TestEnsureBinaryPlacesAndLinks(t *testing.T) {
 	root := t.TempDir()
 	o := Options{Root: root}
 
-	step, stable, err := EnsureBinary("1.2.3", o)
+	steps, stable, err := EnsureBinary("1.2.3", o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !step.Changed {
+	if len(steps) == 0 || !steps[0].Changed {
 		t.Error("the first placement reported no change")
 	}
 	if stable != filepath.Join(root, paths.Binary()) {
@@ -99,5 +99,87 @@ func TestTheSealingKeyIsNeverChownedAwayFromRoot(t *testing.T) {
 	want := "LoadCredential=secret.key:" + paths.SecretKey()
 	if !strings.Contains(serverUnit, want) {
 		t.Errorf("nodary-server.service does not carry %q, so it cannot read the key it may not own", want)
+	}
+}
+
+// TestTheInstalledBinaryIsOnPath is the gap every printed instruction depended
+// on.
+//
+// 01 §12 puts the binary at /opt/nodary/current/nodary, which is on nobody's
+// PATH. The install prints `nodary node approve …`, `nodary token join`,
+// `nodary doctor` and a setup URL, and until this none of those were commands
+// the operator could run. It went unnoticed because
+// scripts/verify-privileged.sh invokes its own build out of /tmp.
+func TestTheInstalledBinaryIsOnPath(t *testing.T) {
+	root := t.TempDir()
+	o := Options{Root: root}
+	steps, _, err := EnsureBinary("1.0.0", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reported as its own step, because the one case that matters most is the
+	// one it declines to do: an existing file it must not replace.
+	var named bool
+	for _, s := range steps {
+		if s.Name == "PATH" {
+			named = true
+		}
+	}
+	if !named {
+		t.Error("the PATH link is not reported, so a refusal to replace one would be silent")
+	}
+
+	link := filepath.Join(root, "usr/local/bin/nodary")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("nodary is not on PATH after an install: %v", err)
+	}
+	// At `current`, not at a version: an upgrade has to move both by moving one.
+	if want := filepath.Join(root, paths.Binary()); target != want {
+		t.Errorf("the link points at %q, want %q", target, want)
+	}
+	if _, err := os.Stat(link); err != nil {
+		t.Errorf("the link does not resolve: %v", err)
+	}
+
+	// Idempotent, and it heals a run that placed the binary and not the link.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := EnsureBinary("1.0.0", o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Readlink(link); err != nil {
+		t.Errorf("a re-run did not restore the link: %v", err)
+	}
+}
+
+// TestAnExistingNodaryOnPathIsNotReplaced follows PlaceComponents' rule: what
+// somebody else installed is theirs. A pip or npm wrapper puts a real file
+// there, and removing it because the name matches would take down whatever they
+// were using it for.
+func TestAnExistingNodaryOnPathIsNotReplaced(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "usr/local/bin/nodary")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("#!/bin/sh\necho somebody else's\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	step, err := linkOnPath(Options{Root: root, BinDir: "/usr/local/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step.Changed {
+		t.Error("an existing binary was replaced")
+	}
+	if !strings.Contains(step.Detail, "not ours to replace") {
+		t.Errorf("the report does not explain what was left alone: %q", step.Detail)
+	}
+	body, err := os.ReadFile(link)
+	if err != nil || !strings.Contains(string(body), "somebody else") {
+		t.Errorf("the existing file was modified: %v", err)
 	}
 }

@@ -356,6 +356,7 @@ node will not return after a Windows reboot; a models directory under `/mnt/c`; 
 ```
 /opt/nodary/<version>/nodary     the binary
 /opt/nodary/current              symlink → active version
+/usr/local/bin/nodary            symlink → current/nodary, so `nodary` is a command
 /etc/nodary/server.toml          bind, TLS paths, data dir           (0640 nodary:nodary)
 /etc/nodary/agent.toml           server URL, node name, models dir   (0640 nodary:nodary)
 /etc/nodary/components.json      what nodary installed, for uninstall

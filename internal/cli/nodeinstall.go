@@ -124,10 +124,10 @@ func cmdNodeInstall(e env, args []string) int {
 	}
 	report(e, steps)
 
-	if step, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
+	if steps, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
 		fmt.Fprintf(e.stdout, "%s binary             %v\n", mark(preflight.LevelWarn), err)
 	} else {
-		report(e, []install.Step{step})
+		report(e, steps)
 	}
 
 	// 4. Fetch the runtime through the control plane's mirror, and place it.

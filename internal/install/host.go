@@ -276,11 +276,11 @@ func Start(ctx context.Context, unit string, o Options) (Step, error) {
 // — a package manager, a copy, a `go build` — lands in the same place, and the
 // unit's ExecStart is a path that exists for the service rather than for the
 // person who ran the install.
-func EnsureBinary(version string, o Options) (Step, string, error) {
+func EnsureBinary(version string, o Options) ([]Step, string, error) {
 	o.setDefaults()
 	self, err := os.Executable()
 	if err != nil {
-		return Step{}, "", err
+		return nil, "", err
 	}
 	self, _ = filepath.EvalSymlinks(self)
 
@@ -288,24 +288,79 @@ func EnsureBinary(version string, o Options) (Step, string, error) {
 	stable := o.path(paths.Binary())
 	step := Step{Name: "binary", Detail: versioned}
 
-	if same, _ := sameFile(self, versioned); same {
-		// Already in place; still make sure `current` points at it.
-		if err := linkCurrent(o, version); err != nil {
-			return step, stable, err
+	if same, _ := sameFile(self, versioned); !same {
+		if err := os.MkdirAll(filepath.Dir(versioned), 0o755); err != nil {
+			return nil, "", err
 		}
-		return step, stable, nil
+		if err := copyExecutable(self, versioned); err != nil {
+			return nil, "", fmt.Errorf("placing the binary at %s: %w", versioned, err)
+		}
+		step.Changed, step.Detail = true, versioned+" (current → "+version+")"
 	}
-	if err := os.MkdirAll(filepath.Dir(versioned), 0o755); err != nil {
-		return step, "", err
-	}
-	if err := copyExecutable(self, versioned); err != nil {
-		return step, "", fmt.Errorf("placing the binary at %s: %w", versioned, err)
-	}
+	// Both links every time, not only when the binary moved: that is how a run
+	// which placed the binary and then failed heals on the next one.
 	if err := linkCurrent(o, version); err != nil {
-		return step, "", err
+		return []Step{step}, stable, err
 	}
-	step.Changed, step.Detail = true, versioned+" (current → "+version+")"
-	return step, stable, nil
+	onPath, err := linkOnPath(o)
+	if err != nil {
+		return []Step{step}, stable, err
+	}
+	return []Step{step, onPath}, stable, nil
+}
+
+// linkOnPath puts `nodary` somewhere a shell will find it.
+//
+// **Every line this install prints tells the operator to run `nodary`** — the
+// setup link, `nodary node approve`, `nodary token join`, `nodary doctor`. None
+// of them worked: 01 §12 puts the binary at /opt/nodary/current/nodary, which
+// is on nobody's PATH, and nothing linked it anywhere. The verification script
+// never noticed because it runs its own build out of /tmp.
+//
+// /usr/local/bin because it is on a login PATH *and* in sudo's default
+// `secure_path`, which matters more here than usual: almost every nodary verb
+// worth typing needs root, and a link somewhere sudo strips would work for the
+// operator and vanish under sudo — the same trap that hid nvidia-smi from
+// preflight.
+//
+// The link points at `current`, not at a version, so an upgrade moves both by
+// moving one.
+func linkOnPath(o Options) (Step, error) {
+	link := filepath.Join(o.path(o.BinDir), "nodary")
+	target := o.path(paths.Binary())
+	step := Step{Name: "PATH", Detail: link + " → " + target}
+
+	switch info, err := os.Lstat(link); {
+	case err == nil && info.Mode()&os.ModeSymlink == 0:
+		// A real file, which somebody else put there — a pip or npm wrapper, or
+		// an older copy. Left alone and reported, on the rule PlaceComponents
+		// already follows: removing what an operator installed, because its
+		// name matches ours, takes down whatever they were using it for.
+		step.Detail = link + " is a file, not ours to replace; `nodary` may run an older build"
+		return step, nil
+	case err == nil:
+		if existing, _ := os.Readlink(link); existing == target {
+			return step, nil
+		}
+	case !os.IsNotExist(err):
+		return step, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return step, err
+	}
+	// Through a temporary name, for the reason linkCurrent does it: a link
+	// removed and recreated has a window in which `nodary` is not a command.
+	tmp := link + ".tmp"
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return step, err
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		return step, err
+	}
+	step.Changed = true
+	return step, nil
 }
 
 // linkCurrent points /opt/nodary/current at one version.

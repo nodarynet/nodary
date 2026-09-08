@@ -15,6 +15,7 @@
 #   /etc/cni/net.d/     10-nodary-isolated.conflist
 #   /etc/systemd/system nodary-server, nodary-gateway, nodary-agent, containerd
 #   /opt/nodary/        the binary, versioned, with a `current` symlink
+#   /usr/local/bin/nodary  a symlink to it, so `nodary` is a command
 #   /etc/nodary/        configuration, PKI, the sealing key
 #   /var/lib/nodary/    database, component cache, models
 #   /var/log/nodary/    the audit mirror
@@ -75,6 +76,13 @@ cleanup() {
     grep -B2 '"placed": true' /etc/nodary/components.json 2>/dev/null | grep '"path"' | sed 's/^/    /'
   fi
   rm -rf /etc/nodary /var/lib/nodary /var/log/nodary /opt/nodary
+  # Only if it is ours: a symlink into /opt/nodary. A real file there was put
+  # by somebody else — a pip or npm wrapper — and is not this script's to remove.
+  if [ -L /usr/local/bin/nodary ]; then
+    case "$(readlink /usr/local/bin/nodary)" in
+      /opt/nodary/*) rm -f /usr/local/bin/nodary ;;
+    esac
+  fi
   userdel nodary 2>/dev/null && echo "  removed the nodary user"
   rm -f "$BIN"
   echo
@@ -145,6 +153,15 @@ if [ -x /opt/nodary/current/nodary ]; then
   ok "/opt/nodary/current/nodary → $(readlink /opt/nodary/current)"
 else
   bad "/opt/nodary/current/nodary is missing; the units will fail with 203/EXEC"
+fi
+
+# The gap every printed instruction depended on. This script uses its own build
+# out of /tmp, which is exactly why nobody noticed that an installed nodary was
+# on no PATH at all.
+if command -v nodary >/dev/null 2>&1; then
+  ok "nodary is on PATH ($(command -v nodary) → $(readlink -f "$(command -v nodary)"))"
+else
+  bad "nodary is not on PATH; every instruction the install prints names it"
 fi
 
 say "4. Units are written and load"
