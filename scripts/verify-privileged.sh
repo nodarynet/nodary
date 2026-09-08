@@ -211,10 +211,20 @@ done
 say "10. R4-26 — the nodary-isolated network exists"
 if [ -f /etc/cni/net.d/10-nodary-isolated.conflist ]; then
   ok "the CNI configuration is written"
-  # The three properties that make it the control.
-  if grep -q '"isGateway": false' /etc/cni/net.d/10-nodary-isolated.conflist; then
-    ok "isGateway is false — no default route"
-  else bad "isGateway is not false"; fi
+  # The properties that make it the control.
+  #
+  # `isDefaultGateway`, not `isGateway`. This checked the second, on the same
+  # wrong reasoning the Go test carried: isGateway puts an address on the
+  # *bridge*, which is what lets the host route in, while isDefaultGateway is
+  # what installs a default route in the container. Asserting the wrong one held
+  # the network at a setting where portmap's DNAT pointed at an address the host
+  # could not reach, so every published port was installed and dead.
+  if grep -q '"isDefaultGateway": false' /etc/cni/net.d/10-nodary-isolated.conflist; then
+    ok "isDefaultGateway is false — the container gets no default route"
+  else bad "isDefaultGateway is not false; the container would get a default route"; fi
+  if grep -q '"isGateway": true' /etc/cni/net.d/10-nodary-isolated.conflist; then
+    ok "isGateway is true — the host can route in, so a published port works"
+  else bad "isGateway is not true; portmap's DNAT would point where the host has no route"; fi
   if grep -q '"ipMasq": false' /etc/cni/net.d/10-nodary-isolated.conflist; then
     ok "ipMasq is false — nothing NATs this subnet out"
   else bad "ipMasq is not false"; fi
@@ -260,12 +270,17 @@ else
   # else, which is how a missing iptables read as a registry problem.
   if ! PULL=$(nerdctl pull --quiet alpine:3 2>&1); then
     skip "no test image, so this host cannot prove the row: $(printf '%s' "$PULL" | tail -1)"
-  # busybox httpd, not `sleep`: the ingress half of this row is whether the
-  # gateway could actually reach a model, and nothing answering on port 80
+  # Something that answers on port 80, not `sleep`: the ingress half of this row
+  # is whether the gateway could actually reach a model, and nothing listening
   # cannot tell a working port mapping from a broken one.
+  #
+  # busybox `nc`, because **alpine's busybox has no httpd** — measured: `sh:
+  # httpd: not found`, the container exited at once, and the row failed looking
+  # for a pid. The loop is what keeps the container alive whatever happens to the
+  # listener, so a missing tool cannot take the egress probe down with it.
   elif RUNERR=$(nerdctl run -d --name nodary-verify --network nodary-isolated \
        -p 127.0.0.1:19099:80 alpine:3 \
-       sh -c 'printf nodary > /tmp/index.html; httpd -f -p 80 -h /tmp' 2>&1); then
+       sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\nnodary\n" | nc -l -p 80 2>/dev/null || sleep 5; done' 2>&1); then
     ok "a container started on nodary-isolated"
     PID=$(nerdctl inspect --format '{{.State.Pid}}' nodary-verify 2>/dev/null)
     if [ -n "$PID" ] && [ "$PID" != "0" ]; then
@@ -293,6 +308,9 @@ else
       fi
     else
       bad "could not find the container's pid"
+      nerdctl inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}}' \
+        nodary-verify 2>&1 | sed 's/^/    /'
+      nerdctl logs nodary-verify 2>&1 | tail -3 | sed 's/^/    /'
     fi
     nerdctl rm -f nodary-verify >/dev/null 2>&1
   else
