@@ -32,18 +32,32 @@ set -u
 
 REPO="${1:-}"
 MODELS_DIR="/var/lib/nodary/models"
+NODE=""
+GPU="0"
+PORT="8001"
+ROUTE=""
+OUT=""
 shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
     --models-dir) MODELS_DIR="$2"; shift 2 ;;
+    --node)       NODE="$2"; shift 2 ;;
+    --gpu)        GPU="$2"; shift 2 ;;
+    --port)       PORT="$2"; shift 2 ;;
+    --route)      ROUTE="$2"; shift 2 ;;
+    -o)           OUT="$2"; shift 2 ;;
     *) printf 'unknown argument %q\n' "$1" >&2; exit 2 ;;
   esac
 done
 
 if [ -z "$REPO" ]; then
-  printf 'usage: %s <org/name> [--models-dir DIR]\n' "$0" >&2
+  printf 'usage: %s <org/name> [--node NAME] [--gpu N] [--port P] [--route NAME] [-o FILE]\n' "$0" >&2
+  printf '       [--models-dir DIR]\n' >&2
   exit 2
 fi
+# The route is what a client asks for as its model name, so it defaults to
+# something short rather than to the repository path.
+[ -n "$ROUTE" ] || ROUTE=$(printf '%s' "${REPO##*/}" | tr '[:upper:]' '[:lower:]')
 for t in curl python3 sha256sum; do
   command -v "$t" >/dev/null 2>&1 || { printf '%s is required\n' "$t" >&2; exit 1; }
 done
@@ -124,24 +138,60 @@ FILECOUNT=$(wc -l < "$DIR/nodary-manifest.sha256")
 printf '\n\033[1m== Staged\033[0m  %s file(s), %s bytes\n' "$FILECOUNT" "$BYTES"
 printf '   manifest_sha256 = %s\n\n' "$MANIFEST_SHA"
 
-cat <<EOF
-Add this to a configuration document and apply it with:
+# The image, pinned by digest from the embedded manifest rather than left to the
+# descriptor's default — which is a *tag*, and an older vLLM than the manifest
+# carries. On a new GPU generation that difference is the whole run.
+IMAGE=""
+if command -v nodary >/dev/null 2>&1; then
+  IMAGE=$(nodary components list --format json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for c in d.get("components", []):
+    if c["name"] == "vllm":
+        art = c.get("platforms", {}).get(d.get("platform", ""), {})
+        print(art.get("image", ""))
+        break
+')
+fi
 
-  sudo nodary config apply <file> --yes --justify "staging $REPO"
+DOC="${OUT:-$PWD/${ROUTE}.toml}"
+{
+  printf '# Written by scripts/stage-model.sh. Apply with:\n'
+  printf '#   sudo nodary config apply -f %s --yes --justify "staging %s"\n#\n' "$DOC" "$REPO"
+  printf '# --prune is off by default, so this adds to the fleet rather than replacing it.\n\n'
+  printf '[[model]]\nid              = "%s"\nbackend         = "vllm"\n' "$REPO"
+  printf 'source          = "local"\nartifact        = "weights"\n'
+  printf 'manifest_sha256 = "%s"\ntotal_bytes     = %s\n\n' "$MANIFEST_SHA" "$BYTES"
+  if [ -n "$NODE" ]; then
+    printf '[[deployment]]\nid        = "%s"\nmodel_id  = "%s"\n' "$ROUTE-$NODE" "$REPO"
+    printf 'node_name = "%s"\nbackend   = "vllm"\n' "$NODE"
+    if [ -n "$IMAGE" ]; then
+      printf 'image     = "%s"\n' "$IMAGE"
+    else
+      printf '# image  = "vllm/vllm-openai@sha256:…"   # `nodary components list` has the pinned digest\n'
+    fi
+    printf 'gpus      = [%s]\nport      = %s\n' "$GPU" "$PORT"
+    # served_name matters: LiteLLM sends the *route* name as the model, and vLLM
+    # otherwise serves under the weights path and rejects it.
+    printf 'params    = %s{"served_name":"%s"}%s\n\n' "'" "$ROUTE" "'"
+    printf '[[route]]\nname     = "%s"\nstrategy = "round-robin"\n\n' "$ROUTE"
+    printf '  [[route.member]]\n  deployment_id = "%s"\n  weight        = 1\n' "$ROUTE-$NODE"
+  fi
+} > "$DOC"
 
-[[model]]
-id              = "$REPO"
-backend         = "vllm"
-source          = "local"
-artifact        = "weights"
-manifest_sha256 = "$MANIFEST_SHA"
-total_bytes     = $BYTES
-
-Then a deployment naming this node and its GPU, and a route to serve it under.
-\`nodary agent plan\` shows what the node would run before anything starts.
-
-Note: the weights are flat in that directory because the agent renders
-\`--model\` as the directory itself. A real HuggingFace cache — blobs/, refs/,
-snapshots/ — would not load, even though docs/specs/05-catalog.md §3 says this
-layout adopts one. That gap is real and is recorded against R4-34.
-EOF
+printf 'Wrote %s\n\n' "$DOC"
+if [ -z "$NODE" ]; then
+  printf 'It holds the catalog entry only. Pass --node NAME (and --gpu, --port) to get a\n'
+  printf 'deployment and a route as well; `nodary node list` names the enrolled nodes.\n\n'
+else
+  printf 'Next:\n'
+  printf '  sudo nodary config apply -f %s --yes --justify "staging %s"\n' "$DOC" "$REPO"
+  printf '  sudo nodary agent plan          # the argv and the staging verdict, before anything starts\n'
+  printf '  sudo nodary gateway sync        # point the data plane at it once it is ready\n\n'
+fi
+printf 'Note: the weights are flat in that directory because the agent renders --model as\n'
+printf 'the directory itself. A real HuggingFace cache — blobs/, refs/, snapshots/ — would\n'
+printf 'not load, even though docs/specs/05-catalog.md 3 says this layout adopts one.\n'
