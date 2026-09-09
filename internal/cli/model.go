@@ -65,7 +65,7 @@ func cmdModelRegister(e env, args []string) int {
 	fs := newFlagSet(e, "model register")
 	dbPath, keyPath, credsPath := stateFlags(fs)
 	cer := attestFlags(fs)
-	node := fs.String("node", "", "the node to place it on (`nodary node list` names them)")
+	node := fs.String("node", "", "the node to place it on; nodary node list names them")
 	gpus := fs.String("gpu", "0", "GPU indices on that node, comma-separated")
 	port := fs.Int("port", 8001, "loopback port the deployment publishes")
 	route := fs.String("route", "", "the name clients ask for (default: the model's name, lowercased)")

@@ -207,7 +207,7 @@ func cmdAgentRun(e env, args []string) int {
 	// no network cgroup controller, so IPAddressDeny= is inert there; it was
 	// never the egress control (docs/specs/03-agent.md §5), so nothing is lost
 	// that this scope was providing.
-	user := fs.Bool("user", false, "drive `systemctl --user`, for a host where this is not run as root")
+	user := fs.Bool("user", false, "drive systemctl --user, for a host where this is not run as root")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}

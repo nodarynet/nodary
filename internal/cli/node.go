@@ -65,7 +65,7 @@ func cmdNode(e env, args []string) int {
 func cmdNodeEnroll(e env, args []string) int {
 	fs := newFlagSet(e, "node enroll")
 	server := fs.String("server", "", "control plane URL, https://host:8443")
-	token := fs.String("token", "", "join token from `nodary token join`")
+	token := fs.String("token", "", "join token from nodary token join")
 	fingerprint := fs.String("ca-fingerprint", "", "the control plane certificate to pin, sha256:…")
 	name := fs.String("name", "", "this node's name in the fleet (default: hostname)")
 	confPath := fs.String("config", "", "agent.toml path")

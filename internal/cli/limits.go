@@ -70,7 +70,7 @@ func cmdLimitsSet(e env, args []string) int {
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	kind := fs.String("kind", "user", "what the limit applies to: user, role or global")
-	subject := fs.String("subject", "", "the user, role, or `global`")
+	subject := fs.String("subject", "", "the user, role, or the word global")
 	rpm := fs.Int("rpm", 0, "requests per minute")
 	tpm := fs.Int("tpm", 0, "tokens per minute")
 	daily := fs.Int("daily-tokens", 0, "tokens per day")

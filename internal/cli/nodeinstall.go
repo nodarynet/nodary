@@ -26,7 +26,7 @@ import (
 func cmdNodeInstall(e env, args []string) int {
 	fs := newFlagSet(e, "node install")
 	server := fs.String("server", "", "control plane URL, https://host:8443")
-	token := fs.String("token", "", "join token from `nodary token join`")
+	token := fs.String("token", "", "join token from nodary token join")
 	fingerprint := fs.String("ca-fingerprint", "", "the control plane certificate to pin, sha256:…")
 	name := fs.String("name", "", "this node's name in the fleet (default: hostname)")
 	modelsDir := fs.String("models-dir", "", "where weights are staged")
