@@ -452,7 +452,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"changes": config.Changes(have, target.Snapshot), "prune": prune}, nil
+			return map[string]any{"changes": config.FilterChanges(config.Changes(have, target.Snapshot), prune), "prune": prune}, nil
 		},
 		Apply: func(m audit.Mutation, _ any) error {
 			p, _ := s.principalOf(r)

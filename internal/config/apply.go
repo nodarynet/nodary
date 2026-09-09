@@ -44,27 +44,37 @@ type Options struct {
 // tests. If rollback had its own it would be the one that drifts, and the drift
 // would surface as "the rollback did not restore what export said was there" —
 // discovered during a recovery, which is the worst possible time.
+// FilterChanges drops `- ` lines from a change list when prune is off.
+//
+// **A `-` line is a deletion, and with prune off no deletion happens.** Those
+// objects are Orphans, reported separately as left in place. Leaving them in
+// the list makes an ordinary partial apply say it removed the node the
+// operator is standing on — which is the most alarming thing this verb could
+// say untruthfully.
+//
+// Exported and called from two places that both render a change list and must
+// agree: Apply's own Result, and the CLI's preview shown before "apply? [y/N]"
+// and hashed into intent_hash. The preview used to call Changes directly,
+// unfiltered — so the confirmation an operator actually approves said this on
+// every partial `config apply` or `model register`, even though Apply itself
+// had already stopped saying it in the post-apply report. Approving a lie is
+// worse than printing one.
+func FilterChanges(changes []string, prune bool) []string {
+	if prune {
+		return changes
+	}
+	return slices.DeleteFunc(changes, func(c string) bool {
+		return strings.HasPrefix(c, "- ")
+	})
+}
+
 func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot, opt Options) (Result, error) {
 	tx := m.Tx()
 	have, err := Read(ctx, tx)
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Changes: Changes(have, want)}
-	if !opt.Prune {
-		// **A `-` line is a deletion, and with prune off no deletion happens.**
-		// Those objects are Orphans, reported separately as left in place.
-		// Leaving them in the change list makes an ordinary partial apply say
-		// it removed the node the operator is standing on — which is the most
-		// alarming thing this verb could say untruthfully, and it said it every
-		// time somebody applied a fragment.
-		//
-		// The prune path appends its own `-` lines below, as it deletes, so
-		// what survives here is what was actually done.
-		res.Changes = slices.DeleteFunc(res.Changes, func(c string) bool {
-			return strings.HasPrefix(c, "- ")
-		})
-	}
+	res := Result{Changes: FilterChanges(Changes(have, want), opt.Prune)}
 
 	// Nodes first: deployments reference them, and a node this control plane
 	// has never met cannot be conjured by a file. A node joins by enrolling

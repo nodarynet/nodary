@@ -359,7 +359,7 @@ func applySnapshot(e env, verb string, want *config.Snapshot, prune, noSync bool
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"changes": config.Changes(have, want), "prune": prune}, nil
+			return map[string]any{"changes": config.FilterChanges(config.Changes(have, want), prune), "prune": prune}, nil
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {

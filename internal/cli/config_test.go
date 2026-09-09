@@ -459,6 +459,52 @@ artifact = "hf-cache"
 	}
 }
 
+// TestThePreviewDoesNotShowDeletionsItWillNotMake is the same bug one layer
+// earlier: the fix above filtered the post-apply *report*, but the
+// confirmation an operator actually reads and approves — what "apply? [y/N]"
+// shows, and what intent_hash is computed over — called config.Changes
+// directly and was never touched. Every partial `config apply` or `model
+// register` said, in the thing being approved, that it would delete every
+// existing object the document didn't happen to mention. --dry-run renders
+// the identical preview non-interactively, which is what makes this
+// checkable without a TTY.
+func TestThePreviewDoesNotShowDeletionsItWillNotMake(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.enrolled("fractal")
+
+	first := filepath.Join(a.dir, "first.toml")
+	write(t, first, `
+[[model]]
+id       = "kept/model"
+backend  = "vllm"
+source   = "local"
+artifact = "hf-cache"
+`)
+	if code, _, stderr := a.run("config", "apply", "-f", first); code != ExitOK {
+		t.Fatalf("apply: exit %d, %s", code, stderr)
+	}
+
+	second := filepath.Join(a.dir, "second.toml")
+	write(t, second, `
+[[model]]
+id       = "added/model"
+backend  = "vllm"
+source   = "local"
+artifact = "hf-cache"
+`)
+	code, stdout, stderr := a.run("config", "apply", "-f", second, "--dry-run")
+	if code != ExitOK {
+		t.Fatalf("dry-run apply: exit %d, %s", code, stderr)
+	}
+	if strings.Contains(stdout, "- model kept/model") || strings.Contains(stdout, "- node fractal") {
+		t.Errorf("the preview says it will delete objects a partial apply leaves in place:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "+ model added/model") {
+		t.Errorf("the preview does not show what it will actually do:\n%s", stdout)
+	}
+}
+
 // TestAModelWhoseArtifactItsBackendCannotReadIsRefused is docs/specs/05-catalog.md
 // §1's "must match the backend's weights_layout", enforced where it can still
 // be corrected.
