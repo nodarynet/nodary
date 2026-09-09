@@ -1,8 +1,8 @@
--- The commercial license and the key an install signs its evidence with
+-- The commercial licence and the key an install signs its evidence with
 -- (docs/specs/13-evidence.md, docs/adr/0005-editions-and-the-advisory-feed.md).
 --
 -- Both are singletons for the same reason the policy row is: history is the
--- chain's job. Applying a license and creating a signing key are audited
+-- chain's job. Applying a licence and creating a signing key are audited
 -- mutations, so "when did this install become licensed" and "when did this key
 -- come into existence" are answered by the evidence rather than by a table
 -- nobody exports.
