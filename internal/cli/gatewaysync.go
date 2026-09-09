@@ -68,6 +68,17 @@ func cmdGatewaySync(e env, args []string) int {
 	}
 	models, skipped := routeModels(e, snap, dir)
 
+	// Named, not counted. "3 route(s) would be served" leaves an operator
+	// unable to answer the one question they have after applying a
+	// configuration — what may a client ask for, and by what name — and the
+	// answer is not guessable: LiteLLM routes on the *route* name, not the
+	// model id, so a client sending the weights path gets a 404 from a fleet
+	// that is working perfectly.
+	for _, m := range models {
+		fmt.Fprintf(e.stdout, "%s %-18s %s -> %s\n",
+			mark(preflight.LevelOK), "route", m.Name, m.APIBase)
+	}
+
 	body := gateway.LiteLLMConfig{Models: models, MasterKey: master}.Render()
 	if err := gateway.AssertLoggingOff(body); err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
