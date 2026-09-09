@@ -37,6 +37,15 @@ GPU="0"
 PORT="8001"
 ROUTE=""
 OUT=""
+# vLLM defaults to 0.9+ of total VRAM, which assumes a card nothing else is
+# using. A workstation always has some in use — a desktop compositor is enough —
+# and the failure is a refusal to start, not a smaller cache:
+#
+#   Free memory on device cuda:0 (28.45/31.84 GiB) on startup is less than
+#   desired GPU memory utilization (0.92, 29.29 GiB)
+#
+# So it is set explicitly. Raise it for a large model on a dedicated card.
+GPUMEM="0.80"
 shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -45,6 +54,7 @@ while [ $# -gt 0 ]; do
     --gpu)        GPU="$2"; shift 2 ;;
     --port)       PORT="$2"; shift 2 ;;
     --route)      ROUTE="$2"; shift 2 ;;
+    --gpu-memory) GPUMEM="$2"; shift 2 ;;
     -o)           OUT="$2"; shift 2 ;;
     *) printf 'unknown argument %q\n' "$1" >&2; exit 2 ;;
   esac
@@ -52,7 +62,7 @@ done
 
 if [ -z "$REPO" ]; then
   printf 'usage: %s <org/name> [--node NAME] [--gpu N] [--port P] [--route NAME] [-o FILE]\n' "$0" >&2
-  printf '       [--models-dir DIR]\n' >&2
+  printf '       [--gpu-memory FRACTION] [--models-dir DIR]\n' >&2
   exit 2
 fi
 # The route is what a client asks for as its model name, so it defaults to
@@ -176,7 +186,8 @@ DOC="${OUT:-$PWD/${ROUTE}.toml}"
     printf 'gpus      = [%s]\nport      = %s\n' "$GPU" "$PORT"
     # served_name matters: LiteLLM sends the *route* name as the model, and vLLM
     # otherwise serves under the weights path and rejects it.
-    printf 'params    = %s{"served_name":"%s"}%s\n\n' "'" "$ROUTE" "'"
+    printf 'params    = %s{"served_name":"%s","gpu_memory_fraction":%s}%s\n\n' \
+      "'" "$ROUTE" "$GPUMEM" "'"
     printf '[[route]]\nname     = "%s"\nstrategy = "round-robin"\n\n' "$ROUTE"
     printf '  [[route.member]]\n  deployment_id = "%s"\n  weight        = 1\n' "$ROUTE-$NODE"
   fi
