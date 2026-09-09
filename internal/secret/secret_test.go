@@ -64,7 +64,7 @@ func TestCreateIsIdempotent(t *testing.T) {
 // Two processes installing at once must agree on one key. A loser that kept
 // its own would encrypt under a key nothing else can read.
 //
-// The barrier matters: without it the goroutines serialise and every caller
+// The barrier matters: without it the goroutines serialize and every caller
 // after the first takes the Load fast path, so the contended branch never runs
 // and the assertion is satisfied by creators that never contended.
 func TestConcurrentCreateAgreesOnOneKey(t *testing.T) {

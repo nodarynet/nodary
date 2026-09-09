@@ -13,7 +13,7 @@ import (
 // silently.
 const hexDigits = "0123456789abcdef"
 
-// writeString appends the JCS serialisation of s.
+// writeString appends the JCS serialization of s.
 //
 // RFC 8785 §3.2.2.2 names seven short escapes and requires everything else
 // printable to be emitted literally. In particular the forward slash is NOT

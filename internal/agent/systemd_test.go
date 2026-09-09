@@ -86,13 +86,13 @@ ExecStart=/usr/bin/env sleep ${NODARY_ARGS}
 }
 
 // `$FOO` splits at whitespace into separate arguments; `${FOO}` is one
-// argument, never split. The unit template depends on both behaviours — the
+// argument, never split. The unit template depends on both behaviors — the
 // argument list must split, an image reference must not — and this asserts each
 // against real systemd rather than against the documentation.
 //
 // It is here because assuming it was wrong. docs/specs/03-agent.md §6 had
 // `${NODARY_ARGS}`, which hands a model server its entire argv as one string;
-// it exits on an unrecognised argument, and the failure surfaces on a GPU host
+// it exits on an unrecognized argument, and the failure surfaces on a GPU host
 // as a container that will not start. This test is what found it, and it is
 // what stops the braces coming back.
 func TestSystemdSplitsBareVariablesAndNotBracedOnes(t *testing.T) {

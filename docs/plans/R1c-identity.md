@@ -232,7 +232,7 @@ nodary token  create --user NAME --kind pt|sk [--name N] [--expires D] | list | 
               | join --uses N --expires D
 ```
 
-`user passwd` is recognised and reports that it is not in this release, the way the
+`user passwd` is recognized and reports that it is not in this release, the way the
 top-level planned verbs already do.
 
 ## Testing
@@ -299,7 +299,7 @@ under a key that cannot read the existing ones.
 Enrollment displays a seed and accepts only a code computed from it, so nothing
 can confirm an enrollment without standing in for the authenticator — including
 a test of the command. The two functions are the public face of a public
-standard; neither authorises anything, because verification goes through
+standard; neither authorizes anything, because verification goes through
 `VerifyTOTP`, which spends the step.
 
 ## Open items
@@ -317,7 +317,7 @@ from would not learn about a missing key until the next change.
 `nodary doctor` ([R2](../tasks/R2-control-plane.md)) is where that belongs.
 
 **`last_used_at` records mutating use only.** It is stamped by `Touch` inside
-the act a credential authorised, because nothing outside `internal/audit` may
+the act a credential authorized, because nothing outside `internal/audit` may
 write to the database — the seam working as intended. A token used only for
 reads therefore looks unused, which understates it for stale-credential cleanup.
 R1 has no read path worth auditing and no server; when R2 puts an API in front,

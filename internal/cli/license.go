@@ -81,12 +81,12 @@ func cmdLicenseApply(e env, args []string) int {
 	fs := newFlagSet(e, "license apply")
 	dbPath, keyPath, credsPath := stateFlags(fs)
 	cer := attestFlags(fs)
-	sigPath := fs.String("signature", "", "detached signature (default: the licence path plus .minisig)")
+	sigPath := fs.String("signature", "", "detached signature (default: the license path plus .minisig)")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintf(e.stderr, "nodary license apply: expected one licence file\n")
+		fmt.Fprintf(e.stderr, "nodary license apply: expected one license file\n")
 		return ExitUsage
 	}
 
@@ -102,7 +102,7 @@ func cmdLicenseApply(e env, args []string) int {
 	sig, err := os.ReadFile(sp)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary license apply: %v\n", err)
-		fmt.Fprintf(e.stderr, "  a licence is signed; pass --signature if it is not beside the file\n")
+		fmt.Fprintf(e.stderr, "  a license is signed; pass --signature if it is not beside the file\n")
 		return ExitUsage
 	}
 
@@ -116,7 +116,7 @@ func cmdLicenseApply(e env, args []string) int {
 	rec, ok2, code := s.attested(e, "license apply", change{
 		action: "license.apply",
 		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			// Verified in the render, so an invalid licence is refused before
+			// Verified in the render, so an invalid license is refused before
 			// any ceremony is demanded rather than after it.
 			l, err := license.Parse(string(src), string(sig), s.now)
 			if err != nil {

@@ -20,7 +20,7 @@ const SetupTTL = 15 * time.Minute
 //
 // **Deliberately not in Kinds.** The prefix exists for the reason every prefix
 // in docs/specs/02-enrollment.md §4 exists — a leaked credential should be
-// greppable in a log and recognisable to a secret scanner — but this is not a
+// greppable in a log and recognizable to a secret scanner — but this is not a
 // kind anybody may mint. `nodary token create --kind st` has to stay an error,
 // and leaving it out of Kinds is what makes ParseKind and Valid refuse it.
 const KindSetup Kind = "st"
@@ -86,7 +86,7 @@ func MintSetup(ctx context.Context, m audit.Mutation, now time.Time) (string, ti
 // same reasoning RedeemJoinToken gives, and it matters more here because what
 // is at stake is who administers the installation.
 //
-// The credential is the authority. There is no principal to authorise this and
+// The credential is the authority. There is no principal to authorize this and
 // there cannot be one: it runs before any account exists. So it passes
 // RoleAdmin to Add and SetPassword, and what stands behind that is the
 // single-use secret plus the refusal below — an installation with a user is

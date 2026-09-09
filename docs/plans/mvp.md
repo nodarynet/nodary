@@ -26,7 +26,7 @@ Not cost. **What cannot be retrofitted.**
 | :--- | :--- | :--- |
 | **Preimage** | canonical JSON, the audit record's fields, `intent_hash` | It sits inside a hash. Adding a field later invalidates every chain a customer has already exported, and the export is the thing they keep |
 | **Seam** | `audit.Act`, the closed metering schema, one core behind CLI and API | A path that must not exist has to be unreachable rather than merely unwritten · [tasks README](../tasks/README.md#cross-cutting-constraints) |
-| **Format** | bundle member names, the manifest as an independent artifact, evidence surviving a lapsed licence | A compatibility surface the moment one customer holds one |
+| **Format** | bundle member names, the manifest as an independent artifact, evidence surviving a lapsed license | A compatibility surface the moment one customer holds one |
 
 Everything else is **content or conformance** — SSP narratives, the 800-171 mapping,
 advisory entries, FIPS validation, POA&M clocks, posture monitoring, OIDC — and content
@@ -39,7 +39,7 @@ The mechanism exists: [`cli.go`](../../internal/cli/cli.go)'s `planned` map alre
 
 1. **A stub is a real verb with real output shape**, honest in its data — a `controls.json`
    whose entries say `"status": "unmapped"`, not an absent member and not a plausible
-   guess. This is [pivot §2.3](pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key)'s
+   guess. This is [pivot §2.3](pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-license-key)'s
    first non-negotiable applied one level down: the commercial surface is discoverable, and
    so is the unfinished one.
 2. **Every stub carries a task number.** A `TODO` nobody numbered is scope nobody agreed to.
@@ -133,7 +133,7 @@ claim a technically curious buyer will test in the demo.
 **Decided.** R4-34, the air-gapped path. R4-33's resumable remote download is deferred.
 
 **Why.** [04 §5](../specs/04-backends.md) already treats local staging as first-class
-rather than a workaround, and a defence subcontractor is the buyer most likely to be
+rather than a workaround, and a defense subcontractor is the buyer most likely to be
 running without egress anyway. It removes resumability, partial-transfer recovery and disk
 -full handling from the MVP for a demo path that is `cp`.
 
@@ -141,12 +141,12 @@ running without egress anyway. It removes resumability, partial-transfer recover
 funnel and for our own dogfooding. It is the larger half of the staging work and it serves
 the audience the pivot demoted.
 
-### 5.5 One licence check, no edition build
+### 5.5 One license check, no edition build
 
-**Decided.** As [pivot §2.3](pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key)
+**Decided.** As [pivot §2.3](pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-license-key)
 already decided — `ee/`, a signed key, verified through
 [`components/verify.go`](../../internal/components/verify.go). The MVP adds nothing to it
-and takes nothing from it, including R9-04: an absent or expired licence must not make an
+and takes nothing from it, including R9-04: an absent or expired license must not make an
 existing bundle unreadable, and that test lands with the first bundle rather than later.
 
 **Rejected — skip licensing entirely for the MVP.** Nothing to build, and the funnel is a
@@ -221,7 +221,7 @@ owes, and does not pre-empt them:
   - ADR 0006 picks `fips140=on` and names the two gates to `only`; the sealing-format gate
     has a hard deadline at [R2-40](../tasks/R2-control-plane.md)
 - [x] S2 — R1d policy, R1e attestation — R1 complete, 36 of 36
-- [x] S3 — evidence export and the licence key
+- [x] S3 — evidence export and the license key
 - [x] S4 — R2 thin — 28 of 42; the MVP subset complete
 - [x] S5 — R4 thin — every listed row except **R6-02**, which stays partial by design: vLLM and
   SGLang are embedded, and llama.cpp and TensorRT-LLM need `[backend.extra]` and

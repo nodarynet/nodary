@@ -115,7 +115,7 @@ breaks piping.
 
 **Decided.** `identity.VerifyTOTP` already takes an `audit.Mutation`, and R1e keeps it there.
 
-**Why.** Spending the step is itself a write, and it must commit with the act it authorises.
+**Why.** Spending the step is itself a write, and it must commit with the act it authorizes.
 Verifying first and acting second gives a window where the code is spent and the act did not
 happen — the operator's next attempt then fails on a replayed code they never got to use.
 

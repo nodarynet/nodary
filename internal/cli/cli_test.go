@@ -13,7 +13,7 @@ func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return runWithStdin(t, "", args...)
 }
 
-// runWithDefaultDB drives a verb whose behaviour differs for "no database at
+// runWithDefaultDB drives a verb whose behavior differs for "no database at
 // the *default* location", pointing that location at a path the test owns.
 //
 // Without it those tests read whatever /var/lib/nodary is on the machine, and

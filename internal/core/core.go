@@ -77,7 +77,7 @@ type Deps struct {
 //
 // Preview, hash, ceremony, confirmation-free apply, the re-render that binds
 // the approved preview to what is applied, and the TOTP that is spent inside
-// the act it authorises. A front end that skipped any of it would be a front
+// the act it authorizes. A front end that skipped any of it would be a front
 // end with less ceremony than the other one, which is the divergence the
 // cross-cutting constraint exists to prevent.
 func Act(ctx context.Context, d Deps, req Request, c Change) (Outcome, error) {
@@ -182,7 +182,7 @@ func preview(ctx context.Context, db *store.DB, r attest.Render) (any, error) {
 	return r(ctx, tx)
 }
 
-// touch records the use of the credential that authorised an act, inside that
+// touch records the use of the credential that authorized an act, inside that
 // act, because nothing outside internal/audit may write on its own.
 func touch(ctx context.Context, m audit.Mutation, now time.Time, p identity.Principal) error {
 	if p.Local() {

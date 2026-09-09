@@ -111,7 +111,7 @@ transaction as the change it describes.
 **Where records go afterwards is configuration.** A file — `/var/log/nodary/audit.jsonl` by
 default — plus `stdout` for a container, `stderr` for a terminal, `none`, or any combination.
 Delivery happens after the commit, so a destination can never block or roll back a change,
-and a destination that fell behind is resynchronised from the database with
+and a destination that fell behind is resynchronized from the database with
 `nodary audit export --from-seq`. Each record carries `seq` and `hash`, so a receiver dedupes
 and detects gaps without having to trust the sender.
 
@@ -229,7 +229,7 @@ that has to show an assessor where its evidence lives ([00 §1](00-overview.md#1
 homelab can skip it.
 
 **It shows where evidence lives. It does not discharge a control.** Every practice still has an
-owner inside the operating organisation, and the accuracy of the System Security Plan is
+owner inside the operating organization, and the accuracy of the System Security Plan is
 theirs — nodary's part is to make a claim in that plan something they can show. A row here
 means "when the `regulated` profile is active, the mechanism named on the right is what an
 assessor would be shown", and nothing more.

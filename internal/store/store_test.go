@@ -121,7 +121,7 @@ func TestStampsAndAcceptsItsOwnDatabase(t *testing.T) {
 	}
 	db.Close()
 
-	// Reopening must recognise the stamp rather than re-deciding.
+	// Reopening must recognize the stamp rather than re-deciding.
 	db2, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("reopening a stamped database: %v", err)

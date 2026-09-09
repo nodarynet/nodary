@@ -1,10 +1,10 @@
 # 11 — Failure modes
 
-Behaviour under failure is specified, not left to discovery. Every row below is a test case.
+Behavior under failure is specified, not left to discovery. Every row below is a test case.
 
 ## 1. Control plane and agent
 
-| Failure | Behaviour |
+| Failure | Behavior |
 | :--- | :--- |
 | Control plane down | Nodes keep serving. Agents retry with exponential backoff and jitter. The gateway is down, so inference stops — accepted, and the reason `--with-node` exists for single-box installs |
 | Agent down | Deployments keep running; systemd owns them. Node marked `stale` after 60s without a heartbeat |
@@ -16,7 +16,7 @@ Behaviour under failure is specified, not left to discovery. Every row below is 
 
 ## 2. Models and deployments
 
-| Failure | Behaviour |
+| Failure | Behavior |
 | :--- | :--- |
 | Weights corrupt | Deployment refuses to start; state `corrupt`; explicit `restage` required. Nothing auto-repairs |
 | Staging interrupted | Resumes from partial on reconnect. Temporary directory is never renamed into place unverified |
@@ -38,7 +38,7 @@ Behaviour under failure is specified, not left to discovery. Every row below is 
 
 ## 3. Security controls
 
-| Failure | Behaviour |
+| Failure | Behavior |
 | :--- | :--- |
 | **Egress verification fails** | Deployment marked non-compliant, removed from its route, critical alert. It is not silently left serving |
 | Audit chain broken | `audit verify` reports the first bad sequence. The server keeps running and raises a critical alert — it does not stop serving, and it does not repair the chain |
@@ -49,7 +49,7 @@ Behaviour under failure is specified, not left to discovery. Every row below is 
 
 ## 4. Gateway
 
-| Failure | Behaviour |
+| Failure | Behavior |
 | :--- | :--- |
 | No ready deployment on a route | `503` with `Retry-After`; alert raised |
 | LiteLLM unreachable | `502`. The gateway does not fall back to proxying deployments directly — that path would bypass routing and fallback logic |

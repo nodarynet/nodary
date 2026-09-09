@@ -93,7 +93,7 @@ func isTerminal(r io.Reader) bool {
 }
 
 // planned lists the verbs specified in docs/specs/10-cli.md that this release
-// does not implement yet. They are recognised rather than rejected so the
+// does not implement yet. They are recognized rather than rejected so the
 // error says "not in this release" instead of "unknown command", which is the
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
@@ -203,7 +203,7 @@ Available in this release:
                          create | list | revoke | join
   policy               The posture: ceremony and retention
                          show | apply | diff
-  license              The commercial licence
+  license              The commercial license
                          apply | show
   evidence             The signed evidence bundle (commercial)
                          export

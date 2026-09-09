@@ -154,7 +154,7 @@ func TestAnUnknownPermissionIsHeldByNobody(t *testing.T) {
 }
 
 // TestAnInvalidRoleHoldsNothing covers a corrupted or unset column. rank uses
-// slices.Index, which returns -1 for a miss, so an unrecognised role must land
+// slices.Index, which returns -1 for a miss, so an unrecognized role must land
 // below viewer rather than at it.
 func TestAnInvalidRoleHoldsNothing(t *testing.T) {
 	for _, r := range []Role{"", "root", "Admin", "ADMIN", "superuser"} {

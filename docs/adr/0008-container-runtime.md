@@ -23,7 +23,7 @@ Evaluated on two criteria: **security** and **ease of deployment**.
 ## Decision
 
 **containerd stays.** The security difference is unproven and, at its best, improves
-defence-in-depth rather than the control. The deployment difference is measured and severe.
+defense-in-depth rather than the control. The deployment difference is measured and severe.
 
 ### Ease of deployment: containerd, and it is not close
 
@@ -39,7 +39,7 @@ each is worse than the problem it solves:
 
 | | |
 | :--- | :--- |
-| A third-party rebuild | The best-maintained one is an individual's repository. It would be the container runtime, inside the boundary [ADR 0006](0006-cui-boundary-and-fips.md) exists to defend, pinned to a build nobody in the containers organisation makes |
+| A third-party rebuild | The best-maintained one is an individual's repository. It would be the container runtime, inside the boundary [ADR 0006](0006-cui-boundary-and-fips.md) exists to defend, pinned to a build nobody in the containers organization makes |
 | Distribution packages | Contradicts `allow.package_install = false` ([12](../specs/12-node-guardrails.md)) and [R5-11](../tasks/R5-install.md)'s record of what nodary placed. Ubuntu 24.04's `podman` has nine `Depends`, five of them shared libraries, plus `uidmap`, `passt` and `slirp4netns` as `Recommends` |
 | Build it ourselves | Makes nodary a distributor of a container engine, and every CVE in it ours to rebuild for |
 
@@ -68,7 +68,7 @@ it remains a hypothesis. Said plainly rather than assumed, because assuming is w
 project keeps being wrong about.
 
 Even granting it, what it buys is that `IPAddressDeny=` stops being documented-as-inert and
-starts enforcing — an improvement to defence in depth, not to the control. There is also a
+starts enforcing — an improvement to defense in depth, not to the control. There is also a
 second reason it would not enforce that podman cannot fix: a user-session manager is delegated
 `cpu memory pids` and no network controller at all, measured, so the filter has nothing to
 attach to outside a system unit either way.
@@ -85,7 +85,7 @@ GPU access is a wash: both reach it through the NVIDIA toolkit and CDI.
 **Gained.** The install path stays four digest-pinned artifacts from the projects that build
 them, and 03 §5's mechanism stays the one that was measured working.
 
-**Lost.** `IPAddressDeny=` remains defence in depth that constrains the launcher, and
+**Lost.** `IPAddressDeny=` remains defense in depth that constrains the launcher, and
 [R4-28](../tasks/R4-agent.md) keeps documenting it as such. The rootless story stays
 unavailable; nodary's agent runs as root on a node it also installs systemd units on, which is
 consistent with what it already is.

@@ -50,7 +50,7 @@ then relays every chunk unmodified while watching for the final usage chunk.
 
 **Why.** [06 §3](../specs/06-gateway.md#3-metering) requires the injection because
 OpenAI-compatible streams omit usage without it. The "otherwise untouched" half is the part
-worth being deliberate about: a gateway that re-serialises chunks is a gateway that changes
+worth being deliberate about: a gateway that re-serializes chunks is a gateway that changes
 them, and the difference surfaces as a client library failing to parse a field nodary
 round-tripped through a struct it does not fully model.
 
@@ -64,12 +64,12 @@ it to false deliberately. A client can opt out of nodary's accounting by opting 
 reporting, which makes metering advisory.
 
 **The cost, stated:** a client that set `include_usage: false` now receives a usage chunk it
-did not ask for. That is a visible difference from stock OpenAI behaviour, and it is the
+did not ask for. That is a visible difference from stock OpenAI behavior, and it is the
 correct trade inside a boundary where the point is that usage is not optional.
 
 ## 4. `/v1/models` returns the caller's routes, not the fleet
 
-**Decided.** The listing is filtered by the same allowlist that authorises a request, and a
+**Decided.** The listing is filtered by the same allowlist that authorizes a request, and a
 route outside it is `403` rather than `404`.
 
 **Why.** Both halves are [06 §2](../specs/06-gateway.md#2-authentication), and the reasoning
@@ -130,7 +130,7 @@ it, is the dishonest kind — an operator would reasonably believe a budget was 
 
 ## 9. Open items
 
-- Throttling (R3-08 – R3-10), partial-stream metering (R3-07), failure behaviour (R3-11),
+- Throttling (R3-08 – R3-10), partial-stream metering (R3-07), failure behavior (R3-11),
   retention roll-up (R3-13) and route round-robin (R3-14) are deferred by
   [mvp §4](mvp.md#4-the-route).
 - Round-robin across ready members is LiteLLM's job in this arrangement; R3-14 is about the

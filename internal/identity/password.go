@@ -137,7 +137,7 @@ func SetPassword(ctx context.Context, m audit.Mutation, by Role, name, plain str
 // behind.
 //
 // It takes an audit.Mutation because the rehash is a write and belongs in the
-// same transaction as the login it authorised — the alternative is a successful
+// same transaction as the login it authorized — the alternative is a successful
 // login that silently failed to upgrade, forever.
 func VerifyPassword(ctx context.Context, m audit.Mutation, name, plain string) (User, error) {
 	u, err := Get(ctx, m.Tx(), name)

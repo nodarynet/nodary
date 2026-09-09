@@ -114,7 +114,7 @@ network, `nodary-isolated`, created by the agent at install:
 - the port is published on `127.0.0.1` only, so the container is reachable by the gateway and by nothing off-host.
 
 This holds regardless of how containerd parents cgroups, is inspectable with `ip route` inside
-the container, and needs no BPF. `IPAddressDeny=any` remains on the unit as defence in depth —
+the container, and needs no BPF. `IPAddressDeny=any` remains on the unit as defense in depth —
 it constrains the launcher, and is honest to keep provided nobody mistakes it for the control.
 
 A serving deployment needs nothing more: once weights are staged it makes no outbound
@@ -162,7 +162,7 @@ ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-%i
 Restart=always
 RestartSec=10s
 
-# Defence in depth only. NOT the egress control — see §5.
+# Defense in depth only. NOT the egress control — see §5.
 IPAddressDeny=any
 IPAddressAllow=localhost
 
@@ -181,7 +181,7 @@ it would make the document's field a lie.
 load-bearing.** systemd splits `$FOO` at whitespace into separate arguments and passes
 `${FOO}` as a single argument, never split. The argument list has to be split; an image
 reference must not be. With `${NODARY_ARGS}` the model server receives its entire argv as one
-string and exits on an unrecognised argument — a failure that surfaces on a GPU host as a
+string and exits on an unrecognized argument — a failure that surfaces on a GPU host as a
 container that will not start, a long way from its cause. Measured on systemd 255.
 
 The same fact is why an `extra_args` entry containing whitespace is **refused** rather than

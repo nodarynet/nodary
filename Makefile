@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION)
 GO      ?= go
 DIST    ?= dist
 
-# Analyser versions are pinned because a floating one breaks the build on
+# Analyzer versions are pinned because a floating one breaks the build on
 # somebody else's schedule. They also have to be new enough to read this tree:
 # staticcheck 2025.1.1 cannot parse a Go 1.27 stdlib at all, failing with
 # "export data version 4 is greater than maximum supported version 2".
@@ -19,7 +19,7 @@ STATICCHECK ?= v0.8.1
 GOVULNCHECK ?= v1.7.0
 
 # `go run tool@version` resolves its own toolchain and ignores this module's,
-# so both analysers silently pick an older Go and fail. Read the pin from
+# so both analyzers silently pick an older Go and fail. Read the pin from
 # go.mod so it cannot drift from what the release is built with.
 TOOLCHAIN := $(shell awk '/^toolchain /{print $$2}' go.mod)
 

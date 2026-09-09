@@ -255,6 +255,6 @@ func TestCSVNeutralisesFormulas(t *testing.T) {
 		t.Error("the JSONL export altered the record; it is the byte-faithful one")
 	}
 	if bytes.Contains(jsonl.Bytes(), []byte(`'=HYPERLINK`)) {
-		t.Error("the CSV defence leaked into JSONL")
+		t.Error("the CSV defense leaked into JSONL")
 	}
 }

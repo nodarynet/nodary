@@ -42,7 +42,7 @@ justification.
 | `nodary_pt_` | Personal token | Session-scoped or explicit | CLI and API access as a user |
 
 All are stored as SHA-256 hashes. Plaintext is displayed exactly once, at creation. A distinct
-prefix per kind makes them greppable in logs and recognisable to secret scanners.
+prefix per kind makes them greppable in logs and recognizable to secret scanners.
 
 ## 5. Threat notes
 

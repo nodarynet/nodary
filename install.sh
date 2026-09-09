@@ -103,7 +103,7 @@ See docs/specs/01-install.md §8 for supported platforms."
 
 # --- download and verify -----------------------------------------------------
 
-# The transport is defence in depth, not the control: the release signature is
+# The transport is defense in depth, not the control: the release signature is
 # what makes a binary trustworthy. https is enforced for the default origin, and
 # an operator who deliberately points NODARY_BASE_URL at a plain-http mirror is
 # allowed to — the signature check below is identical either way.

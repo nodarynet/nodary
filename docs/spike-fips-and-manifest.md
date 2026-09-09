@@ -122,8 +122,8 @@ approved.** ADR 0007 is no longer load-bearing and unproven.
 
 ### But `verify.go` cannot be reused, and the ADR that says so needs correcting
 
-[Pivot §2.3](plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-licence-key) says
-the licence key is verified "reusing
+[Pivot §2.3](plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-license-key) says
+the license key is verified "reusing
 [`internal/components/verify.go`](../internal/components/verify.go) — no new crypto and no
 new trust root." **`verify.go` verifies SHA-256 digests over HTTP. It contains no
 signature verification of any kind.** `grep -rn ed25519 --include=*.go` returns nothing;
@@ -145,7 +145,7 @@ Two consequences for [ADR 0005 and ADR 0007](plans/pivot-cmmc.md#8-new-documents
 2. **Pin the signature format to non-prehashed.** Minisign's prehashed `ED` variant signs
    a BLAKE2b-512 digest. BLAKE2b is not in the standard library and is **not FIPS-approved**,
    so a prehashed signature would put a non-approved hash on the path that verifies a
-   licence and a manifest — inside the boundary ADR 0006 is being written to defend.
+   license and a manifest — inside the boundary ADR 0006 is being written to defend.
 
 The current [`Manifest`](../internal/components/manifest.go) carries `schema`,
 `nodary_version` and `components` and has **no revision, no signature and no key id**, and
@@ -178,7 +178,7 @@ Three things were not what the specifications assume.
 ### WSL2 binds a GPU through `/dev/dxg`, and there is no `/dev/nvidia*`
 
 `nvidia-smi -L` inside the container reports the 5090 correctly, and `ls /dev/nvidia*`
-fails: the only device node is `/dev/dxg`. WSL2's paravirtualised GPU has no per-device
+fails: the only device node is `/dev/dxg`. WSL2's paravirtualized GPU has no per-device
 char nodes, so **anything that identifies a GPU by `/dev/nvidia<index>` is wrong on a WSL2
 node** — which matters for [R4-23](tasks/R4-agent.md), the pre-start check that a
 deployment's assigned GPU is the one it gets.
@@ -198,7 +198,7 @@ while the container was parented outside it entirely.
 A second reason was found on top of that one. This ran as a **user** unit, and a user
 manager is delegated `cpu memory pids` and no network controller at all, so
 `IPAddressDeny=` in a user unit is not merely aimed at the wrong process — it has nothing
-to attach to. [R4-28](tasks/R4-agent.md) keeps it as documented defence in depth, which
+to attach to. [R4-28](tasks/R4-agent.md) keeps it as documented defense in depth, which
 remains the right call, and the documentation should say both reasons.
 
 ### `--internal` silently breaks ingress — this is the finding
@@ -278,4 +278,4 @@ for [R4-29](tasks/R4-agent.md) running continuously rather than once.
   deployments can be held to separate indices on a host with no `/dev/nvidia*` nodes.
 - **No model was served.** The image on the host wanted an artifact format the spike had no
   weights for, so the container held the GPU and answered a probe rather than doing work.
-  Throughput, `ready_timeout_s` and crash-loop behaviour under real load are unmeasured.
+  Throughput, `ready_timeout_s` and crash-loop behavior under real load are unmeasured.

@@ -469,7 +469,7 @@ func TestAStreamIsMeteredAndRelayedUntouched(t *testing.T) {
 		t.Error("the gateway did not inject stream_options.include_usage; the stream would carry no usage")
 	}
 
-	// Byte for byte. A gateway that re-serialised chunks is a gateway that
+	// Byte for byte. A gateway that re-serialized chunks is a gateway that
 	// changed them, and for a stream that is the difference between a client
 	// library working and not.
 	want := "data: {\"id\":\"c1\",\"model\":\"acme/tiny\",\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"

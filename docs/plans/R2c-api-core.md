@@ -9,7 +9,7 @@ The slice where the CLI stops being the only front end, and therefore the slice 
 ## The constraint this slice exists to satisfy
 
 > **The CLI and the HTTP API call the same core functions.** Neither holds business logic.
-> This is what keeps them behaviourally identical without duplicated effort, and it is a
+> This is what keeps them behaviorally identical without duplicated effort, and it is a
 > constraint on the implementation, not an aspiration.
 > · [tasks README](../tasks/README.md#cross-cutting-constraints)
 
@@ -94,7 +94,7 @@ the wrong way round for a factor whose whole purpose is to attest to *this act*.
 
 ## Steps
 
-- [x] `internal/core` — `Act`, and the CLI moved onto it with no behaviour change
+- [x] `internal/core` — `Act`, and the CLI moved onto it with no behavior change
 - [x] R2-42 — PBKDF2 password hashing, migration, `user passwd`
 - [x] `internal/api` — server, router, the error envelope, request IDs
 - [x] Auth: bearer tokens and session cookies honouring `session_ttl_minutes`

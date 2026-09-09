@@ -222,7 +222,7 @@ stop matching for records carrying one particular field.
 
 R1-07 requires that concurrent writers cannot produce two records claiming the same `seq`
 or the same predecessor. The mechanism is R1a's: read the tail, compute, insert, all inside
-one `_txlock=immediate` transaction, which serialises across processes and not merely
+one `_txlock=immediate` transaction, which serializes across processes and not merely
 across goroutines.
 
 On top of that, `prev_hash` and `hash` are both `UNIQUE`. That moves R1-07's second clause
@@ -290,7 +290,7 @@ than one reporting the truth about a machine whose clock moved. `verify` reports
 non-monotonic timestamps as a **warning naming both sequence numbers**, separately from
 chain breaks, because the causes are unrelated and only one of them is tampering.
 [NIST SP 800-171](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final) 3.3.7 asks for clock
-synchronisation against an authoritative source, which is an operating-system concern; what
+synchronization against an authoritative source, which is an operating-system concern; what
 nodary owes is not hiding it when it fails.
 
 ### `audit export --format` takes `jsonl|csv`, not `text|json`

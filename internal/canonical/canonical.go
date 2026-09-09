@@ -14,7 +14,7 @@
 // byte order where RFC 8785 §3.2.3 requires UTF-16 order, encodes struct fields
 // in declaration order rather than sorted order, and silently substitutes
 // U+FFFD for invalid UTF-8 instead of reporting it. Any of those would bind the
-// audit chain to standard-library behaviour that is actively diverging.
+// audit chain to standard-library behavior that is actively diverging.
 //
 // Conformance: on every input this package accepts, its output is byte-identical
 // to any conforming JCS implementation. It accepts less than JCS does — see
@@ -131,7 +131,7 @@ func EncodeJSON(data []byte) ([]byte, error) {
 // ErrUnsupportedType.
 //
 // The domain is closed on purpose. Routing through json.Marshal would inherit
-// omitempty, json.Marshaler, time.Time and []byte-to-base64 behaviour wholesale
+// omitempty, json.Marshaler, time.Time and []byte-to-base64 behavior wholesale
 // and would make the invalid-UTF-8 rule unreachable, since v1 substitutes
 // U+FFFD rather than erroring. An unencodable value is better as a loud refusal
 // than as a quietly different set of bytes.
@@ -172,7 +172,7 @@ func HashJSON(data []byte) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// marshal serialises the intermediate representation. Both entry points funnel
+// marshal serializes the intermediate representation. Both entry points funnel
 // through it, which is what keeps them from drifting apart.
 func marshal(v any) ([]byte, error) {
 	var b strings.Builder

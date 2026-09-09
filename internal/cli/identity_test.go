@@ -27,7 +27,7 @@ type appliance struct {
 	// seeds remembers what was enrolled, so a test can produce the code an
 	// authenticator would be showing.
 	seeds map[string][]byte
-	// licPriv and licID are the key a test licence was signed with, kept so a
+	// licPriv and licID are the key a test license was signed with, kept so a
 	// later one can be signed by the same key.
 	licPriv ed25519.PrivateKey
 	licID   [8]byte

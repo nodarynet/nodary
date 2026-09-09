@@ -1,4 +1,4 @@
-// Package license verifies and stores the commercial licence key.
+// Package license verifies and stores the commercial license key.
 //
 // Commercial. See ee/LICENSE.
 //
@@ -8,7 +8,7 @@
 //  1. An unlicensed install carries every commercial verb and explains what it
 //     would produce. Nothing in this package hides a feature; it answers
 //     whether one is licensed and the verb decides what to say.
-//  2. An expired licence never makes existing evidence unreadable. Nothing here
+//  2. An expired license never makes existing evidence unreadable. Nothing here
 //     touches the chain, `audit export`, or a bundle already written. Expiry
 //     stops new bundles being produced and does nothing else.
 package license
@@ -38,9 +38,9 @@ var TrustedKey = placeholder
 const placeholder = "untrusted comment: placeholder\nPLACEHOLDER-NOT-A-REAL-KEY\n"
 
 var (
-	ErrNone    = errors.New("no licence has been applied")
-	ErrExpired = errors.New("the licence has expired")
-	ErrInvalid = errors.New("the licence is not valid")
+	ErrNone    = errors.New("no license has been applied")
+	ErrExpired = errors.New("the license has expired")
+	ErrInvalid = errors.New("the license is not valid")
 )
 
 // License is what a customer is entitled to.
@@ -48,9 +48,9 @@ type License struct {
 	Customer string `toml:"customer"`
 	Issued   string `toml:"issued"`
 	Expires  string `toml:"expires"`
-	// Features is deliberately a list rather than a set of booleans: a licence
+	// Features is deliberately a list rather than a set of booleans: a license
 	// naming a feature this build does not know about must not fail to parse,
-	// because the customer's binary is older than the licence more often than
+	// because the customer's binary is older than the license more often than
 	// the reverse.
 	Features []string `toml:"features"`
 }
@@ -62,10 +62,10 @@ type document struct {
 // Feature names. One per paid capability.
 const FeatureEvidence = "evidence"
 
-// Parse reads and verifies a licence, and reports whether it has expired.
+// Parse reads and verifies a license, and reports whether it has expired.
 //
 // Expiry is returned as a distinct error rather than folded into invalidity: an
-// expired licence is a customer to talk to, an invalid one is a support
+// expired license is a customer to talk to, an invalid one is a support
 // incident, and telling them apart is the difference between the two
 // conversations.
 func Parse(src, signature string, now time.Time) (License, error) {
@@ -102,7 +102,7 @@ func Parse(src, signature string, now time.Time) (License, error) {
 	return l, nil
 }
 
-// Covers reports whether the licence entitles this install to a feature.
+// Covers reports whether the license entitles this install to a feature.
 func (l License) Covers(feature string) bool {
 	for _, f := range l.Features {
 		if f == feature || f == "*" {
@@ -112,11 +112,11 @@ func (l License) Covers(feature string) bool {
 	return false
 }
 
-// Active reads the applied licence and verifies it again.
+// Active reads the applied license and verifies it again.
 //
 // Re-verifying on every read rather than trusting a stored verdict: the row is
-// in a database an administrator can write, and a licence that was checked once
-// at apply time is a licence that can be edited afterwards.
+// in a database an administrator can write, and a license that was checked once
+// at apply time is a license that can be edited afterwards.
 func Active(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, now time.Time) (License, error) {
@@ -127,12 +127,12 @@ func Active(ctx context.Context, q interface {
 	case errors.Is(err, sql.ErrNoRows):
 		return License{}, ErrNone
 	case err != nil:
-		return License{}, fmt.Errorf("reading the licence: %w", err)
+		return License{}, fmt.Errorf("reading the license: %w", err)
 	}
 	return Parse(src, sig, now)
 }
 
-// Apply records a licence. It takes an audit.Mutation, so applying one cannot
+// Apply records a license. It takes an audit.Mutation, so applying one cannot
 // happen without a record.
 func Apply(ctx context.Context, m audit.Mutation, by identity.Role, now time.Time, src, sig string) (License, error) {
 	if err := identity.Authorize(by, identity.PermConfigWrite); err != nil {
@@ -140,7 +140,7 @@ func Apply(ctx context.Context, m audit.Mutation, by identity.Role, now time.Tim
 	}
 	l, err := Parse(src, sig, now)
 	if err != nil {
-		// An expired licence is refused at apply: accepting one would record a
+		// An expired license is refused at apply: accepting one would record a
 		// grant that was never in force.
 		return License{}, err
 	}
@@ -150,7 +150,7 @@ func Apply(ctx context.Context, m audit.Mutation, by identity.Role, now time.Tim
 			source = excluded.source, signature = excluded.signature, applied_at = excluded.applied_at`,
 		src, sig, now.UTC().Truncate(time.Millisecond).Format(audit.TimeFormat),
 	); err != nil {
-		return License{}, fmt.Errorf("applying the licence: %w", err)
+		return License{}, fmt.Errorf("applying the license: %w", err)
 	}
 	m.Detail("customer", l.Customer)
 	m.Detail("expires", l.Expires)

@@ -54,7 +54,7 @@ CLI only.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
 - **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied.
-- **Enforces policy profiles** — origin allow/deny lists, mandatory re-authentication, deny-by-default egress, retention windows — as one reviewable object rather than behaviour scattered through code.
+- **Enforces policy profiles** — origin allow/deny lists, mandatory re-authentication, deny-by-default egress, retention windows — as one reviewable object rather than behavior scattered through code.
 - **Keeps prompts and completions out of its own records.** The metering schema is closed: no free-text body field exists to write into, a test fails if content reaches the database or a log, and LiteLLM's request logging is pinned off with the pinning asserted ([ADR 0006](docs/adr/0006-cui-boundary-and-fips.md)).
 
 ## Editions
@@ -115,7 +115,7 @@ functions, and every mutating call passes through the audit layer.
 | 0002 | [Go, redistributed through package-manager wrappers](docs/adr/0002-go-with-package-manager-wrappers.md) |
 | 0003 | [LiteLLM as the data plane](docs/adr/0003-litellm-as-data-plane.md) |
 | 0004 | [Release artifacts and install channels](docs/adr/0004-release-artifacts-and-channels.md) — one binary, four channels |
-| 0005 | [Editions, the licence key, and the advisory feed](docs/adr/0005-editions-and-the-advisory-feed.md) — the mechanism is free, the proving is paid |
+| 0005 | [Editions, the license key, and the advisory feed](docs/adr/0005-editions-and-the-advisory-feed.md) — the mechanism is free, the proving is paid |
 | 0006 | [The CUI boundary and the FIPS build](docs/adr/0006-cui-boundary-and-fips.md) — what nodary may hold, and the crypto that holds it |
 | 0007 | [The component manifest as an independent artifact](docs/adr/0007-independent-component-manifest.md) — patch on the customer's timeline, not ours |
 | 0008 | [containerd, not podman](docs/adr/0008-container-runtime.md) — measured on security and deployment |
@@ -145,7 +145,7 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 link that creates the first administrator with a password nobody else ever knows, and stages
 the runtime every GPU host bootstraps from. A node enrolls, speaks the agent protocol, and
 reconciles itself onto its desired state through systemd. The gateway authenticates,
-authorises, proxies and meters. The evidence bundle is signed, and the advisory feed has a
+authorizes, proxies and meters. The evidence bundle is signed, and the advisory feed has a
 format and a verb that reads it.
 
 **Verified as root on real hardware**, not only in tests: 36 checks with 0 failures, including

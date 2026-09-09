@@ -82,7 +82,7 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
 ## Endpoints
 
 Grouped as [09 §1](../specs/09-api.md#1-surface) groups them. Each depends on
-R2-34 rather than reimplementing behaviour.
+R2-34 rather than reimplementing behavior.
 
 - [x] **R2-25** Auth — `POST /auth/login`, `POST /auth/logout`, `GET /auth/whoami`
 - [ ] **R2-26** Nodes — list, show, `approve`, `drain`, `revoke`, `verify-egress`
@@ -107,9 +107,9 @@ R2-34 rather than reimplementing behaviour.
 ## The shared core
 
 - [x] **R2-34** One set of core functions behind both the CLI and the API · [10 §1](../specs/10-cli.md#1-verbs)
-  - *done:* a behavioural difference between `nodary model enable …` and `POST /models/{id}/enable` is impossible by construction, because neither holds business logic. This is a constraint on the implementation, not an aspiration — and it is cheapest to satisfy now, while there are two callers rather than three
+  - *done:* a behavioral difference between `nodary model enable …` and `POST /models/{id}/enable` is impossible by construction, because neither holds business logic. This is a constraint on the implementation, not an aspiration — and it is cheapest to satisfy now, while there are two callers rather than three
   - *done:* [`internal/core`](../../internal/core/core.go) holds the whole of [07 §2](../specs/07-identity-audit.md#2-attestation); both front ends build a principal, a ceremony and a change and call `core.Act`. What stays in a front end is only what the core cannot know — where a credential arrived, whether there is a human to prompt, and how to render an outcome
-  - *done:* asserted behaviourally, not only structurally: [`parity_test.go`](../../internal/api/parity_test.go) drives both front ends against one database and requires the same refusals for the same reasons. That both call `core.Act` is visible in the source; whether they therefore *behave* the same is what the constraint is actually about
+  - *done:* asserted behaviorally, not only structurally: [`parity_test.go`](../../internal/api/parity_test.go) drives both front ends against one database and requires the same refusals for the same reasons. That both call `core.Act` is visible in the source; whether they therefore *behave* the same is what the constraint is actually about
   - *deps:* R1-12
 
 ## Server lifecycle

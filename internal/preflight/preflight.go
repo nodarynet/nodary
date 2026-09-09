@@ -645,7 +645,7 @@ func checkIPTables(o Options) Check {
 	return c
 }
 
-// checkNFT is a warning, because what it enables is defence in depth.
+// checkNFT is a warning, because what it enables is defense in depth.
 //
 // nodary adds one nftables rule that drops forwarded traffic from the isolated
 // subnet. The control that actually isolates a deployment is the absence of a

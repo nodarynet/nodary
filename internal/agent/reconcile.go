@@ -130,7 +130,7 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	// Stop what the plan no longer names. Scoped to nodary-model@* and nothing
 	// else: a node is rarely only a nodary node
 	// (docs/specs/12-node-guardrails.md), and an agent that stopped anything it
-	// did not recognise on a machine somebody else also uses is the most
+	// did not recognize on a machine somebody else also uses is the most
 	// destructive thing this codebase could do.
 	running, err := h.runningInstances(ctx)
 	if err != nil {

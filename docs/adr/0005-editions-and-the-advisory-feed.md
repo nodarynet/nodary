@@ -1,11 +1,11 @@
-# ADR 0005 — Editions, the licence key, and the advisory feed
+# ADR 0005 — Editions, the license key, and the advisory feed
 
 **Status:** Accepted · **Date:** 2026-09-06
 
 ## Context
 
 [The pivot](../plans/pivot-cmmc.md#21-the-open-core-line-operational-free-evidence-paid)
-chose a buyer — a small defence-supply-chain business under CMMC Level 2 — and with it the
+chose a buyer — a small defense-supply-chain business under CMMC Level 2 — and with it the
 question of what that buyer pays for. The features that justify nodary over four
 `docker compose` files are compliance ceremony: the hash chain, `intent_hash` binding,
 required justification, provenance allowlists, retention windows. A homelab operator
@@ -26,23 +26,23 @@ advisory feed.
 
 In one sentence: **we do not sell security, we sell the paperwork.**
 
-### 2. One binary, an `ee/` directory, a signed licence key
+### 2. One binary, an `ee/` directory, a signed license key
 
 The repository stays public. Everything outside `ee/` stays Apache 2.0; `ee/` carries a
-commercial licence and the root `LICENSE` gains a pointer. One binary continues through the
+commercial license and the root `LICENSE` gains a pointer. One binary continues through the
 four channels of [ADR 0004](0004-release-artifacts-and-channels.md). Commercial features are
-inert until `nodary license apply` verifies a minisign-signed licence against an embedded
+inert until `nodary license apply` verifies a minisign-signed license against an embedded
 key — **the same Ed25519 verifier [ADR 0007](0007-independent-component-manifest.md)
 introduces**, with the same non-prehashed constraint and no second trust root. Applying a
-licence is a mutation and lands in the chain.
+license is a mutation and lands in the chain.
 
 Two properties are **not negotiable**:
 
 1. **An unlicensed install still carries every commercial verb and explains what it would
-   produce.** `nodary evidence export` without a licence names the bundle's members and
+   produce.** `nodary evidence export` without a license names the bundle's members and
    refuses. The commercial surface is discoverable, never hidden.
-2. **An expired licence never makes existing evidence unreadable.** The bundle format is
-   documented, the raw chain export is free, and a bundle produced under a licence still
+2. **An expired license never makes existing evidence unreadable.** The bundle format is
+   documented, the raw chain export is free, and a bundle produced under a license still
    verifies after it lapses. Compliance evidence held hostage by a lapsed subscription is a
    story that ends a company, and it is the first thing a careful buyer tests
    ([R9-04](../tasks/R9-evidence-remediation.md)).
@@ -89,7 +89,7 @@ ceiling is either too low to trial or too high to ever bill.
 
 **Rejected — two repositories, OSS core vendored by a private build.** The cleanest licensing
 story. It doubles the release pipeline, splits CI, makes community-to-paid a reinstall, and
-makes behavioural parity between editions something to maintain rather than something
+makes behavioral parity between editions something to maintain rather than something
 structural.
 
 **Rejected — stay fully Apache and sell services.** Zero licensing friction, strongest
@@ -110,11 +110,11 @@ that does has already solved the part we would be selling. Scanner ingest is add
 with two things in it that have real maintenance obligations rather than one formatter.
 
 **Lost.** The repository is no longer uniformly Apache 2.0, and every contribution to `ee/`
-carries a different licence. That is a permanent cost to the open-source story, accepted
+carries a different license. That is a permanent cost to the open-source story, accepted
 because the alternative was a second repository.
 
 **Cost.** Publishing the feed makes us a security-information vendor, with the disclosure
-obligations that implies. A licence key is a support surface: expiry, clock skew and reissue
+obligations that implies. A license key is a support surface: expiry, clock skew and reissue
 all become things a customer contacts us about.
 
 **Reconsider if** the bet in [pivot §11](../plans/pivot-cmmc.md#11-what-this-bets-on) fails —

@@ -96,7 +96,7 @@ Steps, in order, each idempotent:
 3. Resolve and verify each selected component into `/var/lib/nodary/dist/`, digest-checked against the embedded manifest. Skip anything already present and correct.
 4. Create the `nodary` system user; create `/etc/nodary`, `/var/lib/nodary`, `/var/log/nodary` (0750, owned by `nodary`).
 5. Write `/etc/nodary/server.toml`.
-6. Initialise `/var/lib/nodary/nodary.db`; run migrations.
+6. Initialize `/var/lib/nodary/nodary.db`; run migrations.
 7. Generate the internal CA used to sign **agent** certificates. This is nodary's own PKI for mTLS and is unrelated to the server's public TLS certificate.
 8. Install and start `nodary-server`, `nodary-gateway`, `litellm`, and the observability units if selected.
 9. Create the first administrator account, printing a **one-time setup URL** valid for 15 minutes. No default password ever exists.
@@ -204,7 +204,7 @@ These are complete install paths. `pip install nodary && nodary server install` 
 
 **Unsupported platforms must fail loudly.** npm resolves `optionalDependencies` silently, so a
 platform with no matching package installs *nothing* and fails later at the shim with an
-unrecognisable error. The wrapper packages therefore declare `os` and `cpu`, and the shim
+unrecognizable error. The wrapper packages therefore declare `os` and `cpu`, and the shim
 checks for its platform package and exits with a named error if absent. Wheels carry precise
 platform tags so `pip` reports "no matching distribution" rather than installing a broken
 entry point.
@@ -302,7 +302,7 @@ manifest; `nodary upgrade --check` reports which components would move and to wh
 nodary uninstall [--purge] [--purge-models] [--force]
 ```
 
-Default behaviour is conservative:
+Default behavior is conservative:
 
 1. Deregister from the control plane (audited). `--force` skips this if the server is unreachable.
 2. Stop and remove all `nodary-*` units.

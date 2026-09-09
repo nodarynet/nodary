@@ -45,11 +45,11 @@ OpenAI-compatible streams omit usage unless `stream_options.include_usage` is se
 **injects it**, reads the final usage chunk, and passes the stream through otherwise untouched.
 A client cannot opt out: opting out of usage reporting would be opting out of accounting, which
 makes metering advisory. The cost is that a client which set `include_usage: false` receives a
-usage chunk it did not ask for — a visible difference from stock behaviour, and the right trade
+usage chunk it did not ask for — a visible difference from stock behavior, and the right trade
 inside a boundary where usage is not optional.
 
 "Otherwise untouched" is byte-for-byte. Chunks are parsed to find usage and forwarded exactly
-as received; a gateway that re-serialised them would be a gateway that changed them, and the
+as received; a gateway that re-serialized them would be a gateway that changed them, and the
 difference surfaces as a client library failing on a field nodary round-tripped through a
 struct it does not fully model.
 
@@ -73,10 +73,10 @@ Exceeding a limit returns `429` with `Retry-After`. The response body names whic
 hit and when it resets — a bare 429 tells a user nothing actionable.
 
 Throttle events are **usage** records. *Changing* a limit is an **audit** record. The
-distinction matters: one is telemetry about system behaviour, the other is an administrative
+distinction matters: one is telemetry about system behavior, the other is an administrative
 act with an accountable author.
 
-## 5. Failure behaviour
+## 5. Failure behavior
 
 | Condition | Response |
 | :--- | :--- |

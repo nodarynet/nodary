@@ -75,16 +75,16 @@ Three properties every milestone must respect and none can complete. They are
 review criteria, not work items — a checkbox would be the wrong shape, because
 nothing ever finishes them.
 
-1. **The CLI and the HTTP API call the same core functions.** Neither holds business logic. This is what keeps them behaviourally identical without duplicated effort, and it is a constraint on the implementation, not an aspiration. · [10 §1](../specs/10-cli.md#1-verbs)
+1. **The CLI and the HTTP API call the same core functions.** Neither holds business logic. This is what keeps them behaviorally identical without duplicated effort, and it is a constraint on the implementation, not an aspiration. · [10 §1](../specs/10-cli.md#1-verbs)
 2. **Every mutating call passes through the audit layer.** Not by convention — structurally, so that a mutating path which writes no record cannot be reached. · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
-3. **Nothing site-specific lives in code.** No internal hostnames, no node names, no particular model IDs, no assumption of FIPS or a specific certificate authority. A regulated posture is a policy profile, never compiled-in behaviour. · [00 §1](../specs/00-overview.md#tool-versus-deployment)
+3. **Nothing site-specific lives in code.** No internal hostnames, no node names, no particular model IDs, no assumption of FIPS or a specific certificate authority. A regulated posture is a policy profile, never compiled-in behavior. · [00 §1](../specs/00-overview.md#tool-versus-deployment)
 
 ## Failure-mode coverage
 
 [11 — Failure modes](../specs/11-failure-modes.md) states that every row of its
 tables is a test case. Its 40 rows are not tracked separately, because they span
 every milestone; each is an acceptance criterion inside the milestone that owns
-the behaviour. This table exists so none is lost.
+the behavior. This table exists so none is lost.
 
 ### [§1 Control plane and agent](../specs/11-failure-modes.md#1-control-plane-and-agent)
 

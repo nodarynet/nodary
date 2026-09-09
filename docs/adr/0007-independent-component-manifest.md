@@ -103,7 +103,7 @@ naming a digest is actionable only if the digest can be moved without a release.
 revision counter, its own publication step, and its own key to protect.
 
 **Cost.** A second signing key in the release pipeline, and a Go verifier to maintain. The
-same verifier serves [ADR 0005](0005-editions-and-the-advisory-feed.md)'s licence key and the
+same verifier serves [ADR 0005](0005-editions-and-the-advisory-feed.md)'s license key and the
 advisory feed, so it is written once and used three times — which is the argument for writing
 it properly rather than inline.
 

@@ -125,7 +125,7 @@ func TestUnattendedGrantIsRefusedUnderRegulated(t *testing.T) {
 		t.Errorf("the grant is not reported to the operator:\n%s", stderr)
 	}
 	// The grant is in the chain, which is what an assessor reads instead of a
-	// person's presence for every act this credential later authorises.
+	// person's presence for every act this credential later authorizes.
 	if _, chain, _ := a.run("audit", "list", "--format", "json"); !strings.Contains(chain, "allow_unattended") {
 		t.Errorf("the grant is not in the chain:\n%s", chain)
 	}
@@ -336,7 +336,7 @@ func (a *appliance) code(name string) string {
 }
 
 // The correct code is accepted, and it is spent: docs/specs/07-identity-audit.md
-// §2's re-entry is per act, so the same code cannot authorise a second one.
+// §2's re-entry is per act, so the same code cannot authorize a second one.
 func TestACorrectCodeIsAcceptedAndThenSpent(t *testing.T) {
 	a := newAppliance(t)
 	a.addUser("alice", "admin")
@@ -356,7 +356,7 @@ func TestACorrectCodeIsAcceptedAndThenSpent(t *testing.T) {
 	code, _, stderr := a.run("user", "add", "carol", "--role", "user",
 		"--justify", "onboarding another operator", "--totp", shown)
 	if code != ExitAuth {
-		t.Errorf("a spent code authorised a second act: exit = %d, want %d\n%s", code, ExitAuth, stderr)
+		t.Errorf("a spent code authorized a second act: exit = %d, want %d\n%s", code, ExitAuth, stderr)
 	}
 }
 

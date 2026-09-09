@@ -16,7 +16,7 @@ nodary evidence export --from 2026-01-01 --to 2026-03-31 --out q1-bundle.tar.gz
 `--from` and `--to` bound the reporting period. Every member covers that period and no more,
 except where a member must reach outside it to remain verifiable — see `chain.jsonl`.
 
-Without a licence the command **names every member it would produce, explains what each one
+Without a license the command **names every member it would produce, explains what each one
 is for, and exits non-zero without writing a file.** The commercial surface is discoverable;
 it is never silent and never hidden.
 
@@ -27,7 +27,7 @@ it is never silent and never hidden.
 | `chain.jsonl` | The audit segment for the period, with the anchoring hashes either side so it verifies standalone |
 | `verify.txt` | `audit verify` output over that segment |
 | `controls.json`, `controls.md` | Practice → evidence index, pointing at record sequences |
-| `narratives/` | Parameterised SSP text per practice, filled with this install's values |
+| `narratives/` | Parameterized SSP text per practice, filled with this install's values |
 | `revisions.jsonl` | Configuration revision history |
 | `nodes.json` | Approval records with the inventory offered as at approval |
 | `identity.jsonl` | User and token lifecycle |
@@ -59,8 +59,8 @@ the digest of its canonical JSON including `prev_hash`
 side of the period so the segment chains to something the reader can check, rather than
 beginning at a record with no predecessor.
 
-Nothing in this procedure requires the `nodary` binary, a licence, or a network. A bundle
-produced under a licence that has since expired verifies exactly the same way
+Nothing in this procedure requires the `nodary` binary, a license, or a network. A bundle
+produced under a license that has since expired verifies exactly the same way
 ([ADR 0005](../adr/0005-editions-and-the-advisory-feed.md)).
 
 ## 4. Control mapping

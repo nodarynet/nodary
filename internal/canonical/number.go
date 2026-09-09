@@ -16,7 +16,7 @@ import (
 // 5^17 fits in 53 bits. An earlier magnitude check rejected exactly those, which
 // meant ES6 formatting could emit 100000000000000000 for the input 1e17 and then
 // refuse to read its own output back — found by FuzzEncodeJSON in under a
-// second. Producing a canonical form that cannot be re-canonicalised would break
+// second. Producing a canonical form that cannot be re-canonicalized would break
 // `audit verify`, which re-hashes stored records to check the chain.
 func exactFloat64(i *big.Int) (float64, bool) {
 	f, acc := new(big.Float).SetInt(i).Float64()

@@ -21,7 +21,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// licensed gives the appliance a valid licence, signed by a key this test
+// licensed gives the appliance a valid license, signed by a key this test
 // generated and pointed the binary at.
 func (a *appliance) licensed(expires time.Time, features ...string) {
 	a.t.Helper()
@@ -49,7 +49,7 @@ func (a *appliance) licensed(expires time.Time, features ...string) {
 		a.t.Fatal(err)
 	}
 	if err := os.WriteFile(path+".minisig",
-		[]byte(minisign.Sign(priv, id, []byte(src), "nodary licence")), 0o600); err != nil {
+		[]byte(minisign.Sign(priv, id, []byte(src), "nodary license")), 0o600); err != nil {
 		a.t.Fatal(err)
 	}
 
@@ -59,7 +59,7 @@ func (a *appliance) licensed(expires time.Time, features ...string) {
 	a.licPriv, a.licID = priv, id
 
 	if code, _, stderr := a.run("license", "apply", path); code != ExitOK {
-		a.t.Fatalf("applying a licence: %d %s", code, stderr)
+		a.t.Fatalf("applying a license: %d %s", code, stderr)
 	}
 }
 
@@ -232,9 +232,9 @@ func TestUnmappedAndPendingMembersSayWhatTheyAre(t *testing.T) {
 	}
 }
 
-// R9-04, the property a careful buyer tests first: an expired licence stops new
+// R9-04, the property a careful buyer tests first: an expired license stops new
 // bundles and touches nothing that already exists.
-func TestAnExpiredLicenceNeverMakesEvidenceUnreadable(t *testing.T) {
+func TestAnExpiredLicenseNeverMakesEvidenceUnreadable(t *testing.T) {
 	a := newAppliance(t)
 	a.addUser("alice", "admin")
 	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
@@ -244,7 +244,7 @@ func TestAnExpiredLicenceNeverMakesEvidenceUnreadable(t *testing.T) {
 		t.Fatalf("export: %d %s", code, stderr)
 	}
 
-	// Replace the licence with one that ran out yesterday.
+	// Replace the license with one that ran out yesterday.
 	a.licensedExpired()
 
 	// The bundle already written still verifies, with no nodary involved.
@@ -256,12 +256,12 @@ func TestAnExpiredLicenceNeverMakesEvidenceUnreadable(t *testing.T) {
 
 	// The free path is untouched.
 	if code, stdout, stderr := a.run("audit", "export", "--format", "jsonl"); code != ExitOK {
-		t.Errorf("audit export broke under an expired licence: %d %s", code, stderr)
+		t.Errorf("audit export broke under an expired license: %d %s", code, stderr)
 	} else if !strings.Contains(stdout, `"seq"`) {
 		t.Errorf("audit export produced nothing:\n%s", stdout)
 	}
 	if code, _, stderr := a.run("audit", "verify"); code != ExitOK {
-		t.Errorf("audit verify broke under an expired licence: %d %s", code, stderr)
+		t.Errorf("audit verify broke under an expired license: %d %s", code, stderr)
 	}
 
 	// Only the new export is refused, and it says why.
@@ -270,15 +270,15 @@ func TestAnExpiredLicenceNeverMakesEvidenceUnreadable(t *testing.T) {
 		t.Errorf("exit = %d, want %d", code, ExitPolicy)
 	}
 	if !strings.Contains(stderr, "expired") {
-		t.Errorf("the refusal does not say the licence expired:\n%s", stderr)
+		t.Errorf("the refusal does not say the license expired:\n%s", stderr)
 	}
 }
 
-// licensedExpired replaces the applied licence with one that has already run
+// licensedExpired replaces the applied license with one that has already run
 // out, signed by the same key so the signature is still good.
 //
 // The row is written directly because `license apply` refuses an expired
-// licence, and rightly: accepting one would record a grant that was never in
+// license, and rightly: accepting one would record a grant that was never in
 // force. Expiry is a state an install reaches by time passing, not by an act,
 // and this is the only way to reach it without waiting.
 func (a *appliance) licensedExpired() {
@@ -288,7 +288,7 @@ func (a *appliance) licensedExpired() {
 	}
 	src := "[license]\ncustomer = \"Test Manufacturing Inc\"\nissued = \"2020-01-01T00:00:00Z\"\n" +
 		"expires = \"2021-01-01T00:00:00Z\"\nfeatures = [\"evidence\"]\n"
-	sig := minisign.Sign(a.licPriv, a.licID, []byte(src), "nodary licence")
+	sig := minisign.Sign(a.licPriv, a.licID, []byte(src), "nodary license")
 
 	db, err := sql.Open("sqlite", a.db)
 	if err != nil {
@@ -297,7 +297,7 @@ func (a *appliance) licensedExpired() {
 	defer db.Close()
 	if _, err := db.Exec(`UPDATE license SET source = ?, signature = ? WHERE singleton = 1`,
 		src, sig); err != nil {
-		a.t.Fatalf("expiring the licence: %v", err)
+		a.t.Fatalf("expiring the license: %v", err)
 	}
 }
 

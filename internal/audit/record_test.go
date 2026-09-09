@@ -180,7 +180,7 @@ func TestUnsetOptionalsEncodeAsNull(t *testing.T) {
 
 // A timestamp is formatted, not marshalled, so a non-UTC clock and a
 // sub-millisecond reading must not produce a different record.
-func TestTimestampIsNormalised(t *testing.T) {
+func TestTimestampIsNormalized(t *testing.T) {
 	utc := sample()
 	base, err := utc.Compute()
 	if err != nil {

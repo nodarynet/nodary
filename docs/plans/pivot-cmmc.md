@@ -21,7 +21,7 @@ windows — are compliance ceremony. A homelab operator experiences all of it as
 protecting them from nobody. The site that wants it is the site that has to demonstrate
 control to a third party.
 
-**The primary market is a small defence-supply-chain business under CMMC Level 2 that
+**The primary market is a small defense-supply-chain business under CMMC Level 2 that
 wants on-prem inference because its prompts contain CUI.** The homelab is not deleted; it
 becomes the community edition's story and the path by which the product is discovered and
 dogfooded. `default` remains the profile a fresh install runs, because a first-run
@@ -85,14 +85,14 @@ capability, not as a flag on the metering path.
 **Rejected — position the control plane as out of boundary.** Much less engineering and
 no FIPS obligation. Indefensible: the gateway is in the data path.
 
-### 2.3 One binary, an `ee/` directory, a signed licence key
+### 2.3 One binary, an `ee/` directory, a signed license key
 
 **Decided.** The repository stays public. Everything outside `ee/` stays Apache 2.0;
-`ee/` carries a commercial licence and the root `LICENSE` gains a pointer. One binary
+`ee/` carries a commercial license and the root `LICENSE` gains a pointer. One binary
 continues through the four existing channels. Commercial features are inert until
-`nodary license apply` verifies a minisign-signed licence against an embedded key, reusing
+`nodary license apply` verifies a minisign-signed license against an embedded key, reusing
 [`internal/components/verify.go`](../../internal/components/verify.go) — no new crypto and
-no new trust root. Applying a licence is a mutation and lands in the chain.
+no new trust root. Applying a license is a mutation and lands in the chain.
 
 **Why.** [R0](../tasks/R0-release.md) is built and exercised: one signed binary, four
 channels, tamper rejection tested end to end. Any edition scheme that doubles that
@@ -104,14 +104,14 @@ not to buy:
 
 1. An unlicensed install still carries the verb and explains what it would produce. The
    commercial surface is discoverable, never hidden.
-2. **An expired licence never makes existing evidence unreadable.** The bundle format is
+2. **An expired license never makes existing evidence unreadable.** The bundle format is
    documented and the raw chain export is free, so a customer can always reconstruct their
    binder without us. Compliance evidence held hostage by a lapsed subscription is a
    story that ends a company, and it is the first thing a careful buyer will test for.
 
 **Rejected — two repositories, OSS core vendored by a private build.** The cleanest
 licensing story, and the public repository would stay uniformly Apache. It doubles the
-release pipeline, splits CI, makes community-to-paid a reinstall, and makes behavioural
+release pipeline, splits CI, makes community-to-paid a reinstall, and makes behavioral
 parity between editions something to maintain rather than something structural.
 
 **Rejected — stay fully Apache and sell services.** Zero licensing friction, strongest
@@ -124,7 +124,7 @@ resale. It costs the open-source standing that makes the community edition a fun
 
 ### 2.4 The paid deliverable is a signed evidence bundle with narratives
 
-**Decided.** `nodary evidence export` produces a signed bundle plus parameterised SSP
+**Decided.** `nodary evidence export` produces a signed bundle plus parameterized SSP
 narrative text per practice, filled with the install's real values. Spec 13.
 
 **Why.** The gap the customer is paying to close is between raw material and a deliverable.
@@ -237,7 +237,7 @@ told what to patch, or hand an assessor a bound artifact.
 | `chain.jsonl` | The audit segment for the period, with the anchoring hashes either side so it verifies standalone |
 | `verify.txt` | `audit verify` output over that segment |
 | `controls.json`, `controls.md` | Practice → evidence index, pointing at record sequences |
-| `narratives/` | Parameterised SSP text per practice, filled with this install's values |
+| `narratives/` | Parameterized SSP text per practice, filled with this install's values |
 | `revisions.jsonl` | Configuration revision history |
 | `nodes.json` | Approval records with offered inventory as at approval |
 | `identity.jsonl` | User and token lifecycle |
@@ -347,7 +347,7 @@ item until the spec is corrected.
 
 ### The framing the corrections landed on
 
-**nodary assists an organisation in discharging an obligation that stays theirs.** It is not a
+**nodary assists an organization in discharging an obligation that stays theirs.** It is not a
 compliance product, it does not assess or certify, and it makes **no zero-trust claim**. No
 practice is discharged by installing it: every control still has an owner inside the customer,
 and the accuracy of the SSP is theirs.
@@ -363,7 +363,7 @@ it is a report and not a warranty. What was missing was saying it where a reader
 
 | | |
 | :--- | :--- |
-| **ADR 0005** | Editions, the licence key, and the advisory feed's liability statement |
+| **ADR 0005** | Editions, the license key, and the advisory feed's liability statement |
 | **ADR 0006** | The CUI boundary and the FIPS build |
 | **ADR 0007** | The component manifest as an independently versioned artifact |
 | **Spec 13** | Evidence and assessment |
@@ -411,7 +411,7 @@ Stated so it can be checked later rather than quietly revised.
 
 - [x] ADR 0007 — the independent manifest. First, per §6
 - [x] ADR 0006 — CUI boundary and FIPS
-- [x] ADR 0005 — editions, licence key, feed liability
+- [x] ADR 0005 — editions, license key, feed liability
 - [x] Spec 13 — evidence and assessment
 - [ ] Spec 14 — flaw remediation
 - [ ] Spec corrections, §7 — 07 §5 last, it needs the publication open

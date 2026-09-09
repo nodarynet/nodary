@@ -14,7 +14,7 @@ import (
 // thing that actually breaks an install: that the bytes at those URLs hash to
 // what the manifest pins, and that the archives contain the binaries the unit
 // template and the CNI configuration name. A digest that drifted, or an
-// upstream that reorganised its tarball, is an install that fails on a GPU host
+// upstream that reorganized its tarball, is an install that fails on a GPU host
 // rather than in a pipeline.
 //
 // Skipped under -short, because it is tens of megabytes over the network.

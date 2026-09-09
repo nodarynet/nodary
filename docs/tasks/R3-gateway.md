@@ -15,7 +15,7 @@ needs no database of its own. · [00 §7](../specs/00-overview.md#7-why-litellm-
 - [x] **R3-01** `nodary-gateway` process serving the OpenAI surface: `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models` · [06 §1](../specs/06-gateway.md#1-request-path)
 - [x] **R3-02** Bearer authentication resolving `nodary_sk_…` to a person; `401` for revoked, expired and suspended-user tokens; `last_used_at` recorded · [06 §2](../specs/06-gateway.md#2-authentication)
   - the **kind** is enforced, not just the credential: a personal token is refused here. [02 §4](../specs/02-enrollment.md#4-token-types) gives each prefix one purpose, and accepting a `pt` would make the credential on an operator's workstation — which can mutate the control plane — the same one any application holding an inference key uses
-  - `last_used_at` goes through `internal/observed`, because an inference request authorises no act and so has no audited mutation for the touch to ride along with
+  - `last_used_at` goes through `internal/observed`, because an inference request authorizes no act and so has no audited mutation for the touch to ride along with
 - [x] **R3-03** Per-user model allowlist; a route outside it returns `403`, and `/v1/models` returns only permitted routes rather than the full fleet · [06 §2](../specs/06-gateway.md#2-authentication)
   - **a user with no grants may call nothing.** [07 §5](../specs/07-identity-audit.md#5-control-mapping) maps this to AC-3 and AC-6 with the words "least privilege by default", and an empty allowlist meaning *every* route would make that sentence false — it would leave the role grant as the only real control and the allowlist as a restriction somebody has to remember to opt into
   - the grant is in the configuration snapshot, so it is a revision like every other administrative decision, and it is keyed by user **name** so an export survives a rebuild where the same people have different ids
@@ -25,7 +25,7 @@ needs no database of its own. · [00 §7](../specs/00-overview.md#7-why-litellm-
 - [x] **R3-05** Metering: user, token, route, resolved model, deployment, prompt and completion tokens, latency, status, streamed, partial · [06 §3](../specs/06-gateway.md#3-metering)
 - [x] **R3-06** Streaming usage: inject `stream_options.include_usage`, read the final usage chunk, pass the stream through otherwise untouched · [06 §3](../specs/06-gateway.md#3-metering)
   - a client cannot opt out. Opting out of usage reporting would be opting out of nodary's accounting, which makes metering advisory — and the cost is stated: a client that set `include_usage: false` now receives a usage chunk it did not ask for
-  - chunks are **scanned and forwarded, never re-serialised**, and the scanner carries a partial line across writes. Asserted against a stream delivered one byte at a time, which is the case that finds an accumulator that resets per write
+  - chunks are **scanned and forwarded, never re-serialized**, and the scanner carries a partial line across writes. Asserted against a stream delivered one byte at a time, which is the case that finds an accumulator that resets per write
 - [ ] **R3-07** A stream that terminates early is metered from tokens observed and flagged `partial`
   - *done:* usage is never silently dropped on disconnect. If disconnection erased usage, metering would be trivially avoidable and the quota system decorative
   - *partial:* the **flag** lands with R3a — a stream that produced no usage chunk records `partial = 1` rather than a silent zero, so incomplete accounting says so. What remains is counting the tokens actually observed, which needs a tokenizer the gateway does not have
@@ -34,7 +34,7 @@ needs no database of its own. · [00 §7](../specs/00-overview.md#7-why-litellm-
   - *done:* a bare 429 tells a user nothing actionable
 - [ ] **R3-10** Throttle events are usage records; changing a limit is an audit record · [06 §4](../specs/06-gateway.md#4-throttling)
   - *done:* the two are never written to the same place — one is telemetry, the other an administrative act with an accountable author
-- [ ] **R3-11** Gateway failure behaviour · [06 §5](../specs/06-gateway.md#5-failure-behaviour) · [11 §4](../specs/11-failure-modes.md#4-gateway)
+- [ ] **R3-11** Gateway failure behavior · [06 §5](../specs/06-gateway.md#5-failure-behavior) · [11 §4](../specs/11-failure-modes.md#4-gateway)
   - *done:* no ready deployment → `503` + `Retry-After` + alert; LiteLLM unreachable → `502` with no direct-to-deployment fallback, because that path would bypass routing and fallback logic; token revoked mid-stream → the stream completes and the next request is rejected
 - [x] **R3-12** `nodary limits show|set` and `nodary usage show` with `--user`, `--model`, `--node`, `--group_by`, `--from`, `--to`, `--format` · [10 §1](../specs/10-cli.md#1-verbs)
 - [ ] **R3-13** Roll `usage` into `usage_daily` past `usage_retention_days` · [08 §3](../specs/08-data-model.md#3-retention)

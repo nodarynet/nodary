@@ -85,7 +85,7 @@ type Metrics struct {
 }
 
 // Closed vocabularies. Each is a value the agent or the gateway switches on, so
-// an unrecognised one is a descriptor that would be silently mishandled.
+// an unrecognized one is a descriptor that would be silently mishandled.
 var (
 	apis     = []string{"openai", "triton", "custom"}
 	layouts  = []string{"hf-cache", "single-file", "engine-dir"}
@@ -212,7 +212,7 @@ func Names(all map[string]Descriptor) []string {
 // Held as decoded JSON rather than a struct because the desired-state document
 // carries them as one object and the set is the descriptor's business, not this
 // type's: a struct here would have to grow a field for every canonical
-// parameter, which is the normalisation treadmill §3 exists to avoid.
+// parameter, which is the normalization treadmill §3 exists to avoid.
 type Params map[string]any
 
 // Args renders the argv for one deployment.

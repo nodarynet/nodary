@@ -24,7 +24,7 @@ import (
 // separate arguments and passes `${FOO}` as one argument, never split. The
 // argument list has to be split; an image reference must not be. Measured on
 // systemd 255: with `${NODARY_ARGS}` the whole argv arrives as a single string
-// and the model server exits on an unrecognised argument, which is a failure
+// and the model server exits on an unrecognized argument, which is a failure
 // that surfaces on a GPU host as a container that will not start. This
 // corrects docs/specs/03-agent.md §6, which had it braced.
 const unitTemplate = `# Written by nodary. Edits are overwritten; see docs/specs/03-agent.md §6.
@@ -47,7 +47,7 @@ ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-%%i
 Restart=always
 RestartSec=10s
 
-# Defence in depth only. NOT the egress control.
+# Defense in depth only. NOT the egress control.
 #
 # The container is parented outside this unit's cgroup — containerd's shim
 # reparents it — so this filter attaches to the nerdctl client and not to the

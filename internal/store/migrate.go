@@ -193,7 +193,7 @@ func stripSQLComments(s string) string {
 // to see one snapshot: run as separate autocommit reads they can straddle a
 // concurrent migration and report a migrated database as a fresh one.
 //
-// Absence of schema_migration is detected by asking the catalogue, not by
+// Absence of schema_migration is detected by asking the catalog, not by
 // matching an error string: the driver returns SQLITE_ERROR with different
 // messages for many failures, and string-matching would read a corrupt database
 // as a fresh one.

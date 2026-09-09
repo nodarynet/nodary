@@ -28,7 +28,7 @@ type inference struct {
 	StreamOptions *json.RawMessage `json:"stream_options"`
 }
 
-// proxyInference authenticates, authorises, proxies, and meters.
+// proxyInference authenticates, authorizes, proxies, and meters.
 //
 // The body is read once, inspected for two fields, and handed to the proxy. It
 // is not logged, not stored, and not put in an error — see the package comment.
@@ -121,8 +121,8 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 // injectIncludeUsage sets stream_options.include_usage on a request body.
 //
 // It rewrites the one key and leaves the rest of the document byte-identical,
-// because the body is a client's and the gateway is not a JSON canonicaliser: a
-// re-serialised body is a changed body, and the difference surfaces as an
+// because the body is a client's and the gateway is not a JSON canonicalizer: a
+// re-serialized body is a changed body, and the difference surfaces as an
 // upstream rejecting a field this gateway round-tripped through a struct it
 // does not fully model.
 func injectIncludeUsage(body []byte) ([]byte, error) {
@@ -180,7 +180,7 @@ func (m *meter) observe(doc []byte) {
 
 // meteringWriter passes the response through and reads usage out of it.
 //
-// It forwards bytes as received. A gateway that re-serialised chunks would be a
+// It forwards bytes as received. A gateway that re-serialized chunks would be a
 // gateway that changed them, and for a streaming response that is the
 // difference between a client library working and not.
 type meteringWriter struct {
@@ -242,7 +242,7 @@ func (w *meteringWriter) scanChunks(b []byte) {
 	}
 }
 
-// Flush and Unwrap keep the streaming and hijacking behaviour of the wrapped
+// Flush and Unwrap keep the streaming and hijacking behavior of the wrapped
 // writer intact. Without Flush, a streaming response would be buffered by the
 // wrapper and arrive all at once.
 func (w *meteringWriter) Flush() {

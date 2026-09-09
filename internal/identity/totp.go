@@ -108,7 +108,7 @@ func DecodeSeed(s string) ([]byte, error) {
 // Exported because enrollment is a conversation — the seed is displayed, and
 // only a code computed from it confirms that it arrived — so anything that has
 // to exercise that flow end to end must be able to stand in for the
-// authenticator. Nothing in nodary calls it to authorise anything: verification
+// authenticator. Nothing in nodary calls it to authorize anything: verification
 // goes through VerifyTOTP, which spends the step.
 func Code(seed []byte, at time.Time) string {
 	return codeAt(seed, stepAt(at), totpDigits)
@@ -142,7 +142,7 @@ func codeAt(seed []byte, step int64, digits int) string {
 	return fmt.Sprintf("%0*d", digits, value%mod)
 }
 
-// normaliseCode accepts what an authenticator displays. Applications group the
+// normalizeCode accepts what an authenticator displays. Applications group the
 // digits — "123 456" — and an operator pasting that should not be told their
 // code is wrong.
 //
@@ -152,7 +152,7 @@ func codeAt(seed []byte, step int64, digits int) string {
 // over input that cannot match, and it keeps the digit count a property of
 // this file rather than an emergent consequence of how the comparison is
 // spelled.
-func normaliseCode(code string) (string, bool) {
+func normalizeCode(code string) (string, bool) {
 	var b strings.Builder
 	for _, r := range code {
 		switch {
@@ -175,7 +175,7 @@ func normaliseCode(code string) (string, bool) {
 // it, which is precisely what docs/specs/07-identity-audit.md §2's re-entry is
 // there to prevent.
 func verifyCode(seed []byte, code string, now time.Time, floor int64) (int64, bool) {
-	digits, ok := normaliseCode(code)
+	digits, ok := normalizeCode(code)
 	if !ok {
 		return 0, false
 	}
@@ -260,7 +260,7 @@ func Enroll(ctx context.Context, m audit.Mutation, by Role, now time.Time, k *se
 // VerifyTOTP consumes one code for a user.
 //
 // It mutates — spending the step is the point — so it takes a Mutation and
-// commits with whatever act it authorises. In docs/specs/07-identity-audit.md
+// commits with whatever act it authorizes. In docs/specs/07-identity-audit.md
 // §2's terms it is the re-authentication, and it belongs in the same
 // transaction as the change it attests to.
 func VerifyTOTP(ctx context.Context, m audit.Mutation, now time.Time, k *secret.Key,
@@ -301,7 +301,7 @@ func VerifyTOTP(ctx context.Context, m audit.Mutation, now time.Time, k *secret.
 
 	// The condition is what spends the code rather than merely recording it.
 	//
-	// Deliberately redundant, and measured as such: writers serialise under
+	// Deliberately redundant, and measured as such: writers serialize under
 	// the store's immediate transactions, so removing the WHERE clause breaks
 	// no test. It stays because the guarantee would then rest entirely on a
 	// connection setting made in another package, which a later change to that

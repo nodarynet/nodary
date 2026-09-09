@@ -100,7 +100,7 @@ func TestVerifyNamesTheAlteredRecord(t *testing.T) {
 					fmt.Sprintf(`UPDATE audit SET %s = ? WHERE seq = ?`, column), value, victim)
 				return err
 			}); err != nil {
-				t.Skipf("the schema refused the tampering, which is also a defence: %v", err)
+				t.Skipf("the schema refused the tampering, which is also a defense: %v", err)
 			}
 
 			res, err := VerifyDB(context.Background(), db)
@@ -128,7 +128,7 @@ func TestVerifyDetectsAConsistentlyRewrittenRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Justification = "authorised, honestly"
+	r.Justification = "authorized, honestly"
 	rehashed, err := r.Compute()
 	if err != nil {
 		t.Fatal(err)

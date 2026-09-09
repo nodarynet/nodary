@@ -4,7 +4,7 @@
 #
 # The failure this exists to catch is npm's: optionalDependencies resolve
 # silently, so a platform with no matching package installs nothing and the
-# shim fails later with an unrecognisable error. That is a bug you find from a
+# shim fails later with an unrecognizable error. That is a bug you find from a
 # user, not from a build log, unless something asserts it.
 #
 #   hack/test-packages.sh [--version 0.0.1]

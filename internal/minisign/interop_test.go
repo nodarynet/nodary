@@ -57,7 +57,7 @@ func TestReferenceToolVerifiesOurSignature(t *testing.T) {
 }
 
 // Theirs signs, ours verifies. This is what checking a manifest revision or a
-// licence looks like, where the signature was made by our release pipeline.
+// license looks like, where the signature was made by our release pipeline.
 func TestWeVerifyTheReferenceToolsSignature(t *testing.T) {
 	bin := minisignBin(t)
 	dir := t.TempDir()

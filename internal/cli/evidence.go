@@ -60,14 +60,14 @@ func cmdEvidenceExport(e env, args []string) int {
 	}
 	defer s.Close()
 
-	// The licence is checked before anything is rendered, so an unlicensed
+	// The license is checked before anything is rendered, so an unlicensed
 	// install spends no time producing something it will not write.
 	lic, err := license.Active(context.Background(), s.db.Read(), s.now)
 	if err != nil {
 		return reportUnlicensed(e, err)
 	}
 	if !lic.Covers(license.FeatureEvidence) {
-		fmt.Fprintf(e.stderr, "nodary evidence export: this licence does not cover evidence export.\n")
+		fmt.Fprintf(e.stderr, "nodary evidence export: this license does not cover evidence export.\n")
 		return ExitPolicy
 	}
 
@@ -156,7 +156,7 @@ func reportUnlicensed(e env, err error) int {
 	}
 	fmt.Fprintf(e.stderr, `
 The bundle verifies with sha256sum and minisign alone, on a machine that has
-never had nodary installed, and it keeps working after a licence lapses.
+never had nodary installed, and it keeps working after a license lapses.
 
 The chain it is built from is not commercial: `+"`nodary audit export`"+` writes the
 same records, unsigned and unindexed, and always will.

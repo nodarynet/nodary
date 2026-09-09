@@ -5,7 +5,7 @@
 // docs/adr/0005-editions-and-the-advisory-feed.md draws that line for the whole
 // edition split, and it falls the same way here: verifying a revision and
 // matching it against the manifest is a hundred lines of standard library, and
-// what a customer pays for is a *current* revision. So there is no licence
+// what a customer pays for is a *current* revision. So there is no license
 // check in this package. Possession of a recent signed feed is the
 // entitlement — an old one is worth nothing, which is precisely what a
 // subscription sells — and gating the verb as well would only stop somebody
@@ -31,17 +31,17 @@ import (
 
 // TrustedKey is the public key this build trusts for feed revisions.
 //
-// **Deliberately not the licence key**, though docs/tasks/R9-evidence-remediation.md
+// **Deliberately not the license key**, though docs/tasks/R9-evidence-remediation.md
 // says "the same trust root as R9-02" and this is the same *mechanism*: an
 // embedded minisign key, stamped in at release with -ldflags, refusing to
 // verify anything while it holds the placeholder.
 //
-// The two keys have incompatible exposure. A licence signs entitlements — low
+// The two keys have incompatible exposure. A license signs entitlements — low
 // volume, long-lived, and a key that can live offline. A feed revision is
 // **generated in CI** (ADR 0005 §3), so its key has to be reachable from an
 // automated pipeline. One key for both would put a CI-accessible secret in the
-// position of also minting licences, and would mean a feed-key rotation
-// invalidated every licence in the field.
+// position of also minting licenses, and would mean a feed-key rotation
+// invalidated every license in the field.
 var TrustedKey = placeholder
 
 const placeholder = "untrusted comment: placeholder\nPLACEHOLDER-NOT-A-REAL-KEY\n"
@@ -164,14 +164,14 @@ type Pin struct {
 func (f Feed) Match(pins []Pin) []Finding {
 	byDigest := map[string][]Pin{}
 	for _, p := range pins {
-		d := normaliseDigest(p.SHA256)
+		d := normalizeDigest(p.SHA256)
 		byDigest[d] = append(byDigest[d], p)
 	}
 
 	var out []Finding
 	for _, a := range f.Advisories {
 		for _, affected := range a.Affected {
-			for _, p := range byDigest[normaliseDigest(affected)] {
+			for _, p := range byDigest[normalizeDigest(affected)] {
 				out = append(out, Finding{Advisory: a, Pinned: p.SHA256, Platform: p.Platform})
 			}
 		}
@@ -185,12 +185,12 @@ func (f Feed) Match(pins []Pin) []Finding {
 	return out
 }
 
-// normaliseDigest accepts `sha256:…` and a bare hex digest as the same thing.
+// normalizeDigest accepts `sha256:…` and a bare hex digest as the same thing.
 //
 // The manifest writes bare hex and a feed written by hand is likely to carry
 // the prefixed form. A mismatch here would report a clean install, which is
 // the one wrong answer this package must not give.
-func normaliseDigest(s string) string {
+func normalizeDigest(s string) string {
 	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s), "sha256:"))
 }
 

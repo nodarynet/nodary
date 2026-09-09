@@ -120,8 +120,8 @@ func (s *Server) principal(r *http.Request) (identity.Principal, error) {
 	// A read to resolve, and a separate observation to record the use.
 	//
 	// identity.Authenticate cannot write — last_used_at is stamped by
-	// identity.Touch inside the act a credential authorised. An inference
-	// request authorises no act and produces no audit record, so the touch has
+	// identity.Touch inside the act a credential authorized. An inference
+	// request authorizes no act and produces no audit record, so the touch has
 	// nothing to ride along with and goes through internal/observed instead:
 	// a credential being presented is something that happened, not something
 	// anybody decided.

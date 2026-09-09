@@ -58,13 +58,13 @@ func DecodeTOML(b []byte) (*Snapshot, error) {
 		}
 		return nil, fmt.Errorf("unknown keys in the configuration: %v — a file nobody fully applies is a decision somebody wrongly believes is in force", keys)
 	}
-	normalise(&s)
+	normalize(&s)
 	return &s, nil
 }
 
-// normalise fills in what a hand-written file may leave out, so a snapshot read
+// normalize fills in what a hand-written file may leave out, so a snapshot read
 // from a file compares equal to one read from the database.
-func normalise(s *Snapshot) {
+func normalize(s *Snapshot) {
 	if s.Nodes == nil {
 		s.Nodes = []Node{}
 	}

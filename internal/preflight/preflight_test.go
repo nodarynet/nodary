@@ -214,7 +214,7 @@ func listenSomewhere(t *testing.T) int {
 // is where that has to be said, because it is the only place that says it
 // before anything is installed.
 //
-// nft is the opposite call: its rule is defence in depth, so its absence warns.
+// nft is the opposite call: its rule is defense in depth, so its absence warns.
 func TestANodeWithoutIPTablesIsRefusedAndWithoutNFTIsWarned(t *testing.T) {
 	// An empty PATH and a HOME with nothing in it: Resolve still walks toolDirs,
 	// so this asserts against the real host. Skipped where iptables exists,

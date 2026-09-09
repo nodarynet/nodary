@@ -110,7 +110,7 @@ type Record struct {
 	Hash          string
 }
 
-// members is the record as the object it hashes and serialises as.
+// members is the record as the object it hashes and serializes as.
 //
 // This is the only place the field names exist. The hash preimage is this map
 // minus "hash"; the sink line and the JSONL export are this map whole. Keeping

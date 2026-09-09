@@ -97,7 +97,7 @@ node test/worker.test.mjs
 ```
 
 No dependencies, no network, no wrangler. The mock deliberately mirrors one R2
-behaviour that is easy to get wrong: `range` is populated on a full-object get,
+behavior that is easy to get wrong: `range` is populated on a full-object get,
 not only on a ranged one. A mock that omits it passes a Worker which answers
 every request with a 206.
 

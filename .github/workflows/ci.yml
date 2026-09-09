@@ -126,7 +126,7 @@ jobs:
 
   # staticcheck finds what the type system and `go vet` cannot. Its version is
   # pinned in the Makefile, and has to be: staticcheck 2025.1.1 cannot read a
-  # Go 1.27 tree at all. A bleeding-edge `go` floor means third-party analysers
+  # Go 1.27 tree at all. A bleeding-edge `go` floor means third-party analyzers
   # lag, and this will recur every February and August.
   lint:
     runs-on: ubuntu-latest

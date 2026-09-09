@@ -49,7 +49,7 @@ never touches any other unit.
 **Why.** A node is rarely only a nodary node —
 [12](../specs/12-node-guardrails.md) opens with exactly that, a box that drives a display and
 hosts something else at 3pm on a Tuesday. An agent that stopped "anything it did not
-recognise" on a machine somebody else also uses is the single most destructive thing this
+recognize" on a machine somebody else also uses is the single most destructive thing this
 codebase could do, and the blast radius is bounded by naming what it owns rather than by
 listing what it must not touch.
 
@@ -125,7 +125,7 @@ cannot start a model on a correctly enrolled node.
 - **[03 §6](../specs/03-agent.md#6-unit-template)'s unit template was wrong.** It expanded the
   argument list as `${NODARY_ARGS}`, and systemd passes a braced variable as a *single*
   argument — only the bare `$FOO` splits at whitespace. A model server would have received its
-  whole argv as one string and exited on an unrecognised argument, which surfaces on a GPU host
+  whole argv as one string and exited on an unrecognized argument, which surfaces on a GPU host
   as a container that will not start, a long way from its cause.
 
   Found by writing the assertion instead of trusting the template, and measured on systemd 255
@@ -162,4 +162,4 @@ fixture.
   [mvp §5.3](mvp.md#53-egress-isolation-is-built-node-guardrails-are-not) makes non-optional.
 - Nothing here fetches containerd or `nerdctl`. That is R5-04, and until it lands a unit will
   fail to start on a host without them — reported as `failed` with the log tail, which is the
-  correct behaviour for a missing runtime either way.
+  correct behavior for a missing runtime either way.

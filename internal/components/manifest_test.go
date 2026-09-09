@@ -245,7 +245,7 @@ func TestSelectUnknownIsAnError(t *testing.T) {
 func TestParseRejectsWrongSchema(t *testing.T) {
 	_, err := parse([]byte(`{"schema": 99, "nodary_version": "0.0.1", "components": []}`))
 	if err == nil {
-		t.Fatal("expected an error for an unrecognised schema version")
+		t.Fatal("expected an error for an unrecognized schema version")
 	}
 	if !strings.Contains(err.Error(), "schema") {
 		t.Errorf("error should name the schema, got: %v", err)

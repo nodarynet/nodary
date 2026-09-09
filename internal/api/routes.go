@@ -98,7 +98,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The verification is a mutation: a stale hash is rehashed on success, and
-	// that write belongs in the same transaction as the login it authorised.
+	// that write belongs in the same transaction as the login it authorized.
 	var who identity.User
 	rec, err := s.log.Act(r.Context(), audit.Request{
 		Actor:  audit.Actor{ID: body.Username, Method: "password"},

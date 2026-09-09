@@ -349,7 +349,7 @@ func TestTheMirrorIsNotAnOpenFileServer(t *testing.T) {
 // refused: the name is a perfectly good hostname, and hostnames are
 // case-insensitive, but nodeNamePattern is not — deliberately, because the name
 // also becomes a certificate CN, a systemd instance and a directory. The agent
-// canonicalises, and it has to do so for a name given explicitly and not only
+// canonicalizes, and it has to do so for a name given explicitly and not only
 // for one it took from the hostname.
 //
 // The CN is checked alongside the record because internal/api/agent.go reads

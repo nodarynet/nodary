@@ -48,7 +48,7 @@ func LocalRoot() Principal {
 // ResolveToken authenticates a presented credential into a principal.
 //
 // It does not write. Recording the use is Touch's job, inside the act this
-// principal goes on to authorise, because nothing in this package may reach
+// principal goes on to authorize, because nothing in this package may reach
 // the database outside a mutation.
 func ResolveToken(ctx context.Context, q Querier, now time.Time, presented string) (Principal, error) {
 	u, t, err := Authenticate(ctx, q, now, presented)

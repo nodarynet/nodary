@@ -11,7 +11,7 @@ leaves unfinished is listed here rather than duplicated into R5.
 
 Scope: a real binary through every channel, implementing `nodary version` and
 `nodary components list|verify`. Every other verb reports that it is not yet
-implemented — recognised, not rejected.
+implemented — recognized, not rejected.
 
 ## Delivered
 

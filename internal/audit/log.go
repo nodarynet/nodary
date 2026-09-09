@@ -304,7 +304,7 @@ func (l *Log) emit(ctx context.Context, r Record) {
 		// through Delivery, which holds the lock every other write to that
 		// writer is made under. warn is a caller-supplied io.Writer with no
 		// concurrency contract of its own.
-		l.delivery.warnf("nodary: audit record %d cannot be serialised: %v\n", r.Seq, err)
+		l.delivery.warnf("nodary: audit record %d cannot be serialized: %v\n", r.Seq, err)
 		return
 	}
 	l.delivery.Emit(ctx, r.Seq, line)

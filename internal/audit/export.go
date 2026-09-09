@@ -28,7 +28,7 @@ func ExportJSONL(ctx context.Context, db *store.DB, f Filter, w io.Writer) (int6
 	// Buffered, like the CSV writer already is. The caller passes os.Stdout, so
 	// this was one write(2) per record for a whole-chain export — and
 	// canonical.Encode returns a slice whose len equals its cap, so appending
-	// the newline reallocated and copied every line rather than amortising.
+	// the newline reallocated and copied every line rather than amortizing.
 	bw := bufio.NewWriter(w)
 	var n int64
 	err := Walk(ctx, db, exportOrder(f), func(r Record) error {

@@ -106,13 +106,13 @@ func TestParseBoundCoversTheWholeDay(t *testing.T) {
 		t.Errorf("to = %q", to)
 	}
 
-	// A full instant is normalised to UTC and to the column's precision.
+	// A full instant is normalized to UTC and to the column's precision.
 	got, err := ParseBound("2026-08-31T12:00:00.9994+02:00", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "2026-08-31T10:00:00.999Z" {
-		t.Errorf("instant = %q, want it normalised to UTC milliseconds", got)
+		t.Errorf("instant = %q, want it normalized to UTC milliseconds", got)
 	}
 
 	if _, err := ParseBound("last tuesday", false); !errors.Is(err, ErrBadFilter) {

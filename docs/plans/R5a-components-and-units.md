@@ -8,7 +8,7 @@ installed, so a unit reaches `start` and fails there*. Everything else in
 [S7](mvp.md#4-the-route) — preflight, `doctor`, the setup URL, the FIPS job — is worth having
 and unblocks nothing. This is the part that does.
 
-## 1. The mirror is the whole architecture, not an optimisation
+## 1. The mirror is the whole architecture, not an optimization
 
 **Decided.** The control plane resolves components once into `/var/lib/nodary/dist/` and serves
 that directory to nodes. A node fetches from its control plane and contacts nothing else.
@@ -26,7 +26,7 @@ other's word.
 
 **Rejected — each node resolves from upstream, with the manifest as the check.** Simpler, no
 mirror to serve, and the digest check still holds. It requires every GPU host to reach GitHub
-and a container registry, which is exactly the network position a defence subcontractor's
+and a container registry, which is exactly the network position a defense subcontractor's
 GPU host is not in, and which the product's own isolation story says it should not be in.
 
 ## 2. A fetch verifies before it places, and is idempotent by digest

@@ -262,7 +262,7 @@ func TestNilPointerIsNullNotAbsent(t *testing.T) {
 	}
 }
 
-// Canonicalising a canonical document must be a no-op, or the form is not
+// Canonicalizing a canonical document must be a no-op, or the form is not
 // canonical.
 func TestIdempotent(t *testing.T) {
 	names, _ := filepath.Glob("testdata/input/*.json")

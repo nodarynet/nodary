@@ -65,7 +65,7 @@ done
 # A gated repository — every Gemma, Llama and Mistral release — answers 401
 # without one. Measured: google/gemma-3n-E2B-it and google/gemma-3-1b-it both
 # refuse an anonymous config.json while Qwen/Qwen2.5-0.5B-Instruct redirects to
-# a CDN. Accept the licence on huggingface.co, then:
+# a CDN. Accept the license on huggingface.co, then:
 #   sudo HF_TOKEN=hf_… ./scripts/stage-model.sh google/gemma-3n-E2B-it
 AUTH=()
 if [ -n "${HF_TOKEN:-}" ]; then
@@ -115,7 +115,7 @@ for f in $FILES; do
         # The common case, and worth naming: every Gemma, Llama and Mistral
         # release is gated, and "`.gitattributes` failed" says nothing about why.
         printf '\n  ✘ %s is gated (HTTP %s).\n' "$REPO" "$code" >&2
-        printf '    Accept its licence at https://huggingface.co/%s, then re-run with\n' "$REPO" >&2
+        printf '    Accept its license at https://huggingface.co/%s, then re-run with\n' "$REPO" >&2
         printf '    HF_TOKEN set to a token that has access:\n' >&2
         printf '      sudo HF_TOKEN=hf_… %s %s\n' "$0" "$REPO" >&2
         ;;

@@ -13,7 +13,7 @@
 // connection to the pool between calls, so a read-then-write pair interleaves
 // even on a pool capped at one connection — and the CLI writes to the same file
 // as the server, so the writers are separate processes anyway. Assigning seq
-// inside a single immediate transaction is what actually serialises them. The
+// inside a single immediate transaction is what actually serializes them. The
 // reader pool is opened _query_only, so "WriteTx is the only write path" is
 // enforced by SQLite rather than by callers remembering.
 //
@@ -165,7 +165,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("opening database for writing: %w", err)
 	}
 	// A single writer connection is a cheap in-process guard against wasted
-	// lock contention. It is not the serialisation mechanism — see WriteTx.
+	// lock contention. It is not the serialization mechanism — see WriteTx.
 	write.SetMaxOpenConns(1)
 
 	read, err := sql.Open("sqlite", readerDSN(path))

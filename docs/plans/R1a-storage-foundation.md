@@ -26,7 +26,7 @@ Recorded because the reasoning is what outlives the work; the alternatives were 
 
 ### Canonical JSON is RFC 8785 in full
 
-Including ES6 number serialisation (§3.2.2.3), UTF-16 key ordering (§3.2.3) and JCS
+Including ES6 number serialization (§3.2.2.3), UTF-16 key ordering (§3.2.3) and JCS
 string escaping (§3.2.2.2).
 
 **This reverses an earlier decision, and the reversal is the point.** The plan first
@@ -73,10 +73,10 @@ same bytes: false
 v1 also sorts map keys by UTF-8 byte order rather than the UTF-16 order JCS requires,
 encodes structs in declaration order rather than sorted order, and **silently replaces
 invalid UTF-8 in a Go string with U+FFFD instead of erroring**. Building hashes on any of
-it would bind the audit chain to stdlib behaviour that is actively diverging. This is why
+it would bind the audit chain to stdlib behavior that is actively diverging. This is why
 R1-01 is a task and not a call to `json.Marshal`.
 
-### Serialisation order comes from SQL, not from Go pool configuration
+### Serialization order comes from SQL, not from Go pool configuration
 
 An earlier draft claimed a writer pool capped at `MaxOpenConns(1)` made R1-07's *two
 records cannot claim the same `seq`* structural. It does not, for three reasons:
@@ -85,7 +85,7 @@ records cannot claim the same `seq`* structural. It does not, for three reasons:
   running `SELECT max(seq)` then `INSERT` interleave freely on that one connection.
 - [R1](../tasks/R1-core-audit-identity.md) states the CLI "operates on a local database
   directly", so a CLI process and a server process are two writers against one file. WAL
-  serialises *writes*, not read-then-write across processes.
+  serializes *writes*, not read-then-write across processes.
 - The reflex fix is worse than the bug. With the default `deferred` transaction, a WAL
   reader that later attempts to write returns `SQLITE_BUSY_SNAPSHOT` **without invoking
   the busy handler**, so `busy_timeout` does not help and it surfaces as a spurious
@@ -143,7 +143,7 @@ func HashHex(v any) (string, error)         // lowercase hex, what the schema st
 ```
 
 `Encode` does **not** route through `json.Marshal`. Doing so would inherit v1's
-struct-tag, `omitempty`, `json.Marshaler`, `time.Time` and `[]byte`-to-base64 behaviour
+struct-tag, `omitempty`, `json.Marshaler`, `time.Time` and `[]byte`-to-base64 behavior
 wholesale, and would make the invalid-UTF-8 rule unreachable — v1 substitutes U+FFFD
 rather than erroring. Instead `Encode` reflects over a **closed value domain**:
 
@@ -157,7 +157,7 @@ Anything else — a channel, a `json.Marshaler`, a `time.Time`, a `float32`, an
 golden test asserts `Encode(x)` and `EncodeJSON(json.Marshal(x))` agree byte-for-byte
 over the domain, so the two entry points genuinely cannot drift.
 
-| Rule | Behaviour | JCS |
+| Rule | Behavior | JCS |
 | :--- | :--- | :--- |
 | Numbers | ES6 `Number::toString` over the IEEE-754 double | §3.2.2.3 |
 | Integers | Rejected when no double holds them exactly — an exactness test, not a magnitude one | see below |
@@ -181,7 +181,7 @@ wrong. 2^53 is only the point below which *every* integer is representable; plen
 larger ones still are, and 10^17 is one of them. A magnitude check therefore made the
 encoder emit `100000000000000000` for the input `1e17` and then refuse to read its own
 output back — `FuzzEncodeJSON` found it in under a second, and the failing input is kept
-as a corpus seed. Producing a canonical form that cannot be re-canonicalised would have
+as a corpus seed. Producing a canonical form that cannot be re-canonicalized would have
 broken `audit verify`, which re-hashes stored records to walk the chain.
 
 Lone surrogates need their own rule because a UTF-8 check does not catch them: a string
@@ -411,7 +411,7 @@ string. Recorded here because R1a is where the rule originates.
 | Package | Cases |
 | :--- | :--- |
 | `canonical` | Official cyberphone vectors in full; differential test against `gowebpki/jcs`; `go test -fuzz` over `EncodeJSON` for idempotence and no panic; `Encode(x)` equals `EncodeJSON(json.Marshal(x))` over the closed domain; rejection of non-finite floats, integers past 2^53, lone surrogates, duplicate keys and invalid UTF-8; UTF-16 versus UTF-8 key-order divergence; lowercase hex escapes |
-| `store` | WAL asserted after `Open`; every pragma asserted; sidecars present **and 0600**; `application_id` mismatch refused; file and directory modes; `WriteTx` serialises across **N forked processes**, not just goroutines; `Close` truncates the WAL |
+| `store` | WAL asserted after `Open`; every pragma asserted; sidecars present **and 0600**; `application_id` mismatch refused; file and directory modes; `WriteTx` serializes across **N forked processes**, not just goroutines; `Close` truncates the WAL |
 | `migrate` | Fresh database applies all; re-run is a no-op; altered checksum aborts naming the migration; unknown applied version refused as downgrade; missing lower version refused; a failing migration rolls back whole; concurrent runners in separate processes apply once; `PRAGMA` in a migration file rejected |
 | `secret` | Creates 0400 when absent; refuses loose modes, non-root owner, symlink and malformed contents; a crash between create and link leaves no unusable key; round trip; wrong context fails; unknown key id reported; a database copied without the key yields no plaintext |
 | CI | All four ADR 0002 targets cross-build with `CGO_ENABLED=0`, and the host binary is asserted to carry no dynamic linkage |

@@ -40,7 +40,7 @@ front of the same core functions.
   - *done:* concurrent writers cannot interleave to produce two records claiming the same `seq` or the same predecessor
   - *deps:* R1-06
 - [x] **R1-08** Configurable delivery of every record — a JSONL file by default, `stdout`, `stderr` or `none` · [07 §3](../specs/07-identity-audit.md#storage-and-delivery)
-  - *done:* every committed record is delivered, the file survives loss of the database and verifies on a machine that never held it, and a destination that fell behind resynchronises with `audit export --from-seq` · [11 §5](../specs/11-failure-modes.md#5-recovery)
+  - *done:* every committed record is delivered, the file survives loss of the database and verifies on a machine that never held it, and a destination that fell behind resynchronizes with `audit export --from-seq` · [11 §5](../specs/11-failure-modes.md#5-recovery)
   - *note:* the task previously specified the mirror as a fixed, mandatory path. [07 §3](../specs/07-identity-audit.md#storage-and-delivery) now makes the destination configuration and delivery post-commit, so a log destination can never block or roll back a change; the task follows the spec. A native SIEM exporter is [R2-41](R2-control-plane.md)
   - *deps:* R1-07
 - [x] **R1-09** `nodary audit verify` walks the chain and reports the first break by sequence number
@@ -71,7 +71,7 @@ front of the same core functions.
   - *note:* the floor applies to any justification supplied, required or not — a profile that sets a minimum without requiring the field means "optional, but say something real if you say anything". Length is counted in runes: a byte count would fail an accented justification that an ASCII one of the same length passes
   - *deps:* R1-12, R1-25
 - [x] **R1-16** TOTP re-entry when `require_totp` is set
-  - *done:* re-authentication is per-act, not per-session — a valid session cookie alone does not satisfy it, and a code is spent so it cannot authorise a second act
+  - *done:* re-authentication is per-act, not per-session — a valid session cookie alone does not satisfy it, and a code is spent so it cannot authorize a second act
   - *note:* **local root is exempt**, and the record says so with `totp_exempt`. It has no user row and therefore no seed, and [R1c](../plans/R1c-identity.md)'s argument applies unchanged — anyone who can open the database can already do anything to it, so demanding a second factor stored in that same database buys nothing. Without the exemption, `regulated` would mean the local CLI cannot recover the appliance, which is what [07 §1](../specs/07-identity-audit.md#1-users-and-roles) argues against
   - *deps:* R1-19, R1-25
 - [x] **R1-17** `--allow-unattended` tokens: an audited grant, refused when `allow_unattended_tokens = false`
@@ -108,7 +108,7 @@ front of the same core functions.
   - *deps:* R1-12, R1-18, R1-19, R1-20
 - [x] **R1-24** `nodary token create|list|revoke` · [10 §1](../specs/10-cli.md#1-verbs)
   - *done:* revocation takes effect immediately and `last_used_at` is recorded, which is what makes stale-credential cleanup possible · [06 §2](../specs/06-gateway.md#2-authentication)
-  - *note:* `last_used_at` is stamped inside the audited act a credential authorised, because nothing outside `internal/audit` may write to the database. A token used only for reads therefore looks unused; the read path that would change that is R2's · [R1c](../plans/R1c-identity.md)
+  - *note:* `last_used_at` is stamped inside the audited act a credential authorized, because nothing outside `internal/audit` may write to the database. A token used only for reads therefore looks unused; the read path that would change that is R2's · [R1c](../plans/R1c-identity.md)
   - *deps:* R1-12, R1-21
 
 ## Policy profiles
@@ -162,7 +162,7 @@ that adds it than in the quarter it first reproduces.
   - *done:* the corpus runs as regression cases on every pull request, and a scheduled job searches for new inputs. Not per-pull-request: a fixed-time run either finds nothing or fails on an input unrelated to the change under review · [R1-01](#foundation)
 
 **Not gated: a coverage threshold.** It measures whether a line ran, not whether
-a test would fail if the behaviour were wrong, and R1a produced two arguments
+a test would fail if the behavior were wrong, and R1a produced two arguments
 against it. The differential test in `internal/canonical` had full coverage of
 the encoder while comparing almost nothing, until it was checked for vacuity.
 The concurrency test in `internal/store` had full coverage of `WriteTx` and

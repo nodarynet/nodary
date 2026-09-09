@@ -3,7 +3,7 @@
 // It exists because nothing in the tree verified a signature in Go: every check
 // was shell calling openssl or the minisign binary, and docs/adr/0007 needs the
 // component manifest verified inside the binary once it stops being embedded in
-// it. The same verifier checks a licence key and the advisory feed.
+// it. The same verifier checks a license key and the advisory feed.
 //
 // # Only the legacy algorithm
 //

@@ -66,7 +66,7 @@ principal, and it takes the same path.
 
 **Rejected — give the agent a synthetic principal so it can use `core.Act`.** Uniform, and
 it would mean one orchestration rather than two entry points. It requires inventing a role
-for machines, which is an authorisation decision nobody has made, and it would demand a TOTP
+for machines, which is an authorization decision nobody has made, and it would demand a TOTP
 code from a process with no human attached — which the ceremony would then have to learn to
 exempt, one exemption away from being exemptable by anything.
 

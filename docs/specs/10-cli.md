@@ -4,7 +4,7 @@ One binary. `nodary server`, `nodary agent` and the operator verbs are subcomman
 executable, selected at runtime.
 
 **The CLI and the HTTP API call the same core functions.** Neither holds business logic, and
-every mutating call passes through the audit layer. This is what keeps them behaviourally
+every mutating call passes through the audit layer. This is what keeps them behaviorally
 identical without duplicated effort, and it is a constraint on the implementation, not an
 aspiration.
 

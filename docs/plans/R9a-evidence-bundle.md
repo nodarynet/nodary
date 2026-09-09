@@ -62,9 +62,9 @@ algorithm and refusing `ED`.
 
 **Why.** [ADR 0007](../adr/0007-independent-component-manifest.md) settled this: the prehashed
 variant signs a BLAKE2b-512 digest, and BLAKE2b is neither in the standard library nor
-FIPS-approved, so it would put a non-approved hash on the path that verifies a licence — inside
+FIPS-approved, so it would put a non-approved hash on the path that verifies a license — inside
 the boundary [ADR 0006](../adr/0006-cui-boundary-and-fips.md) exists to defend. The same
-verifier serves the licence here, the manifest in [R5-27](../tasks/R5-install.md) and the feed
+verifier serves the license here, the manifest in [R5-27](../tasks/R5-install.md) and the feed
 in R9-14, which is why it is written properly rather than inline.
 
 It is **core, not `ee/`**: [ADR 0005](../adr/0005-editions-and-the-advisory-feed.md) keeps every
@@ -72,7 +72,7 @@ mechanism Apache, and a community install verifies manifest revisions with this 
 
 ### An unlicensed install exports nothing, and says exactly what it would have exported
 
-**Decided.** `nodary evidence export` without a licence lists every member, says what each one
+**Decided.** `nodary evidence export` without a license lists every member, says what each one
 is for, and exits 5 without writing a file.
 
 **Why.** [ADR 0005](../adr/0005-editions-and-the-advisory-feed.md)'s first non-negotiable. A
@@ -97,7 +97,7 @@ nothing in it. An assessor who sees a missing file has to ask, and the answer co
 
 - [x] `internal/minisign` — verify `Ed`, refuse `ED`
 - [x] The install's signing key, sealed, its creation audited
-- [x] `ee/` — the licence file, `nodary license apply|show`
+- [x] `ee/` — the license file, `nodary license apply|show`
 - [x] `ee/evidence` — the bundle, every member
 - [x] `nodary evidence export`, and the unlicensed path
 - [x] The verify-without-nodary procedure, tested by running it

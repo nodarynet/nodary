@@ -36,7 +36,7 @@ var userKinds = []Kind{KindPersonal, KindService}
 // Prefix is what the plaintext starts with.
 //
 // A distinct prefix per kind is not decoration: it makes a leaked credential
-// greppable in a log and recognisable to a secret scanner, which is the
+// greppable in a log and recognizable to a secret scanner, which is the
 // difference between finding out from a scanner and finding out from an
 // incident.
 func (k Kind) Prefix() string { return "nodary_" + string(k) + "_" }
@@ -204,7 +204,7 @@ func MintToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
 	m.Detail("user", u.Name)
 	m.Detail("kind", string(kind))
 	// The grant belongs in the record: it is what an assessor reads instead of
-	// a person's presence for every later act this credential authorises.
+	// a person's presence for every later act this credential authorizes.
 	if unattended {
 		m.Detail("allow_unattended", true)
 	}
@@ -258,7 +258,7 @@ func Authenticate(ctx context.Context, q Querier, now time.Time, presented strin
 	return u, t, nil
 }
 
-// Touch records that a token was used. It runs inside the act it authorised,
+// Touch records that a token was used. It runs inside the act it authorized,
 // so a credential's last use and the change it made commit together.
 //
 // An empty id is an error rather than a no-op. A caller reaching here without a
@@ -540,7 +540,7 @@ func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 // The decrement *is* the check: `uses_left > 0` and the expiry live in the
 // UPDATE's WHERE clause, so a single-use token cannot be spent twice even if
 // two enrollments arrive together. A SELECT-then-UPDATE would be safe today
-// because store.WriteTx serialises writers, but it would be safe by accident —
+// because store.WriteTx serializes writers, but it would be safe by accident —
 // it reads correct and depends on something in another package staying true.
 //
 // docs/specs/02-enrollment.md §1: the token is burned on success and is never

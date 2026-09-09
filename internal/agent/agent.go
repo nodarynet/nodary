@@ -145,7 +145,7 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 		}
 		opt.Name = host
 	}
-	// Canonicalised however the name arrived, not only when it came from the
+	// Canonicalized however the name arrived, not only when it came from the
 	// hostname. A hostname is case-insensitive — `Fractal` and `fractal` are one
 	// host — but a node name becomes a certificate common name, a systemd
 	// instance after `%i`, a container name and a directory, and none of those

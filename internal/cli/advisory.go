@@ -25,7 +25,7 @@ func cmdAdvisory(e env, args []string) int {
 }
 
 // FeedPath is where a revision is installed. Beside the other configuration,
-// with its signature next to it, the way a licence arrives.
+// with its signature next to it, the way a license arrives.
 func feedPath() string { return filepath.Join(paths.ConfigDir, "advisories.toml") }
 
 // cmdAdvisoryCheck is R9-15: feed revisions matched against pinned digests.

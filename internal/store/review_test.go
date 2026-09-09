@@ -231,14 +231,14 @@ func TestIsBusyClassifiesLockContention(t *testing.T) {
 
 // startBarrier hands every child the same absolute start instant. Without it
 // the parent's process-spawn cost dominates and the children never overlap at
-// all, so an assertion about concurrent behaviour is satisfied by writers that
+// all, so an assertion about concurrent behavior is satisfied by writers that
 // never ran concurrently.
 //
 // It is an improvement, not a proof. Measured: with the barrier in place, the
 // cross-process migrator test does catch the realistic mistake (reading the
 // applied set off the reader pool, outside the write lock — 3 failures in 3
 // runs), but still does not catch a build that reads it in its own separate
-// write transaction (6 passes in 6 runs), because the file lock serialises the
+// write transaction (6 passes in 6 runs), because the file lock serializes the
 // children whatever start time they share. See
 // TestMigrateBlockedBehindAWriterAppliesOnce for the ordering forced directly.
 func startBarrier(d time.Duration) string {
@@ -300,7 +300,7 @@ func TestBarrierMakesChildrenOverlap(t *testing.T) {
 // TestConcurrentMigratorsApplyOnce spawns real processes and asserts the
 // outcome. That catches the realistic mistake, but it cannot manufacture an
 // arbitrary interleaving: the migration takes microseconds and the file write
-// lock serialises the children whatever start barrier they share, so it passed
+// lock serializes the children whatever start barrier they share, so it passed
 // six out of six against a build that read the applied set in a separate write
 // transaction.
 //

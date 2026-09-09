@@ -19,7 +19,7 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
   - *done:* the pin is checked **inside the handshake** (`VerifyPeerCertificate`), not by fetching the certificate over an unverified connection and reconnecting. Same guarantee, one connection, and no window between the check and the use. A mismatch surfaces as `agent.ErrPin` rather than a transport error, because a connection that succeeded to the wrong server is an incident and not something to retry
 - [x] **R4-03** Join tokens: `nodary token join --ttl --uses`, single-use by default, burned on success, minting audited · [02 §4](../specs/02-enrollment.md#4-token-types)
   - *done:* a replayed token is rejected · [11 §3](../specs/11-failure-modes.md#3-security-controls)
-  - the redemption is one `UPDATE … WHERE uses_left > 0 AND expires_at > ?`; the decrement **is** the check. A SELECT-then-UPDATE would be safe today only because `store.WriteTx` serialises writers, which is safety by accident
+  - the redemption is one `UPDATE … WHERE uses_left > 0 AND expires_at > ?`; the decrement **is** the check. A SELECT-then-UPDATE would be safe today only because `store.WriteTx` serializes writers, which is safety by accident
 - [x] **R4-04** Approval as a separate step: a `pending` node receives an empty desired state — it can heartbeat, it cannot serve · [02 §2](../specs/02-enrollment.md#2-why-approval-is-a-separate-step)
   - the offer is carried in the **preview**, which `core.Act` hashes into `intent_hash` and writes into the record. Terms recorded beside the record rather than inside its hash would not be covered by anything
   - *done:* the approval record names the administrator, carries their justification, and records the node's advertised offer and constraints in the same record. Neither side can later claim terms the other did not see
@@ -37,7 +37,7 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 - [ ] **R4-10** `POST /api/v1/agent/events` with a bounded queue that spills to disk; an overflow is itself recorded · [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)
 - [ ] **R4-11** Protocol version handling: an agent outside the server's supported range stops reconciling, keeps running what is already up, and reports `incompatible` · [03 §4](../specs/03-agent.md#4-version-skew)
   - *done:* it does not guess
-- [x] **R4-12** Reconnect behaviour: exponential backoff with jitter; on reconnect the agent reconciles forward and never replays intermediate revisions · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
+- [x] **R4-12** Reconnect behavior: exponential backoff with jitter; on reconnect the agent reconciles forward and never replays intermediate revisions · [11 §1](../specs/11-failure-modes.md#1-control-plane-and-agent)
   - full jitter — a uniform draw from `[0, backoff)`. Anything narrower leaves a fleet's retries correlated, and arriving together the moment a control plane recovers is the second outage
 
 ## Guardrails
@@ -63,10 +63,10 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 - [x] **R4-18** The reconcile loop: idempotent, convergent, observing actual state rather than assuming it caused it · [03 §3](../specs/03-agent.md#3-reconcile-loop)
   - *done:* the fixed ordering holds — weights before prepare, prepare before start, stop before weight removal, GPU released before reassignment
   - the env file is compared before it is written, and only a real change restarts a unit. The failure this prevents is not a wasted write: it is a model server restarting every fifteen seconds forever, dropping in-flight requests each time
-  - the loop stops `nodary-model@*` and nothing else. A node is rarely only a nodary node ([12](../specs/12-node-guardrails.md)), and stopping "anything unrecognised" on a machine somebody else also uses is the most destructive thing this codebase could do. The scoping is in the `list-units` glob, not in a filter applied afterwards
+  - the loop stops `nodary-model@*` and nothing else. A node is rarely only a nodary node ([12](../specs/12-node-guardrails.md)), and stopping "anything unrecognized" on a machine somebody else also uses is the most destructive thing this codebase could do. The scoping is in the `list-units` glob, not in a filter applied afterwards
   - `prepare` is R6-06 and is not in this build, so the ordering rule it belongs to is untested rather than satisfied
 - [x] **R4-19** `nodary-model@.service` template and `/etc/nodary/deployments/<id>.env`; the agent writes the env file and calls `systemctl` and holds no supervision logic of its own · [03 §6](../specs/03-agent.md#6-unit-template)
-  - **the template in 03 §6 was wrong and is corrected.** `${NODARY_ARGS}` passes the whole argument list as a *single* argument; systemd splits `$FOO` at whitespace and never splits `${FOO}`. The model server would have received its entire argv as one string and exited on an unrecognised argument — on a GPU host, as a container that will not start, a long way from the cause. Measured on systemd 255 and asserted in both directions
+  - **the template in 03 §6 was wrong and is corrected.** `${NODARY_ARGS}` passes the whole argument list as a *single* argument; systemd splits `$FOO` at whitespace and never splits `${FOO}`. The model server would have received its entire argv as one string and exited on an unrecognized argument — on a GPU host, as a container that will not start, a long way from the cause. Measured on systemd 255 and asserted in both directions
   - the agent rewrites the template when it drifts. The variable names there and in the plan are one contract in two places, and a hand-edited template that no longer reads `NODARY_ARGS` starts a model server with no arguments at all
 - [x] **R4-20** Health polling every 10s; three consecutive failures mark `unhealthy` and remove the deployment from its route · [03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)
   - the agent **reports** and does not act. 03 §7 gives the two halves to different sides: the agent marks it, the control plane removes it from its route. A route is fleet state — another node may hold the last ready replica — so a node withdrawing itself would be deciding on information it does not have. The route half is R3
@@ -92,7 +92,7 @@ looks correct, reviews clean, and enforces nothing.
   - portmap also carried `externalSetMarkChain: KUBE-MARK-MASQ`, a chain only kube-proxy creates. On any host that is not a Kubernetes node the whole CNI attach failed and the container was torn down 300ms after its shim connected
 - [x] **R4-27** Publish deployment ports on `127.0.0.1` only
   - in the unit template's `-p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT}`, and asserted from the host: reachable on loopback, unreachable on the host's own address
-- [ ] **R4-28** `IPAddressDeny=any` retained on the unit as defence in depth, documented in place as constraining the launcher and not being the control
+- [ ] **R4-28** `IPAddressDeny=any` retained on the unit as defense in depth, documented in place as constraining the launcher and not being the control
   - *done:* the comment gives **both** reasons it is not the control. The container is parented outside the unit's cgroup, so the filter attaches to the launcher — confirmed, the unit's cgroup holds only the client process. And a user-session manager is delegated `cpu memory pids` with no network controller at all, so in a user unit the filter has nothing to attach to · [spike §5](../spike-fips-and-manifest.md#the-cgroup-warning-in-03-5-is-correct-and-truer-than-written)
 - [x] **R4-29** `nodary node verify-egress` runs a probe inside a live deployment's namespace, asserting that a route off-box, a DNS lookup and a connection to a known-external address all fail
   - *done:* it runs after every deployment start and on demand; a failure marks the deployment non-compliant and raises a critical alert. Removing it from its route is the control plane's half, like health — a route is fleet state, and R3 owns it
@@ -106,7 +106,7 @@ looks correct, reviews clean, and enforces nothing.
 
 ## Catalog and staging
 
-- [ ] **R4-31** `nodary model register` with provenance, licence, artifact kind and manifest · [05 §1](../specs/05-catalog.md#1-the-catalog)
+- [ ] **R4-31** `nodary model register` with provenance, license, artifact kind and manifest · [05 §1](../specs/05-catalog.md#1-the-catalog)
 - [ ] **R4-32** Origin checked against the active profile's allowlist and denylist, rejected at registration, rejection audited with actor and attempted origin · [05 §2](../specs/05-catalog.md#2-provenance-as-a-control)
   - *done:* a model whose origin later becomes denied flags existing deployments rather than stopping them; disabling is an explicit, audited decision
 - [ ] **R4-33** `source: remote` staging — download to a temporary directory, verify against the manifest, atomically rename into place, resumable across agent restarts · [05 §3](../specs/05-catalog.md#3-staging)
