@@ -99,7 +99,7 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 		return res, err
 	}
 	// Grants last: they reference routes, which applyRoutes has just created.
-	if err := applyGrants(ctx, tx, now, want, &res); err != nil {
+	if err := applyGrants(ctx, tx, now, want, have, opt, &res); err != nil {
 		return res, err
 	}
 	slices.Sort(res.Orphans)
@@ -199,10 +199,20 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 // administrator most needs to be able to perform on one is *removal*. A merge
 // that only ever added would make revoking access something `config apply`
 // could not express, which is the one direction that has to work.
-func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want *Snapshot, res *Result) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM user_route`); err != nil {
-		return err
-	}
+// applyGrants adds what the document grants and reports what it does not
+// mention, like every other object here.
+//
+// **It used to begin `DELETE FROM user_route`, unconditionally.** That made any
+// partial apply — a new model, a changed port, anything — revoke every user's
+// access to every route, and the deletion was invisible: with prune off, Apply
+// strips the `- ` lines from the change list, so the verb reported adding a
+// model and said nothing about the access it had just destroyed. The symptom is
+// 403 on a fleet where nothing else changed, and docs/specs/06-gateway.md §2's
+// deny-by-default means nobody can tell that from correct behavior.
+//
+// Removing a grant is therefore `--prune`, which is how everything else in this
+// file is removed.
+func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Snapshot, opt Options, res *Result) error {
 	for _, g := range want.Grants {
 		var userID string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM user WHERE name = ?`, g.User).Scan(&userID)
@@ -218,6 +228,22 @@ func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want *Snapshot,
 			userID, g.Route, stamp(now)); err != nil {
 			return fmt.Errorf("granting %s access to %s: %w", g.User, g.Route, err)
 		}
+	}
+	for _, g := range have.Grants {
+		if slices.Contains(want.Grants, g) {
+			continue
+		}
+		key := g.User + "/" + g.Route
+		if !opt.Prune {
+			res.Orphans = append(res.Orphans, "grant "+key)
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM user_route WHERE route_name = ?
+			   AND user_id = (SELECT id FROM user WHERE name = ?)`, g.Route, g.User); err != nil {
+			return err
+		}
+		res.Changes = append(res.Changes, "- grant "+key)
 	}
 	return nil
 }

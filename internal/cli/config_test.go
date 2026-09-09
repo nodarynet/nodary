@@ -518,3 +518,92 @@ func TestARouteChangeAgainstANamedDatabaseOnlyPrintsTheSync(t *testing.T) {
 		t.Error("a grant restarted the data plane for nothing")
 	}
 }
+
+// TestAPartialApplyDoesNotRevokeEveryGrant.
+//
+// `applyGrants` began `DELETE FROM user_route` unconditionally, so applying any
+// fragment — a new model, a changed port — revoked every user's access to every
+// route. The deletion was also invisible: with prune off, Apply strips `- `
+// lines from the change list, so the verb reported adding a model and said
+// nothing about the access it had destroyed.
+//
+// docs/specs/06-gateway.md §2 is deny-by-default, which is what makes this
+// undetectable from the outside: the symptom is 403 on a fleet where nothing
+// else moved, and 403 is also what correct behavior looks like.
+func TestAPartialApplyDoesNotRevokeEveryGrant(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	a.addUser("alice", "operator")
+
+	models := t.TempDir()
+	dir := filepath.Join(models, "hub", "models--acme--tiny")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := a.run("model", "register", "acme/tiny", "--node", "fractal",
+		"--models-dir", models, "--yes", "--justify", "a model"); code != ExitOK {
+		t.Fatalf("register: %s", stderr)
+	}
+
+	grant := filepath.Join(t.TempDir(), "grant.toml")
+	if err := os.WriteFile(grant, []byte("[[grant]]\nuser = \"alice\"\nroute = \"tiny\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := a.run("config", "apply", "-f", grant, "--yes", "--justify", "grant"); code != ExitOK {
+		t.Fatalf("grant: %s", stderr)
+	}
+
+	// Anything at all, as long as it mentions no grant.
+	other := filepath.Join(t.TempDir(), "other.toml")
+	if err := os.WriteFile(other, []byte(
+		"[[model]]\nid = \"acme/other\"\nbackend = \"vllm\"\nsource = \"local\"\nartifact = \"hf-cache\"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := a.run("config", "apply", "-f", other, "--yes", "--justify", "another")
+	if code != ExitOK {
+		t.Fatalf("second apply: %s", stderr)
+	}
+	if _, show, _ := a.run("config", "show", "--format", "json"); !strings.Contains(show, `"alice"`) {
+		t.Fatalf("an unrelated partial apply revoked the grant:\n%s\n%s", stdout, show)
+	}
+	// Reported as left in place, like every other object the document omits, so
+	// nobody has to infer it from silence.
+	if !strings.Contains(stderr, "grant alice/tiny") {
+		t.Errorf("the untouched grant is not reported as left in place:\n%s", stderr)
+	}
+
+	// And --prune still removes it, because that is how everything else here is
+	// removed. The document is the export with the grant block cut out, so the
+	// prune has nothing else to delete.
+	_, exported, _ := a.run("config", "export")
+	full := filepath.Join(t.TempDir(), "full.toml")
+	if err := os.WriteFile(full, []byte(withoutGrants(exported)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, stderr := a.run("config", "apply", "-f", full, "--prune",
+		"--yes", "--justify", "revoke"); code != ExitOK {
+		t.Fatalf("prune: %s | %s", out, stderr)
+	}
+	if _, show, _ := a.run("config", "show", "--format", "json"); strings.Contains(show, `"alice"`) {
+		t.Errorf("--prune left the grant in place:\n%s", show)
+	}
+}
+
+// withoutGrants drops every [[grant]] table from an exported document.
+func withoutGrants(doc string) string {
+	var out []string
+	skipping := false
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "[[") {
+			skipping = strings.HasPrefix(strings.TrimSpace(line), "[[grant]]")
+		}
+		if !skipping {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
