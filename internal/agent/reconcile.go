@@ -30,6 +30,20 @@ type Host struct {
 	// ConfigDir is where the environment files go, and what the template's
 	// EnvironmentFile= is rendered against.
 	ConfigDir string
+	// Asserted remembers the egress verdict reached for each deployment since it
+	// was last started.
+	//
+	// It exists because the assertion used to run once, immediately after
+	// `systemctl start` — at a moment when the container **cannot** exist yet,
+	// since ExecStart is `nerdctl run` and it may still be pulling. Every first
+	// start therefore recorded `inconclusive: no such object`, and nothing ever
+	// looked again. A control that always reports inconclusive is one people
+	// learn to skip, which is the opposite of what R4-29 is for.
+	//
+	// A map on the Host rather than a return value: the daemon holds one Host
+	// across reconciles, so this is where "since it was last started" can live
+	// without threading state through every caller.
+	Asserted map[string]string
 	// Self is this binary's path. The egress probe runs it inside a
 	// deployment's network namespace, so the agent and the assertion are
 	// versioned together and the probe needs nothing from the model's image.
@@ -41,7 +55,8 @@ type Host struct {
 // RealHost runs commands with os/exec.
 func RealHost(unitDir, configDir string) Host {
 	self, _ := os.Executable()
-	return Host{Run: runCommand, UnitDir: unitDir, ConfigDir: configDir, Self: self}
+	return Host{Run: runCommand, UnitDir: unitDir, ConfigDir: configDir, Self: self,
+		Asserted: map[string]string{}}
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -189,21 +204,33 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 		}
 	}
 
+	// `starting`, never `ready`. `active` means the process is up, and whether
+	// it can serve is health's question — R4-20 answers it separately, and a
+	// model server is active for minutes before it is ready. This said `ready`
+	// while nerdctl was still pulling the image, so the reconcile that had just
+	// started a deployment reported it as serving.
 	out.State = "starting"
-	if h.isActive(ctx, UnitName(u.Deployment)) {
-		// `active` means the process is up. Whether it can serve is health's
-		// question, and R4-20 answers it separately — a model server is active
-		// for minutes before it is ready.
-		out.State = "ready"
+	if !h.isActive(ctx, UnitName(u.Deployment)) {
+		out.State = "stopped"
 	}
 
 	// R4-29: the assertion runs after every start, not only on demand.
 	//
-	// Only after a start. Re-probing a converged deployment every fifteen
-	// seconds would put three network operations per deployment into the
-	// reconcile loop for a namespace nothing has touched since the last time it
-	// was checked; `nodary node verify-egress` is how an operator asks again.
-	if out.Action != "" && out.State != "failed" && h.Self != "" {
+	// **Until it reaches an answer, not once.** A start is the trigger and the
+	// container is not there yet when it fires, so a single attempt records
+	// `inconclusive` every time and never revisits it. Retried while the
+	// verdict is inconclusive and the unit is up; once conclusive it is
+	// remembered and not re-probed, because re-checking a converged deployment
+	// every fifteen seconds would put three network operations per deployment
+	// into the loop for a namespace nothing has touched. `nodary node
+	// verify-egress` is how an operator asks again.
+	if out.Action != "" {
+		// A new start needs a new answer; whatever was concluded about the
+		// previous container says nothing about this one.
+		delete(h.Asserted, u.Deployment)
+	}
+	if h.Self != "" && out.State != "failed" && out.State != "stopped" &&
+		!conclusive(h.Asserted[u.Deployment]) {
 		if v, err := VerifyEgress(ctx, h, u.Deployment, h.Self); err == nil {
 			out.Egress = &v
 		} else {
@@ -213,8 +240,19 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 			out.Egress = &EgressVerdict{Deployment: u.Deployment,
 				State: Inconclusive, Reason: err.Error()}
 		}
+		if h.Asserted != nil {
+			h.Asserted[u.Deployment] = out.Egress.State
+		}
 	}
 	return out
+}
+
+// conclusive reports whether an egress verdict is one worth keeping.
+//
+// Inconclusive is not: it is the honest answer to "the assertion could not
+// run", and the whole point of recording it is that somebody looks again.
+func conclusive(state string) bool {
+	return state != "" && state != Inconclusive
 }
 
 // writeEnvFile writes the unit's environment file and reports whether it

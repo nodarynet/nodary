@@ -167,6 +167,7 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkSwap())
 	add(checkLSM(ctx, o))
 	add(checkRAMPerGPU(ctx, o))
+	add(checkFreeVRAM(ctx, o))
 	add(checkEncryptedRoot())
 	add(checkNFT(o))
 
@@ -710,5 +711,71 @@ func checkContainerToolkit(o Options) Check {
 	c.Level = LevelFail
 	c.Detail = "not found; `nerdctl --gpus` cannot pass a GPU into a container without the " +
 		"NVIDIA Container Toolkit, and every deployment would start with no device"
+	return c
+}
+
+// checkFreeVRAM warns when a card has little left to give.
+//
+// A model server sizes its cache against free memory at startup and refuses
+// rather than shrinking. vLLM does both refusals: it will not start when its
+// requested fraction exceeds what is free, and it aborts profiling when free
+// memory *moves* while it measures —
+//
+//	Error in memory profiling. Initial free memory 28.55 GiB, current free
+//	memory 28.67 GiB. This happens when other processes ... release GPU memory
+//
+// Both are host conditions, not nodary's to fix: a node does not manage GPUs it
+// did not allocate. What it can do is say so before a deployment discovers it
+// in a restart loop, which is how it was found — a card sitting at 412 MiB free
+// of 32607 while three separate errors were read as a nodary problem.
+//
+// A warning, never a failure. A control plane installing beside a workload that
+// will be stopped later is an ordinary thing to do, and refusing the install
+// would be nodary deciding what else may run on the machine.
+func checkFreeVRAM(ctx context.Context, o Options) Check {
+	c := Check{Name: "free vram"}
+	if o.Role == RoleServer {
+		c.Level, c.Detail = LevelSkip, "not required for a control plane"
+		return c
+	}
+	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index,memory.free,memory.total",
+		"--format=csv,noheader,nounits")
+	if err != nil {
+		c.Level, c.Detail = LevelSkip, "cannot read GPU memory"
+		return c
+	}
+
+	var tight []string
+	var report []string
+	for _, line := range nonEmptyLines(string(out)) {
+		f := strings.Split(line, ",")
+		if len(f) < 3 {
+			continue
+		}
+		idx := strings.TrimSpace(f[0])
+		free, err1 := strconv.Atoi(strings.TrimSpace(f[1]))
+		total, err2 := strconv.Atoi(strings.TrimSpace(f[2]))
+		if err1 != nil || err2 != nil || total == 0 {
+			continue
+		}
+		report = append(report, fmt.Sprintf("%s: %d of %d MiB free", idx, free, total))
+		// A fifth of the card. Below that nothing worth deploying will fit, and
+		// the number is a threshold for a warning rather than a policy — the
+		// deployment's own `gpu_memory_fraction` is where the real decision is.
+		if free*5 < total {
+			tight = append(tight, idx)
+		}
+	}
+	if len(report) == 0 {
+		c.Level, c.Detail = LevelSkip, "no GPU reported memory"
+		return c
+	}
+	c.Level, c.Detail = LevelOK, strings.Join(report, "; ")
+	if len(tight) > 0 {
+		c.Level = LevelWarn
+		c.Detail += fmt.Sprintf(" — GPU %s has little left; a deployment sizes its cache "+
+			"against free memory at startup and refuses rather than shrinking",
+			strings.Join(tight, ", "))
+	}
 	return c
 }

@@ -268,3 +268,42 @@ func TestANodeWithoutTheContainerToolkitIsRefused(t *testing.T) {
 		t.Errorf("control plane: level = %q, want %q", c.Level, LevelSkip)
 	}
 }
+
+// TestFreeVRAMWarnsBeforeADeploymentDiscoversIt is the check that would have
+// saved a restart loop.
+//
+// A model server sizes its cache against free memory at startup and refuses
+// rather than shrinking, and vLLM refuses twice over — once when the requested
+// fraction exceeds what is free, and again when free memory *moves* while it
+// profiles. Both are host conditions a node does not control; what it can do is
+// say so before a deployment finds out in a restart loop. Found on a card
+// sitting at 412 MiB free of 32607.
+func TestFreeVRAMWarnsBeforeADeploymentDiscoversIt(t *testing.T) {
+	at := func(csv string) Check {
+		return checkFreeVRAM(context.Background(), Options{
+			Role: RoleNode,
+			run: func(context.Context, string, ...string) ([]byte, error) {
+				return []byte(csv), nil
+			},
+		})
+	}
+
+	if c := at("0, 412, 32607\n"); c.Level != LevelWarn {
+		t.Errorf("a nearly full card: level = %q, want warn (%s)", c.Level, c.Detail)
+	} else if !strings.Contains(c.Detail, "412") {
+		t.Errorf("the warning does not say how much is left: %s", c.Detail)
+	}
+	if c := at("0, 30000, 32607\n"); c.Level != LevelOK {
+		t.Errorf("a mostly free card: level = %q, want ok (%s)", c.Level, c.Detail)
+	}
+	// Warned, never failed: installing beside a workload that will be stopped
+	// later is ordinary, and refusing would be nodary deciding what else may
+	// run on the machine.
+	if c := at("0, 1, 32607\n1, 30000, 32607\n"); c.Level == LevelFail {
+		t.Error("a busy GPU blocked the install")
+	}
+	// A control plane runs no models.
+	if c := checkFreeVRAM(context.Background(), Options{Role: RoleServer}); c.Level != LevelSkip {
+		t.Errorf("control plane: level = %q, want skip", c.Level)
+	}
+}

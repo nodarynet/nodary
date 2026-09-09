@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -349,5 +350,88 @@ func TestEgressIsAssertedAfterAStartAndNotSilentlySkipped(t *testing.T) {
 	}
 	if f.did("nsenter") {
 		t.Error("a converged reconcile entered a namespace")
+	}
+}
+
+// TestReadyMeansServingNotMerelyActive is what the first real deployment
+// reported wrongly.
+//
+// docs/specs/03-agent.md §7 waits for `ready` and counts ready replicas before
+// a rolling restart may proceed, so `ready` has to mean *able to serve*. The
+// unit is Type=exec running `nerdctl run`, which systemd calls active the
+// instant the binary is exec'd — while it is still pulling twenty gigabytes,
+// and again while the model loads weights.
+//
+// Reported ready anyway, this told an operator a deployment was serving when no
+// container existed, and would let a rolling restart count a still-pulling
+// replica as the last live one.
+func TestReadyMeansServingNotMerelyActive(t *testing.T) {
+	d := &Daemon{Host: Host{
+		UserScope: true,
+		Run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			// `is-active` succeeds: the unit is up.
+			return []byte("active"), nil
+		},
+	}}
+	u := Unit{Deployment: "d1"}
+
+	if got := d.observedState(context.Background(), u, "unknown"); got != "starting" {
+		t.Errorf("active with unknown health = %q, want starting", got)
+	}
+	if got := d.observedState(context.Background(), u, "unhealthy"); got != "starting" {
+		t.Errorf("active but unhealthy = %q, want starting", got)
+	}
+	if got := d.observedState(context.Background(), u, "healthy"); got != "ready" {
+		t.Errorf("active and healthy = %q, want ready", got)
+	}
+
+	down := &Daemon{Host: Host{
+		UserScope: true,
+		Run: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return nil, errNotActive
+		},
+	}}
+	if got := down.observedState(context.Background(), u, "healthy"); got != "stopped" {
+		t.Errorf("an inactive unit = %q, want stopped", got)
+	}
+}
+
+var errNotActive = errors.New("inactive")
+
+// TestAnInconclusiveEgressAssertionIsRetried is the control that always
+// reported inconclusive.
+//
+// The assertion fired immediately after `systemctl start`, at a moment when the
+// container **cannot** exist — ExecStart is `nerdctl run`, which may still be
+// pulling. So every first start recorded
+//
+//	egress=inconclusive reason="... no such object nodary-<id>"
+//
+// and nothing looked again. A control whose answer is always "could not tell"
+// is one people learn to skip, which is the opposite of R4-29's purpose.
+func TestAnInconclusiveEgressAssertionIsRetried(t *testing.T) {
+	h := Host{Asserted: map[string]string{}}
+
+	// Nothing recorded yet, and inconclusive, are both worth another look.
+	if conclusive("") {
+		t.Error("an unasserted deployment was treated as answered")
+	}
+	if conclusive(Inconclusive) {
+		t.Error("inconclusive was treated as an answer; it is the absence of one")
+	}
+	// A real verdict is kept, so a converged deployment is not re-probed every
+	// fifteen seconds for a namespace nothing has touched.
+	for _, state := range []string{Compliant, NonCompliant} {
+		if !conclusive(state) {
+			t.Errorf("%q was not treated as an answer", state)
+		}
+	}
+
+	// A restart discards the previous answer: whatever was concluded about the
+	// old container says nothing about the new one.
+	h.Asserted["d1"] = Compliant
+	delete(h.Asserted, "d1")
+	if conclusive(h.Asserted["d1"]) {
+		t.Error("a restarted deployment kept its predecessor's verdict")
 	}
 }

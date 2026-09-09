@@ -227,8 +227,10 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	for _, u := range d.last.Units {
 		s := byID[u.Deployment]
 		body.Deployments = append(body.Deployments, api.StatusUnit{
-			ID: u.Deployment, State: d.observedState(ctx, u), Health: orDefault(s.Health, "unknown"),
-			Error: s.Error,
+			ID:     u.Deployment,
+			State:  d.observedState(ctx, u, s.Health),
+			Health: orDefault(s.Health, "unknown"),
+			Error:  s.Error,
 		})
 	}
 	for _, st := range d.last.Stage {
@@ -261,11 +263,24 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 
 // observedState asks systemd rather than reporting what the last reconcile
 // intended. docs/specs/03-agent.md §3: the agent observes, it does not assume.
-func (d *Daemon) observedState(ctx context.Context, u Unit) string {
-	if d.Host.isActive(ctx, UnitName(u.Deployment)) {
+func (d *Daemon) observedState(ctx context.Context, u Unit, health string) string {
+	if !d.Host.isActive(ctx, UnitName(u.Deployment)) {
+		return "stopped"
+	}
+	// **Active is not ready.** docs/specs/03-agent.md §7 waits for `ready` and
+	// counts ready replicas before allowing a rolling restart to proceed, so
+	// `ready` has to mean *able to serve*. The unit is `Type=exec` and its
+	// ExecStart is `nerdctl run`, which systemd calls active the moment the
+	// binary is exec'd — while it is still pulling twenty gigabytes, and again
+	// while the model server spends minutes loading weights.
+	//
+	// Reported as ready anyway, this told an operator a deployment was serving
+	// when no container existed at all, and would let a rolling restart count a
+	// still-pulling replica as the last live one.
+	if health == "healthy" {
 		return "ready"
 	}
-	return "stopped"
+	return "starting"
 }
 
 // Backoff, with jitter. docs/specs/11-failure-modes.md §1 asks for both: the
