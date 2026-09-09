@@ -9,8 +9,9 @@ covers splitting them onto two machines.
 !!! note "You'll need"
     A Linux host (or Windows with an NVIDIA GPU, which joins [inside
     WSL2](https://github.com/nodarynet/nodary/blob/main/docs/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
-    as an ordinary Linux node) with an NVIDIA GPU and driver installed, and root — every
-    command below runs as root or via `sudo`.
+    as an ordinary Linux node) with an NVIDIA GPU and driver installed, and root for the
+    `nodary` commands below — administrative acts are gated on it deliberately. Downloading
+    a model in step 3 is not one of those and runs as yourself.
 
 ## 1. Install, and bring up the control plane and this node together
 
@@ -50,16 +51,37 @@ hardware, what it's offering, what's placed on it.
 
 ## 3. Get a model's weights onto the node
 
-nodary doesn't download weights for you yet — the air-gapped path is first-class, not a
-fallback, so placing weights is always a deliberate, verifiable act. `scripts/stage-model.sh`
-does the download:
+nodary doesn't download weights for you — the air-gapped path is first-class, not a
+fallback, so placing weights is always a deliberate, verifiable act, and no part of it
+touches the network as root.
+
+`nodary`'s models directory (`/var/lib/nodary/models` by default) is owned by the `nodary`
+service account, which is what actually needs to read it later — so the one privileged step
+here is granting *yourself* write access to it, once:
 
 ```sh
-sudo ./scripts/stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+sudo install -d -o "$USER" -g nodary -m 2750 /var/lib/nodary/models
 ```
 
-A repository that requires accepting a license on huggingface.co first (every Gemma, Llama
-and Mistral release) needs a token: `sudo HF_TOKEN=hf_… ./scripts/stage-model.sh …`.
+That's a permission grant, not a download — nothing reaches the network. From here on,
+everything runs as yourself. Grab the download helper and run it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh -o stage-model.sh
+chmod +x stage-model.sh
+./stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+```
+
+It's a plain script — you don't need a checkout of the repository for it, just that one
+file. A repository that requires accepting a license on huggingface.co first (every Gemma,
+Llama and Mistral release) needs a token: `HF_TOKEN=hf_… ./stage-model.sh …`.
+
+??? note "Placing weights another way"
+    Any tool works — `huggingface-cli download`, `git lfs clone`, or copying files in over
+    `scp`. The only requirement is the layout `nodary model register` (next step) expects:
+    every file **flat**, no `blobs/`, `refs/` or `snapshots/`, directly under
+    `/var/lib/nodary/models/hub/models--<org>--<name>/` — `config.json` has to sit at that
+    top level, because the agent points a backend's `--model` at the directory itself.
 
 ## 4. Register it
 

@@ -23,8 +23,13 @@
 # would not load — see the note this script prints at the end.
 #
 # Usage:
-#   sudo ./scripts/stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
-#   sudo ./scripts/stage-model.sh <repo> --models-dir /var/lib/nodary/models
+#   ./stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+#   ./stage-model.sh <repo> --models-dir /var/lib/nodary/models
+#
+# No sudo. It only downloads and writes into --models-dir, so it needs write
+# access to that directory and nothing else — see the getting-started guide
+# for granting your own user that once, rather than running a downloader as
+# root.
 set -u
 
 REPO="${1:-}"
@@ -56,7 +61,7 @@ done
 # without one. Measured: google/gemma-3n-E2B-it and google/gemma-3-1b-it both
 # refuse an anonymous config.json while Qwen/Qwen2.5-0.5B-Instruct redirects to
 # a CDN. Accept the license on huggingface.co, then:
-#   sudo HF_TOKEN=hf_… ./scripts/stage-model.sh google/gemma-3n-E2B-it
+#   HF_TOKEN=hf_… ./stage-model.sh google/gemma-3n-E2B-it
 AUTH=()
 if [ -n "${HF_TOKEN:-}" ]; then
   AUTH=(-H "Authorization: Bearer $HF_TOKEN")
@@ -107,7 +112,7 @@ for f in $FILES; do
         printf '\n  ✘ %s is gated (HTTP %s).\n' "$REPO" "$code" >&2
         printf '    Accept its license at https://huggingface.co/%s, then re-run with\n' "$REPO" >&2
         printf '    HF_TOKEN set to a token that has access:\n' >&2
-        printf '      sudo HF_TOKEN=hf_… %s %s\n' "$0" "$REPO" >&2
+        printf '      HF_TOKEN=hf_… %s %s\n' "$0" "$REPO" >&2
         ;;
       *) printf '\n  ✘ %s failed (HTTP %s); nothing was staged\n' "$f" "$code" >&2 ;;
     esac
