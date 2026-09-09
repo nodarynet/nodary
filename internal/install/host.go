@@ -264,6 +264,31 @@ func Start(ctx context.Context, unit string, o Options) (Step, error) {
 	return step, nil
 }
 
+// Restart is for a unit that may already be running and needs to pick up a
+// configuration written to disk after it started.
+//
+// `systemctl enable --now` — what Start runs — is a no-op on a unit that is
+// already active: systemd does not compare what's on disk to what the running
+// process loaded, it only asks whether *a* process is up. `gateway sync` used
+// exactly that to make LiteLLM pick up its first real route and found the
+// config on disk correct, the process still running the empty list it started
+// with, and nothing said so. Safe to call on a stopped unit too — systemd
+// starts it fresh, same as Start would.
+func Restart(ctx context.Context, unit string, o Options) (Step, error) {
+	o.setDefaults()
+	step := Step{Name: "restart: " + unit}
+	if o.Root != "" {
+		step.Detail = "not restarted: this is a staged install into " + o.Root
+		return step, nil
+	}
+	out, err := o.Run(ctx, "systemctl", "restart", unit)
+	if err != nil {
+		return step, fmt.Errorf("restarting %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+	}
+	step.Changed, step.Detail = true, "restarted"
+	return step, nil
+}
+
 // EnsureBinary places this executable at docs/specs/01-install.md §12's
 // location and points `current` at it.
 //

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,5 +182,50 @@ func TestAnExistingNodaryOnPathIsNotReplaced(t *testing.T) {
 	body, err := os.ReadFile(link)
 	if err != nil || !strings.Contains(string(body), "somebody else") {
 		t.Errorf("the existing file was modified: %v", err)
+	}
+}
+
+// TestRestartActuallySaysRestart is Restart's whole reason to exist as a
+// function separate from Start: `systemctl enable --now` on a unit that is
+// already active is a no-op by systemd's own semantics, and `gateway sync`
+// called exactly that after writing LiteLLM's first real route — reporting
+// success, restarting nothing, and leaving the running process serving the
+// empty model list it started with. The fix is the verb, so the verb is what
+// this pins.
+func TestRestartActuallySaysRestart(t *testing.T) {
+	var got []string
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		got = append(got, name+" "+strings.Join(args, " "))
+		return nil, nil
+	}
+	step, err := Restart(context.Background(), "nodary-litellm.service", Options{Run: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !step.Changed {
+		t.Error("Restart did not report a change")
+	}
+	want := "systemctl restart nodary-litellm.service"
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("ran %v, want exactly [%q]", got, want)
+	}
+}
+
+// A staged install has nothing running to restart, same as Start.
+func TestRestartDoesNothingUnderRoot(t *testing.T) {
+	called := false
+	run := func(context.Context, string, ...string) ([]byte, error) {
+		called = true
+		return nil, nil
+	}
+	step, err := Restart(context.Background(), "nodary-litellm.service", Options{Run: run, Root: "/staged"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("Restart ran systemctl against a staged install")
+	}
+	if step.Changed {
+		t.Error("a staged install reported a change it did not make")
 	}
 }

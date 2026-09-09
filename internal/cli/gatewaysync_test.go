@@ -146,7 +146,7 @@ func TestSyncRestartsWhenTheRunningConfigurationIsStale(t *testing.T) {
 	if code, out, _ := runWithStdin(t, "", "gateway", "sync",
 		"--root", dir, "--config-dir", dir, "--db", a.db); code != ExitOK {
 		t.Fatalf("exit %d", code)
-	} else if strings.Contains(out, "start:") {
+	} else if strings.Contains(out, "restart:") {
 		t.Errorf("an unchanged sync restarted the data plane:\n%s", out)
 	}
 
@@ -160,7 +160,7 @@ func TestSyncRestartsWhenTheRunningConfigurationIsStale(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(out, "start:") {
+	if !strings.Contains(out, "restart:") {
 		t.Errorf("a sync with no record of the running configuration did not restart:\n%s", out)
 	}
 	if again, err := os.ReadFile(marker); err != nil || string(again) != string(first) {
