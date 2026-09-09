@@ -102,8 +102,8 @@ type Deployment struct {
 	// Verbatim, like ExtraArgs: nodary does not interpret these, and a name it
 	// does not recognise is not an error. What it will not carry is a value
 	// with whitespace, for the reason ExtraArgs gives.
-	Env string `json:"env" toml:"env,omitempty"`
-	Port      int    `json:"port" toml:"port,omitempty"`
+	Env  string `json:"env" toml:"env,omitempty"`
+	Port int    `json:"port" toml:"port,omitempty"`
 }
 
 type Route struct {

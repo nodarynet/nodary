@@ -72,9 +72,9 @@ type Backend struct {
 	// inventing the general form for a single case would be a mechanism nobody
 	// has exercised.
 	EnvWSL2 map[string]string `toml:"env_wsl2"`
-	GPU           GPU               `toml:"gpu"`
-	Probe         Probe             `toml:"probe"`
-	Metrics       Metrics           `toml:"metrics"`
+	GPU     GPU               `toml:"gpu"`
+	Probe   Probe             `toml:"probe"`
+	Metrics Metrics           `toml:"metrics"`
 }
 
 type Capabilities struct {
