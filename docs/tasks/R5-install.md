@@ -120,6 +120,10 @@ than reopening a complete [R0](R0-release.md), which is where R0's own follow-up
 - [ ] **R5-26** The FIPS artifact ships through the four existing channels · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* a second artifact, not a second pipeline. This works only because the binary is static and the SQLite driver is `modernc` rather than cgo — BoringCrypto needs cgo and would break the property [R0-16](R0-release.md) asserts in CI
   - *deps:* R5-25
+- [x] **R5-30** `doctor` warns when a GPU has little memory left
+  - a model server sizes its cache against free memory at startup and **refuses rather than shrinking** — vLLM twice over: once when the requested fraction exceeds what is free, and again when free memory *moves* while it profiles. Both are host conditions a node does not control; saying so before a deployment finds out in a restart loop is what preflight is for
+  - found on a card at **412 MiB free of 32607**, where three separate errors were read as nodary problems
+  - a warning, never a failure: installing beside a workload that will be stopped later is ordinary, and refusing would be nodary deciding what else may run on the machine
 - [x] **R5-28** The NVIDIA Container Toolkit is the **host's** to provide, and preflight refuses a node without it · [01 §8](../specs/01-install.md#8-platform-support)
   - *done:* a node with no toolkit is refused before anything is installed, rather than after a deployment has failed for a reason naming something else
   - **it is not a component nodary fetches**, and 01 §1 and §5 are corrected to stop saying it is. Measured: upstream publishes the toolkit only as distribution packages — the release assets are a tarball *of `.deb`s and `.rpm`s*, not the flat binary archive containerd, runc and nerdctl ship — and one of them is a shared library needing a loader path. Placing it would be nodary reimplementing dpkg
