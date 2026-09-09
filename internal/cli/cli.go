@@ -98,7 +98,6 @@ func isTerminal(r io.Reader) bool {
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
 	"backend":   "backend descriptor registration",
-	"model":     "catalog, staging and deployment",
 	"route":     "public model routing",
 	"backup":    "backup and restore",
 	"bundle":    "offline bundle creation",
@@ -157,6 +156,8 @@ func dispatch(e env, args []string) int {
 		return cmdServer(e, args[1:])
 	case "node":
 		return cmdNode(e, args[1:])
+	case "model":
+		return cmdModel(e, args[1:])
 	case "agent":
 		return cmdAgent(e, args[1:])
 	case "gateway":
@@ -172,7 +173,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|enroll|approve|drain|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|enroll|approve|drain|verify-egress`, `model register`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -213,6 +214,8 @@ Available in this release:
                          show | list | diff | export | apply | rollback | verify
   server               Control plane lifecycle
                          install | start | status
+  model                The catalog
+                         register       Weights already on disk -> a served route
   node                 GPU nodes
                          list           The fleet: state, liveness, GPUs, deployments
                          show           One node, with what is placed on it
