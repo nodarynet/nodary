@@ -572,7 +572,7 @@ func TestAPartialApplyDoesNotRevokeEveryGrant(t *testing.T) {
 	}
 	// Reported as left in place, like every other object the document omits, so
 	// nobody has to infer it from silence.
-	if !strings.Contains(stderr, "grant alice/tiny") {
+	if !strings.Contains(stderr, "grant alice → tiny") {
 		t.Errorf("the untouched grant is not reported as left in place:\n%s", stderr)
 	}
 

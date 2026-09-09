@@ -33,9 +33,10 @@ func TestModelRegisterTurnsPlacedWeightsIntoAServedRoute(t *testing.T) {
 		}
 	}
 
+	a.addUser("alice", "operator")
 	code, stdout, stderr := a.run("model", "register", "acme/tiny",
 		"--node", "fractal", "--models-dir", models, "--port", "8001",
-		"--yes", "--justify", "first model")
+		"--grant", "alice", "--yes", "--justify", "first model")
 	if code != ExitOK {
 		t.Fatalf("exit = %d: %s", code, stderr)
 	}
@@ -53,7 +54,10 @@ func TestModelRegisterTurnsPlacedWeightsIntoAServedRoute(t *testing.T) {
 		t.Errorf("manifest lists %d files, want 2: %s", len(entries), manifest)
 	}
 
-	for _, want := range []string{"+ model acme/tiny", "+ deployment tiny-fractal", "+ route tiny"} {
+	// The grant rides along, because a route nobody may call is not a served
+	// route: docs/specs/06-gateway.md §2 denies by default.
+	for _, want := range []string{"+ model acme/tiny", "+ deployment tiny-fractal",
+		"+ route tiny", "+ grant alice → tiny"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout does not report %q:\n%s", want, stdout)
 		}

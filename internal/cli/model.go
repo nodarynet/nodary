@@ -74,6 +74,7 @@ func cmdModelRegister(e env, args []string) int {
 	image := fs.String("image", "", "container image (default: the digest this build pins)")
 	gpuMemory := fs.Float64("gpu-memory", 0.80, "fraction of each card's VRAM to reserve")
 	envJSON := fs.String("env", "", "container environment, a JSON object")
+	grant := fs.String("grant", "", "users who may call this route, comma-separated")
 	out := fs.String("o", "", "write the configuration document here instead of applying it")
 	noSync := fs.Bool("no-sync", false, "do not re-render the data plane")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -157,6 +158,16 @@ func cmdModelRegister(e env, args []string) int {
 			Members: []config.RouteMember{{DeploymentID: name + "-" + *node, Weight: 1}},
 		}},
 	}
+	// docs/specs/06-gateway.md §2 is deny-by-default, so a route with no grant
+	// is one nobody may call. Doing it here keeps a working model one command
+	// away instead of one command plus a hand-written TOML fragment — and it is
+	// the same applier and the same revision either way, so nothing is granted
+	// without an author and a record.
+	for _, u := range splitComma(*grant) {
+		if u = strings.TrimSpace(u); u != "" {
+			want.Grants = append(want.Grants, config.Grant{User: u, Route: name})
+		}
+	}
 
 	if *out != "" {
 		body, err := config.RenderTOML(want)
@@ -177,6 +188,11 @@ func cmdModelRegister(e env, args []string) int {
 		fmt.Fprintf(e.stderr,
 			"\nClients ask for it as %q. `nodary node show %s` follows it from starting to ready.\n",
 			name, *node)
+		if *grant == "" {
+			fmt.Fprintf(e.stderr,
+				"  Nobody may call it yet: access is per user and denied by default.\n"+
+					"  Re-run with --grant NAME, or apply a [[grant]] block.\n")
+		}
 	}
 	return code
 }

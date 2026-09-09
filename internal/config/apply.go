@@ -233,7 +233,9 @@ func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 		if slices.Contains(want.Grants, g) {
 			continue
 		}
-		key := g.User + "/" + g.Route
+		// The same key the diff uses, so "left in place" and "- grant" name
+		// the thing the same way.
+		key := g.User + " → " + g.Route
 		if !opt.Prune {
 			res.Orphans = append(res.Orphans, "grant "+key)
 			continue
