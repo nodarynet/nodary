@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/identity"
@@ -125,6 +126,13 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 			fmt.Fprintf(e.stderr,
 				"  Approved locally, so the node row names no approver; the chain records who and when.\n")
 		}
+		// The next step, named. An approved node with nothing placed on it is
+		// idle, healthy and indistinguishable from a broken one — and this verb
+		// was where every printed instruction in the product ran out.
+		fmt.Fprintf(e.stderr,
+			"\nNothing is placed on it yet. With weights staged under %s:\n"+
+				"  nodary model register <org/name> --node %s --gpu 0 --port 8001\n",
+			agent.DefaultModelsDir(), name)
 	}
 	reportRecord(e, rec)
 	return ExitOK
