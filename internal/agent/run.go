@@ -103,10 +103,11 @@ func (d *Daemon) ReconcileOnce(ctx context.Context, doc api.Desired) { d.reconci
 func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	offer, _ := d.Node.Advertise(LocalInventory(ctx).GPUs, BackendNames())
 	p, err := Build(doc, PlanOptions{
-		ModelsDir: orDefault(d.Config.ModelsDir, DefaultModelsDir()),
-		ConfigDir: d.Host.ConfigDir,
-		Present:   offer.GPUs,
-		Verify:    true,
+		ModelsDir:  orDefault(d.Config.ModelsDir, DefaultModelsDir()),
+		ConfigDir:  d.Host.ConfigDir,
+		Present:    offer.GPUs,
+		CDIDevices: CDIDevices(ctx),
+		Verify:     true,
 	})
 	if err != nil {
 		d.Log.Error("agent", "detail", "planning: "+err.Error())

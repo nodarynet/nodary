@@ -97,9 +97,10 @@ func cmdAgentPlan(e env, args []string) int {
 	offer, _ := guardrails.Advertise(agent.LocalInventory(context.Background()).GPUs, agent.BackendNames())
 
 	p, err := agent.Build(doc, agent.PlanOptions{
-		ModelsDir: orElse(conf.ModelsDir, agent.DefaultModelsDir()),
-		Present:   offer.GPUs,
-		Verify:    !*noVerify,
+		ModelsDir:  orElse(conf.ModelsDir, agent.DefaultModelsDir()),
+		Present:    offer.GPUs,
+		CDIDevices: agent.CDIDevices(context.Background()),
+		Verify:     !*noVerify,
 	})
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary agent plan: %v\n", err)

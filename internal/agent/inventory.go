@@ -90,3 +90,27 @@ func isWSL() bool {
 	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
+
+// CDIDevices are the device names the host's CDI specification declares.
+//
+// Asked of nvidia-ctk rather than parsed out of /etc/cdi/*.yaml: the toolkit
+// owns where those files live and how they compose, and it already answers the
+// question in one line. An empty result means it could not be asked, which the
+// caller must not read as "no devices" — see gpuFlag.
+func CDIDevices(ctx context.Context) []string {
+	out, err := exec.CommandContext(ctx, preflight.Resolve("nvidia-ctk"), "cdi", "list").
+		CombinedOutput()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		// The listing carries a log line first; a device name is the only
+		// thing on its line and always carries the vendor prefix.
+		if strings.HasPrefix(line, "nvidia.com/") {
+			names = append(names, line)
+		}
+	}
+	return names
+}

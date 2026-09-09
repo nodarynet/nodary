@@ -67,7 +67,7 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 		"NODARY_ARGS": "--model=/root/.cache/huggingface/hub/models--acme--tiny " +
 			"--max-model-len=131072 --tensor-parallel-size=2 --enable-prefix-caching",
 		"NODARY_CONTAINER_PORT": "8000",
-		"NODARY_GPUS":           "0,1",
+		"NODARY_GPUS":           "device=0,1",
 		"NODARY_IMAGE":          "registry.internal/vllm@sha256:" + strings.Repeat("a", 64),
 		"NODARY_MODELS_DIR":     root,
 		"NODARY_MOUNT_PATH":     "/root/.cache/huggingface",
@@ -226,5 +226,63 @@ func TestAnEmptyDocumentPlansNothing(t *testing.T) {
 	}
 	if p.Rev != 3 || p.Node != "gpu-01" {
 		t.Errorf("plan = %+v, want it to carry the revision and the node", p)
+	}
+}
+
+// TestTheGPUFlagFollowsWhatTheHostDeclares is the failure that killed the first
+// real deployment.
+//
+// nerdctl resolves `--gpus device=0` to the CDI device `nvidia.com/gpu=0`. On
+// WSL2 that device does not exist — there is no /dev/nvidia0, only /dev/dxg, so
+// `nvidia-ctk cdi generate` emits a single device named `all` — and every start
+// died in a restart loop with "unresolvable CDI devices nvidia.com/gpu=0" on a
+// host where `nerdctl run --gpus all` works.
+func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
+	one := map[int]bool{0: true}
+	two := map[int]bool{0: true, 1: true}
+
+	for _, tc := range []struct {
+		name     string
+		assigned []int
+		offered  map[int]bool
+		cdi      []string
+		want     string
+		wantErr  string
+	}{
+		{"indexed devices are used when they exist", []int{0}, two,
+			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1", "nvidia.com/gpu=all"}, "device=0", ""},
+		{"several indices", []int{0, 1}, two,
+			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1"}, "device=0,1", ""},
+		// The WSL2 case: `all` is the only device, and the node offers exactly
+		// the one card being assigned, so `all` is not a widening.
+		{"all is equivalent on a single-GPU host", []int{0}, one,
+			[]string{"nvidia.com/gpu=all"}, "all", ""},
+		// The case that must not silently widen: `all` would hand this
+		// deployment a card it was not assigned.
+		{"a subset of a multi-GPU host is refused", []int{0}, two,
+			[]string{"nvidia.com/gpu=all"}, "", "subset"},
+		{"a device nothing declares is named", []int{3}, map[int]bool{3: true},
+			[]string{"nvidia.com/gpu=0"}, "", "none of them names"},
+		// nvidia-ctk could not be asked. The indexed form stands: preflight
+		// already refuses a node with no toolkit, and guessing `all` here would
+		// be exactly the widening this refuses above.
+		{"an unknown specification changes nothing", []int{0}, one, nil, "device=0", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := gpuFlag(tc.assigned, tc.offered, tc.cdi)
+			switch {
+			case tc.wantErr != "":
+				if err == nil {
+					t.Fatalf("got %q, want a refusal mentioning %q", got, tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("the refusal does not say why: %v", err)
+				}
+			case err != nil:
+				t.Fatalf("unexpected refusal: %v", err)
+			case got != tc.want:
+				t.Errorf("--gpus %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

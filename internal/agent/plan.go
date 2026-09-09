@@ -98,6 +98,13 @@ type PlanOptions struct {
 	// byte of a large model is minutes of disk, and `nodary agent plan` should
 	// be able to answer without doing it.
 	Verify bool
+	// CDIDevices are the device names the host's CDI specification declares,
+	// as `nvidia-ctk cdi list` reports them. Nil means it could not be asked.
+	//
+	// It is here because the runtime resolves `--gpus device=0` to the CDI
+	// device `nvidia.com/gpu=0`, and whether that device exists is a property
+	// of the host rather than of the deployment. See gpuFlag.
+	CDIDevices []string
 }
 
 // Build turns one desired-state document into a plan.
@@ -191,6 +198,11 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		}
 	}
 
+	gpus, err := gpuFlag(d.GPUs, offered, opt.CDIDevices)
+	if err != nil {
+		return Unit{}, err
+	}
+
 	st, ok := staged[d.Model]
 	if !ok {
 		return Unit{}, fmt.Errorf("model %q is not in this node's staging list", d.Model)
@@ -260,10 +272,9 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		Env: []EnvVar{
 			{"NODARY_ARGS", strings.Join(args, " ")},
 			{"NODARY_CONTAINER_PORT", strconv.Itoa(desc.Backend.ContainerPort)},
-			// Comma-separated with no spaces: the unit template puts this
-			// inside `--gpus '"device=${NODARY_GPUS}"'`, and the runtime parses
-			// the list itself.
-			{"NODARY_GPUS", joinIndices(d.GPUs)},
+			// The whole `--gpus` value, not just the indices: what the runtime
+			// accepts depends on what the host's CDI specification declares.
+			{"NODARY_GPUS", gpus},
 			{"NODARY_IMAGE", d.Image},
 			{"NODARY_MODELS_DIR", opt.ModelsDir},
 			{"NODARY_MOUNT_PATH", desc.Backend.MountPath},
@@ -305,4 +316,63 @@ func sortedStageKeys(m map[string]Stage) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// gpuFlag is the value the unit passes to `--gpus`.
+//
+// **The runtime resolves `device=0` to the CDI device `nvidia.com/gpu=0`, and
+// on WSL2 no such device exists.** There is no /dev/nvidia0 there — the only
+// node is /dev/dxg — so `nvidia-ctk cdi generate` emits a single device named
+// `all`, and every deployment died in a restart loop with
+//
+//	CDI device injection failed: unresolvable CDI devices nvidia.com/gpu=0
+//
+// on a host where `nerdctl run --gpus all` works perfectly. docs/specs/03-agent.md
+// §7's note that a WSL2 host has no per-GPU device node was written about the
+// *assignment check*; this is the same fact reaching the argv.
+//
+// So: use the indexed form when the host declares indexed devices, and fall
+// back to `all` only when it is genuinely equivalent — every GPU the node
+// offers is assigned to this deployment. **A subset is refused rather than
+// widened**, because 03 §7 makes assignment explicit and handing a container
+// three cards when it was given one is not a degraded mode, it is a different
+// deployment.
+//
+// An empty device list means nvidia-ctk could not be asked. The indexed form is
+// then used unchanged: preflight already refuses a node with no toolkit, and
+// guessing `all` on a host whose specification nobody read would be the
+// widening this function exists to prevent.
+func gpuFlag(assigned []int, offered map[int]bool, cdi []string) (string, error) {
+	indexed := "device=" + joinIndices(assigned)
+	if len(cdi) == 0 {
+		return indexed, nil
+	}
+
+	have := map[string]bool{}
+	for _, name := range cdi {
+		// `nvidia.com/gpu=0` — the part after the last `=` is the device.
+		if i := strings.LastIndex(name, "="); i >= 0 {
+			have[name[i+1:]] = true
+		}
+	}
+	everyIndexed := true
+	for _, idx := range assigned {
+		if !have[strconv.Itoa(idx)] {
+			everyIndexed = false
+			break
+		}
+	}
+	if everyIndexed {
+		return indexed, nil
+	}
+	if !have["all"] {
+		return "", fmt.Errorf("this host's CDI specification declares %v, and none of them "+
+			"names the assigned GPU(s) %v; `nvidia-ctk cdi generate` writes it", cdi, assigned)
+	}
+	if len(assigned) != len(offered) {
+		return "", fmt.Errorf("this host's CDI specification declares only `all`, so a subset "+
+			"cannot be assigned: %d of %d GPU(s) were requested. On WSL2 there is no per-GPU "+
+			"device node for nvidia-ctk to name", len(assigned), len(offered))
+	}
+	return "all", nil
 }
