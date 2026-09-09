@@ -29,11 +29,19 @@ const (
 
 // Modes for the files and directories below.
 //
-// DataDir is 0700 rather than 0755 because the database sits beside its -wal
-// sidecar, and the write-ahead log holds committed-but-uncheckpointed audit
-// records and encrypted secrets just as the database does.
+// DataDir is 0710 rather than 0755: group execute only, so a member of the
+// service account's group can traverse into it and reach `models/` — which
+// 05-catalog.md §3 means for an operator to write into directly — without
+// being able to list the directory or open anything else in it. That holds
+// even though nodary.db sits right beside its -wal sidecar, both holding
+// committed-but-uncheckpointed audit records and encrypted secrets: those are
+// independently chmod'd to ModeDatabase on every open
+// (internal/store/store.go's restrictPermissions), so the directory bit is
+// defense in depth on top of that, not the thing actually guarding them. A
+// database file inheriting a loose process umask is the case that guard is
+// for; a directory a group can merely pass through is not the same risk.
 const (
-	ModeDataDir     os.FileMode = 0o700
+	ModeDataDir     os.FileMode = 0o710
 	ModeConfigDir   os.FileMode = 0o755
 	ModeLogDir      os.FileMode = 0o700
 	ModeDatabase    os.FileMode = 0o600

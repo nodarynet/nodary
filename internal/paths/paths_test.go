@@ -28,12 +28,18 @@ func TestLocationsMatchTheSpecs(t *testing.T) {
 // key that decrypts every TOTP seed, the audit mirror, the operator's token.
 // Widening one is the kind of change that passes review by looking like a
 // formatting fix, so the property is pinned instead of the digits.
+//
+// DataDir is deliberately absent from this list — see
+// TestDataDirGrantsOnlyGroupTraverse — because it is the one directory here
+// that is not itself the secret: the database and its -wal/-shm sidecars are
+// independently chmod'd to ModeDatabase on every open regardless of what the
+// directory allows (internal/store/store.go's restrictPermissions), so a bit
+// here is defense in depth, not the guard.
 func TestModesExcludeGroupAndOther(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mode os.FileMode
 	}{
-		{"DataDir", ModeDataDir},
 		{"LogDir", ModeLogDir},
 		{"Database", ModeDatabase},
 		{"SecretKey", ModeSecretKey},
@@ -43,6 +49,20 @@ func TestModesExcludeGroupAndOther(t *testing.T) {
 		if tc.mode&0o077 != 0 {
 			t.Errorf("%s = %#o, grants access beyond the owner", tc.name, tc.mode)
 		}
+	}
+}
+
+// TestDataDirGrantsOnlyGroupTraverse pins DataDir's one deliberate exception
+// to the rule above: group *execute*, so a member of the service account's
+// group can pass through to `models/` (0755 in Layout, and meant to be
+// written by an operator per docs/specs/05-catalog.md §3) without being able
+// to list the directory or reach anything else in it. Pinned to exactly that
+// bit so a future change that also grants group *read* — which would make the
+// directory listable, though still not the database, whose own mode holds
+// regardless — has to edit this test to know it moved.
+func TestDataDirGrantsOnlyGroupTraverse(t *testing.T) {
+	if got := ModeDataDir & 0o077; got != 0o010 {
+		t.Errorf("ModeDataDir grants %#o beyond the owner, want exactly group-execute (0010)", got)
 	}
 }
 

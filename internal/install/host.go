@@ -18,8 +18,11 @@ import (
 // Layout is docs/specs/01-install.md §12, as directories and their modes.
 //
 // The modes are the specification's, and they are not decorative:
-// /var/lib/nodary at 0700 because the database sits beside a write-ahead log
-// holding committed-but-uncheckpointed audit records and sealed secrets, and
+// /var/lib/nodary at 0710 gives its group traverse only, so an operator added
+// to it can reach `models/` — 0755 below, and meant to be operator-written —
+// without being able to list the directory or reach the database or its
+// write-ahead log, which are independently locked to owner-only regardless
+// (internal/paths.ModeDataDir's comment has the reasoning), and
 // /etc/nodary/pki at 0700 because it holds the agent CA's sealed key.
 var Layout = []struct {
 	Dir  string

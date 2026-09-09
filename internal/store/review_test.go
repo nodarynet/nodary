@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nodarynet/nodary/internal/paths"
 )
 
 // A panic inside the callback used to leave the transaction unfinished: the
@@ -190,12 +192,16 @@ func TestExistingDataDirectoryIsTightened(t *testing.T) {
 	}
 	defer db.Close()
 
+	// Tightened to paths.ModeDataDir, not to owner-only: group-execute stays,
+	// so a member of the service account's group can still reach `models/`
+	// after Open has run against a directory a package postinst or an earlier
+	// release created more loosely.
 	fi, err := os.Stat(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		t.Errorf("pre-existing data directory left at %#o", fi.Mode().Perm())
+	if fi.Mode().Perm() != paths.ModeDataDir {
+		t.Errorf("pre-existing data directory left at %#o, want %#o", fi.Mode().Perm(), paths.ModeDataDir)
 	}
 }
 

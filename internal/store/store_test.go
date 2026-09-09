@@ -81,12 +81,16 @@ func TestFileAndSidecarModes(t *testing.T) {
 		}
 	}
 
+	// Group-execute only, matching paths.ModeDataDir: a member of the service
+	// account's group can traverse into it to reach `models/`, and nothing
+	// else — see internal/paths.ModeDataDir's comment. The files above are
+	// what's actually sensitive, and they stay owner-only regardless of this.
 	di, err := os.Stat(filepath.Dir(db.Path()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if di.Mode().Perm()&0o077 != 0 {
-		t.Errorf("data directory is %#o, want owner-only", di.Mode().Perm())
+	if got := di.Mode().Perm() & 0o077; got != 0o010 {
+		t.Errorf("data directory grants %#o beyond the owner, want exactly group-execute", got)
 	}
 }
 
