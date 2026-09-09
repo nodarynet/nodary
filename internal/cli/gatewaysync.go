@@ -3,10 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/nodarynet/nodary/internal/config"
@@ -97,12 +100,25 @@ func cmdGatewaySync(e env, args []string) int {
 	report(e, []install.Step{{Name: "litellm config", Changed: changed,
 		Detail: fmt.Sprintf("%s, %d route(s)", conf, len(models))}})
 
-	// Only when it changed. LiteLLM reads its configuration at startup, so a
-	// restart is how a change takes effect — and restarting when nothing
-	// changed would drop live requests for no reason, on a verb an operator is
-	// meant to be able to run whenever they are unsure.
+	// **Not "only when the file changed".** LiteLLM reads its configuration at
+	// startup, so what matters is whether the *running process* has this one —
+	// and those come apart exactly when it matters: the file was written while
+	// LiteLLM was already up, so a later sync found it correct, restarted
+	// nothing, and left the data plane serving an empty model list with a
+	// perfectly good file on disk beside it. `gateway sync` reported success
+	// and changed nothing that mattered.
+	//
+	// So the digest of what the running process was started with is recorded in
+	// /run, which the boot clears — and a boot starts LiteLLM from the current
+	// file anyway, so a missing marker means "unknown", which restarts. The
+	// alternative, restarting unconditionally, would drop live requests every
+	// time somebody ran this to check.
+	applied := appliedMarker(*root)
 	if !changed {
-		return ExitOK
+		if prior, err := os.ReadFile(applied); err == nil &&
+			strings.TrimSpace(string(prior)) == digestOf(body) {
+			return ExitOK
+		}
 	}
 	step, err := install.Start(ctx, "nodary-litellm.service", install.Options{Root: *root})
 	if err != nil {
@@ -111,7 +127,23 @@ func cmdGatewaySync(e env, args []string) int {
 		return ExitOK
 	}
 	report(e, []install.Step{step})
+	if err := os.MkdirAll(filepath.Dir(applied), 0o755); err == nil {
+		// Best effort: a marker that could not be written means the next sync
+		// restarts once more, which is the safe direction.
+		_ = os.WriteFile(applied, []byte(digestOf(body)+"\n"), 0o644)
+	}
 	return ExitOK
+}
+
+// appliedMarker records the configuration the running data plane was started
+// with. In /run because that is state about a process, not about the install.
+func appliedMarker(root string) string {
+	return filepath.Join(root, "/run/nodary/litellm.applied")
+}
+
+func digestOf(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // routeModels turns routes into what LiteLLM proxies to, and says what it left

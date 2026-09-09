@@ -108,3 +108,62 @@ func TestGatewaySyncNeverMintsAMasterKey(t *testing.T) {
 		t.Errorf("read %q (%d), want the key past the comment line", key, code)
 	}
 }
+
+// TestSyncRestartsWhenTheRunningConfigurationIsStale is the failure that made
+// `gateway sync` report success and change nothing that mattered.
+//
+// LiteLLM reads its configuration at startup, so what matters is whether the
+// *running process* has the current one — and that comes apart from "the file
+// changed" exactly when it counts. The file was written while LiteLLM was
+// already up; a later sync found it correct, restarted nothing, and left the
+// data plane serving an empty model list with a perfectly good file beside it.
+//
+// The digest of what the running process was started with is recorded in /run,
+// which a boot clears — and a boot starts LiteLLM from the current file anyway,
+// so a missing marker means "unknown" and restarts.
+func TestSyncRestartsWhenTheRunningConfigurationIsStale(t *testing.T) {
+	a := newAppliance(t)
+	if code, stderr := stagedInstall(t, a); code != ExitOK {
+		t.Fatalf("server install: exit %d, %s", code, stderr)
+	}
+	dir := a.dir
+	marker := filepath.Join(dir, "run", "nodary", "litellm.applied")
+
+	// A first sync knows nothing about the running process, so it acts and
+	// records what it applied.
+	if code, _, stderr := runWithStdin(t, "", "gateway", "sync",
+		"--root", dir, "--config-dir", dir, "--db", a.db); code != ExitOK {
+		t.Fatalf("gateway sync: exit %d, %s", code, stderr)
+	}
+	first, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("no marker was recorded, so every later sync would restart: %v", err)
+	}
+
+	// A second sync, with nothing changed and the marker matching, does not
+	// restart — an operator must be able to run this to check without dropping
+	// live requests.
+	if code, out, _ := runWithStdin(t, "", "gateway", "sync",
+		"--root", dir, "--config-dir", dir, "--db", a.db); code != ExitOK {
+		t.Fatalf("exit %d", code)
+	} else if strings.Contains(out, "start:") {
+		t.Errorf("an unchanged sync restarted the data plane:\n%s", out)
+	}
+
+	// The marker gone — a reboot, or a process nobody can vouch for — restarts
+	// even though the file is unchanged. This is the case the bug lived in.
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := runWithStdin(t, "", "gateway", "sync",
+		"--root", dir, "--config-dir", dir, "--db", a.db)
+	if code != ExitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "start:") {
+		t.Errorf("a sync with no record of the running configuration did not restart:\n%s", out)
+	}
+	if again, err := os.ReadFile(marker); err != nil || string(again) != string(first) {
+		t.Errorf("the marker was not restored: %q, %v", again, err)
+	}
+}
