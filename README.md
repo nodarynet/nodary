@@ -202,10 +202,12 @@ somebody notices.
 enumeration, disk, swap, LSM, certificate expiry, clock skew against the control plane — and
 re-runs the egress assertion rather than trusting that it passed when the deployment started.
 
-What does not, stated as plainly: **no real model has been served end to end yet.** The runtime
-is placed and a container starts on the isolated network, but the path from a staged weight to
-a vLLM process answering a completion has not been run. Throttling is recorded and not
-enforced. Only vLLM and SGLang have descriptors — llama.cpp and TensorRT-LLM need descriptor
+**A real model has now been served end to end**, on an RTX 5090 under WSL2: weights staged and
+verified from a manifest, a deployment reconciled onto the isolated network by the agent, vLLM
+answering through LiteLLM through the gateway, and one usage row recording 34 prompt and 10
+completion tokens against the person who asked — with no prompt text anywhere in the database.
+
+What does not, stated as plainly: throttling is recorded and not enforced. Only vLLM and SGLang have descriptors — llama.cpp and TensorRT-LLM need descriptor
 features that do not exist, and shipping one anyway would claim a backend the binary cannot
 run. There is no UI. The offline bundle, upgrade and uninstall are unbuilt, the control index
 ships as a stub that says `"status": "unmapped"` for every entry rather than guessing at a

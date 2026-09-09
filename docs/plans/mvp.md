@@ -14,6 +14,15 @@ One control-plane host, one GPU node, one model, a dozen users, and an evidence 
 that verifies. Demonstrable end to end, and **not qualified for CMMC** — §6 names every
 gap, and each one is a stub with a task number rather than an omission.
 
+**Reached.** On an RTX 5090 under WSL2: `install → enroll → approve → stage → apply →
+reconcile → completion`, with the model on a network that has no route off the box and one
+metered usage row carrying counts and no content. Getting there cost roughly a dozen defects
+that only a real host could surface — the binary on no PATH, `node approve` as a stub, the CA
+fingerprint printed once and unrecoverable, an applied migration edited by a spelling pass,
+`--gpus device=0` against a WSL2 CDI spec that declares only `all`, no way to set container
+environment at all, the gateway written but started by nobody, and `gateway sync` reporting
+success while restarting nothing. Each is recorded against its row.
+
 The target is not a slice of the product. It is the whole shape of the product with the
 content missing, which is the opposite of the usual MVP and is forced by what nodary
 sells: a customer who receives a bundle holds a format we then owe them forever.
