@@ -42,7 +42,7 @@ jobs:
         run: |
           go test ./internal/canonical/ \
             -run=XXX -fuzz='^${{ matrix.target }}$' \
-            -fuzztime='${{ inputs.fuzztime || ''10m'' }}'
+            -fuzztime='${{ inputs.fuzztime || '10m' }}'
 
       # A crasher is worthless if it dies with the runner. Go writes the
       # reproducer under testdata/fuzz, where committing it turns the finding
