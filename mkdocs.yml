@@ -1,0 +1,47 @@
+site_name: nodary
+site_description: Run LLMs on your own GPUs, and be able to show how.
+site_url: https://nodarynet.github.io/nodary/
+repo_url: https://github.com/nodarynet/nodary
+repo_name: nodarynet/nodary
+edit_uri: edit/main/site/
+docs_dir: site
+site_dir: public
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+
+# This site is the front door: what nodary is and how to get a model serving.
+# The specifications (docs/specs/), decision records (docs/adr/) and the
+# implementation tracker (docs/tasks/) are the authoritative depth and stay in
+# the repository rather than being ported here — porting them would give this
+# site two copies of the truth to keep in sync. It links out to them instead.
