@@ -172,7 +172,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node enroll|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|enroll|approve|drain|verify-egress`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -214,6 +214,8 @@ Available in this release:
   server               Control plane lifecycle
                          install | start | status
   node                 GPU nodes
+                         list           The fleet: state, liveness, GPUs, deployments
+                         show           One node, with what is placed on it
                          install        Preflight, runtime, isolated network, enroll, start
                          enroll         Join a control plane with a join token
                          verify-egress  Assert a deployment has no way off-box

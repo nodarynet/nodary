@@ -17,8 +17,6 @@ import (
 // verb that does not exist and one that is not built yet.
 var nodeVerbs = map[string]string{
 	"install":   "the full node install: preflight, components, the isolated network, then enroll",
-	"list":      "fleet listing from an operator workstation",
-	"show":      "one node in detail",
 	"revoke":    "revoking a node's certificate",
 	"leave":     "decommissioning from the node itself",
 	"policy":    "the node's local guardrails",
@@ -27,10 +25,15 @@ var nodeVerbs = map[string]string{
 
 func cmdNode(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary node: expected a subcommand (install, enroll, approve, drain, verify-egress)\n")
+		fmt.Fprintf(e.stderr,
+			"nodary node: expected a subcommand (list, show, install, enroll, approve, drain, verify-egress)\n")
 		return ExitUsage
 	}
 	switch args[0] {
+	case "list":
+		return cmdNodeList(e, args[1:])
+	case "show":
+		return cmdNodeShow(e, args[1:])
 	case "install":
 		return cmdNodeInstall(e, args[1:])
 	case "enroll":
@@ -47,7 +50,9 @@ func cmdNode(e env, args []string) int {
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary node: unknown subcommand %q (want install, enroll, approve, drain or verify-egress)\n", args[0])
+	fmt.Fprintf(e.stderr,
+		"nodary node: unknown subcommand %q (want list, show, install, enroll, approve, drain or verify-egress)\n",
+		args[0])
 	return ExitUsage
 }
 
