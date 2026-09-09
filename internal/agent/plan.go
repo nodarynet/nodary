@@ -98,6 +98,10 @@ type PlanOptions struct {
 	// byte of a large model is minutes of disk, and `nodary agent plan` should
 	// be able to answer without doing it.
 	Verify bool
+	// WSL2 says whether this host runs under WSL2, so a descriptor's
+	// host-conditional environment can be applied. A parameter rather than a
+	// probe inside Build, so a test can render both hosts.
+	WSL2 bool
 	// CDIDevices are the device names the host's CDI specification declares,
 	// as `nvidia-ctk cdi list` reports them. Nil means it could not be asked.
 	//
@@ -202,7 +206,7 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	if err != nil {
 		return Unit{}, err
 	}
-	env, err := envFlags(d.Env)
+	env, err := envFlags(desc.Backend, opt.WSL2, d.Env)
 	if err != nil {
 		return Unit{}, err
 	}
@@ -400,13 +404,29 @@ func gpuFlag(assigned []int, offered map[int]bool, cdi []string) (string, error)
 // Whitespace is refused rather than escaped, for the reason extra_args gives:
 // the template expands this unquoted so systemd splits it, and no quoting
 // convention invented here would survive that.
-func envFlags(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
-		return "", nil
+func envFlags(b backend.Backend, wsl2 bool, raw json.RawMessage) (string, error) {
+	env := map[string]string{}
+	// Descriptor first, host-conditional second, deployment last: **the
+	// deployment wins.** A descriptor says what a backend needs in general and
+	// an operator says what this deployment needs here, and the specific one
+	// has to be able to override the general — otherwise the fallback for a
+	// host the descriptor's default does not fix is unreachable.
+	for _, from := range []map[string]string{b.Env, wslOnly(b.EnvWSL2, wsl2)} {
+		for k, v := range from {
+			env[k] = v
+		}
 	}
-	var env map[string]string
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return "", fmt.Errorf("env is not an object of strings: %v", err)
+	if len(raw) > 0 {
+		var own map[string]string
+		if err := json.Unmarshal(raw, &own); err != nil {
+			return "", fmt.Errorf("env is not an object of strings: %v", err)
+		}
+		for k, v := range own {
+			env[k] = v
+		}
+	}
+	if len(env) == 0 {
+		return "", nil
 	}
 	names := make([]string, 0, len(env))
 	for k := range env {
@@ -427,3 +447,15 @@ func envFlags(raw json.RawMessage) (string, error) {
 	}
 	return strings.Join(out, " "), nil
 }
+
+// wslOnly returns m when this host is WSL2, and nothing otherwise.
+func wslOnly(m map[string]string, wsl2 bool) map[string]string {
+	if !wsl2 {
+		return nil
+	}
+	return m
+}
+
+// IsWSL2 reports whether this host runs under WSL2, for a caller building a
+// PlanOptions.
+func IsWSL2() bool { return isWSL() }

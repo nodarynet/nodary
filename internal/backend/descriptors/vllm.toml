@@ -28,6 +28,16 @@ gpu_memory_fraction = "--gpu-memory-utilization={v}"
 dtype               = "--dtype={v}"
 port                = "--port={v}"
 
+# WSL2 has no unified virtual addressing, and vLLM's v2 model runner requires
+# it: the engine dies at startup with `RuntimeError: UVA is not available` on a
+# host where everything else works. Pinned memory is upstream's fix and needs a
+# 4.19.121+ kernel, which every current WSL2 kernel is far past.
+#
+# If a host still refuses, `VLLM_USE_V2_MODEL_RUNNER=0` on the deployment puts
+# the engine on the older path; a deployment's own env wins over this.
+[backend.env_wsl2]
+VLLM_WSL2_ENABLE_PIN_MEMORY = "1"
+
 [backend.gpu]
 mechanism = "device-flag"
 

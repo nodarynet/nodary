@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nodarynet/nodary/internal/api"
+	"github.com/nodarynet/nodary/internal/backend"
 )
 
 func desired(d ...api.DesiredDeployment) api.Desired {
@@ -296,7 +297,8 @@ func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
 // `VLLM_USE_V2_MODEL_RUNNER=0`, are environment variables with no command-line
 // form. No deployment could be made to run on a platform 01 §8 supports.
 func TestADeploymentCarriesItsEnvironment(t *testing.T) {
-	got, err := envFlags([]byte(`{"VLLM_WSL2_ENABLE_PIN_MEMORY":"1","HF_HUB_OFFLINE":"1"}`))
+	got, err := envFlags(backend.Backend{}, false,
+		[]byte(`{"VLLM_WSL2_ENABLE_PIN_MEMORY":"1","HF_HUB_OFFLINE":"1"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,23 +310,66 @@ func TestADeploymentCarriesItsEnvironment(t *testing.T) {
 
 	// Absent is empty, not `-e`: the template expands it unquoted, and a stray
 	// flag with no argument would make nerdctl consume the image reference.
-	if got, err := envFlags(nil); err != nil || got != "" {
+	if got, err := envFlags(backend.Backend{}, false, nil); err != nil || got != "" {
 		t.Errorf("no env rendered %q, %v; want empty", got, err)
 	}
-	if got, err := envFlags([]byte(`{}`)); err != nil || got != "" {
+	if got, err := envFlags(backend.Backend{}, false, []byte(`{}`)); err != nil || got != "" {
 		t.Errorf("an empty object rendered %q, %v; want empty", got, err)
 	}
 
 	// Whitespace is refused rather than escaped — the same rule extra_args
 	// follows, and for the same reason: systemd splits this on whitespace and
 	// no quoting convention invented here would survive it.
-	if _, err := envFlags([]byte(`{"A":"one two"}`)); err == nil {
+	if _, err := envFlags(backend.Backend{}, false, []byte(`{"A":"one two"}`)); err == nil {
 		t.Error("a value with whitespace was accepted")
 	}
-	if _, err := envFlags([]byte(`{"A B":"1"}`)); err == nil {
+	if _, err := envFlags(backend.Backend{}, false, []byte(`{"A B":"1"}`)); err == nil {
 		t.Error("a name with whitespace was accepted")
 	}
-	if _, err := envFlags([]byte(`{"A":1}`)); err == nil {
+	if _, err := envFlags(backend.Backend{}, false, []byte(`{"A":1}`)); err == nil {
 		t.Error("a non-string value was accepted")
+	}
+}
+
+// TestADescriptorsWSL2EnvironmentAppliesOnlyThere is the toggle-versus-detect
+// question, answered by detecting.
+//
+// "vLLM will not start on WSL2 without this variable" is a fact about vLLM, not
+// about nodary or about one operator's deployment, so it lives in the
+// descriptor — docs/specs/04-backends.md §1's argument for descriptors rather
+// than plugins. A fleet with both WSL2 and native nodes then works without
+// anybody remembering which is which, and a native host is not handed a
+// variable that means nothing there.
+func TestADescriptorsWSL2EnvironmentAppliesOnlyThere(t *testing.T) {
+	b := backend.Backend{
+		Env:     map[string]string{"ALWAYS": "1"},
+		EnvWSL2: map[string]string{"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"},
+	}
+
+	native, err := envFlags(b, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if native != "-e ALWAYS=1" {
+		t.Errorf("on a native host: %q, want only the unconditional entry", native)
+	}
+
+	wsl, err := envFlags(b, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wsl != "-e ALWAYS=1 -e VLLM_WSL2_ENABLE_PIN_MEMORY=1" {
+		t.Errorf("on WSL2: %q", wsl)
+	}
+
+	// The deployment wins. Without this the fallback for a host the
+	// descriptor's default does not fix would be unreachable — which is the
+	// whole reason an operator would be setting it.
+	over, err := envFlags(b, true, []byte(`{"VLLM_WSL2_ENABLE_PIN_MEMORY":"0","VLLM_USE_V2_MODEL_RUNNER":"0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "-e ALWAYS=1 -e VLLM_USE_V2_MODEL_RUNNER=0 -e VLLM_WSL2_ENABLE_PIN_MEMORY=0"; over != want {
+		t.Errorf("the deployment did not override the descriptor:\n got %q\nwant %q", over, want)
 	}
 }

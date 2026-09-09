@@ -99,6 +99,7 @@ func cmdAgentPlan(e env, args []string) int {
 	p, err := agent.Build(doc, agent.PlanOptions{
 		ModelsDir:  orElse(conf.ModelsDir, agent.DefaultModelsDir()),
 		Present:    offer.GPUs,
+		WSL2:       agent.IsWSL2(),
 		CDIDevices: agent.CDIDevices(context.Background()),
 		Verify:     !*noVerify,
 	})

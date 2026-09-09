@@ -193,14 +193,10 @@ DOC="${OUT:-$PWD/${ROUTE}.toml}"
     # otherwise serves under the weights path and rejects it.
     printf 'params    = %s{"served_name":"%s","gpu_memory_fraction":%s}%s\n' \
       "'" "$ROUTE" "$GPUMEM" "'"
-    # WSL2: vLLM's v2 model runner wants unified virtual addressing, which WSL2
-    # does not provide, and refuses to start with "UVA is not available". Pinned
-    # memory is the published fix and needs a 4.19.121+ kernel; every current
-    # WSL2 kernel is far past that.
-    if [ -z "$ENVJSON" ] && grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
-      ENVJSON='{"VLLM_WSL2_ENABLE_PIN_MEMORY":"1"}'
-      printf '# WSL2 detected: vLLM needs this to start at all.\n' >&2
-    fi
+    # No WSL2 guess here. The vllm descriptor carries `[backend.env_wsl2]`, so
+    # the agent applies it on a WSL2 node and not on a native one — which is
+    # right for a fleet with both, and does not depend on which host this script
+    # happened to run on. `--env` is for overriding that.
     if [ -n "$ENVJSON" ]; then
       printf 'env       = %s%s%s\n' "'" "$ENVJSON" "'"
     fi

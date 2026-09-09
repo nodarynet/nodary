@@ -57,6 +57,21 @@ type Backend struct {
 	ImageDefault  string            `toml:"image_default"`
 	Capabilities  Capabilities      `toml:"capabilities"`
 	Args          map[string]string `toml:"args"`
+	// Env is applied to every container this backend runs.
+	Env map[string]string `toml:"env"`
+	// EnvWSL2 is applied only on a WSL2 host.
+	//
+	// Backend knowledge belongs in the descriptor, which is
+	// docs/specs/04-backends.md §1's whole argument for descriptors rather than
+	// plugins — and "vLLM will not start on WSL2 without this variable" is
+	// exactly that: a fact about vLLM, not about nodary or about one operator's
+	// deployment. Putting it here means a fleet with both WSL2 and native nodes
+	// works without anybody remembering which is which.
+	//
+	// One condition, not a condition engine. A second one can generalise this;
+	// inventing the general form for a single case would be a mechanism nobody
+	// has exercised.
+	EnvWSL2 map[string]string `toml:"env_wsl2"`
 	GPU           GPU               `toml:"gpu"`
 	Probe         Probe             `toml:"probe"`
 	Metrics       Metrics           `toml:"metrics"`

@@ -106,6 +106,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		ModelsDir:  orDefault(d.Config.ModelsDir, DefaultModelsDir()),
 		ConfigDir:  d.Host.ConfigDir,
 		Present:    offer.GPUs,
+		WSL2:       IsWSL2(),
 		CDIDevices: CDIDevices(ctx),
 		Verify:     true,
 	})
