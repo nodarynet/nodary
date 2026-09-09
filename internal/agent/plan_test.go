@@ -64,16 +64,22 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 
 	want := map[string]string{
 		// The model path is the container's side of the bind mount, not the
-		// host's: the argv runs inside the container.
-		"NODARY_ARGS": "--model=/root/.cache/huggingface/hub/models--acme--tiny " +
+		// host's: the argv runs inside the container. Positional, not
+		// `--model=`: `vllm serve` takes the model as its first argument and
+		// removed the flag, and the descriptor renders `{v}` for it.
+		"NODARY_ARGS": "/root/.cache/huggingface/hub/models--acme--tiny " +
 			"--max-model-len=131072 --tensor-parallel-size=2 --enable-prefix-caching",
 		"NODARY_CONTAINER_PORT": "8000",
 		"NODARY_GPUS":           "device=0,1",
-		"NODARY_IMAGE":          "registry.internal/vllm@sha256:" + strings.Repeat("a", 64),
-		"NODARY_MODELS_DIR":     root,
-		"NODARY_MOUNT_PATH":     "/root/.cache/huggingface",
-		"NODARY_NETWORK":        api.IsolatedNetwork,
-		"NODARY_PORT":           "8001",
+		// Empty and still present. The template reads `$NODARY_ENV`, and a
+		// variable the env file omits is one systemd expands to nothing —
+		// which works, and leaves the file a different shape per deployment.
+		"NODARY_ENV":        "",
+		"NODARY_IMAGE":      "registry.internal/vllm@sha256:" + strings.Repeat("a", 64),
+		"NODARY_MODELS_DIR": root,
+		"NODARY_MOUNT_PATH": "/root/.cache/huggingface",
+		"NODARY_NETWORK":    api.IsolatedNetwork,
+		"NODARY_PORT":       "8001",
 	}
 	got := map[string]string{}
 	for _, v := range u.Env {
