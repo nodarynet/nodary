@@ -52,6 +52,9 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
   - *done:* a limit being hit repeatedly is something an operator sees, not something the system grinds against
 - [ ] **R4-16** A guardrail narrowing under a running deployment reports `out_of_policy` and does not kill it · [12 §3](../specs/12-node-guardrails.md#3-editing-a-live-node)
   - *done:* editing a config file never terminates a serving model. A guardrail nobody dares touch is not a guardrail
+- [x] **R4-01a** The GPU probe resolves `nvidia-smi` rather than looking it up on PATH
+  - the WSL2 trap again, in the one place it had not been fixed. `/usr/lib/wsl/lib` is added by a login profile and dropped by both sudo's `secure_path` and a systemd unit's PATH, so the agent found no card, **enrolled advertising an empty offer**, and every deployment was refused with `GPU 0 is not on this node's offer` — on a host whose own `nodary doctor` reported an RTX 5090, because doctor resolved and this did not
+  - the offer is written **only at enrolment** ([02](../specs/02-enrollment.md)), deliberately — it is what the node put on the table, not something it may quietly widen later — so a node that enrolled blind has to `nodary node enroll` again to advertise what it has
 - [x] **R4-17** Reported inventory is the offer, not the machine: a four-GPU host offering three appears as a three-GPU node · [12 §4](../specs/12-node-guardrails.md#4-reported-inventory)
   - the narrowing happens **on the node**, before the wire, so the control plane is never told the fourth card exists and cannot place work on it. Filtering at the far end would leave the knowledge on the wrong side of the boundary
 

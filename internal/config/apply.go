@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/backend"
 )
 
 // ErrUnknownNode is returned when a configuration names a node that has never
@@ -107,6 +108,15 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 
 func applyModels(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Snapshot, opt Options, res *Result) error {
 	for _, m := range want.Models {
+		// docs/specs/05-catalog.md §1: the artifact kind **must match the
+		// backend's weights_layout**. Checked here because the alternative is
+		// where it was found — an apply that succeeds, and then a node
+		// reporting the model `corrupt` with "unknown weights layout", which
+		// names neither the field nor the document that set it. A catalog entry
+		// that can never stage is not a catalog entry.
+		if err := checkArtifact(m); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO model
 			(id, backend, source, artifact, origin_org, origin_country, license,
 			 manifest_sha256, total_bytes, hints_json, created_at)
@@ -328,4 +338,23 @@ func nullableInt(n int64) any {
 		return nil
 	}
 	return n
+}
+
+// checkArtifact refuses a model whose artifact kind its backend cannot read.
+//
+// The backend is the authority: each descriptor declares one `weights_layout`,
+// and a model staged in another one is weights the server will not find. An
+// unknown backend is left alone — R6 owns which backends exist, and refusing
+// here would make this the second place that decides.
+func checkArtifact(m Model) error {
+	d, err := backend.Get(m.Backend)
+	if err != nil {
+		return nil
+	}
+	if m.Artifact == "" || m.Artifact == d.Backend.WeightsLayout {
+		return nil
+	}
+	return fmt.Errorf("model %q is %q and the %s backend reads %q; "+
+		"05 §1 requires the artifact kind to match the backend's weights_layout",
+		m.ID, m.Artifact, m.Backend, d.Backend.WeightsLayout)
 }

@@ -163,7 +163,7 @@ DOC="${OUT:-$PWD/${ROUTE}.toml}"
   printf '#   sudo nodary config apply -f %s --yes --justify "staging %s"\n#\n' "$DOC" "$REPO"
   printf '# --prune is off by default, so this adds to the fleet rather than replacing it.\n\n'
   printf '[[model]]\nid              = "%s"\nbackend         = "vllm"\n' "$REPO"
-  printf 'source          = "local"\nartifact        = "weights"\n'
+  printf 'source          = "local"\nartifact        = "hf-cache"\n'
   printf 'manifest_sha256 = "%s"\ntotal_bytes     = %s\n\n' "$MANIFEST_SHA" "$BYTES"
   if [ -n "$NODE" ]; then
     printf '[[deployment]]\nid        = "%s"\nmodel_id  = "%s"\n' "$ROUTE-$NODE" "$REPO"

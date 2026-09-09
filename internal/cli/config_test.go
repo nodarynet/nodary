@@ -112,7 +112,7 @@ func TestRollbackRestoresAndIsItselfARevision(t *testing.T) {
 id = "llama-3"
 backend = "vllm"
 source = "local"
-artifact = "/srv/weights/llama-3"
+artifact = "hf-cache"
 
 [[route]]
 name = "chat"
@@ -127,13 +127,13 @@ name = "chat"
 id = "llama-3"
 backend = "vllm"
 source = "local"
-artifact = "/srv/weights/llama-3"
+artifact = "hf-cache"
 
 [[model]]
 id = "mistral"
 backend = "vllm"
 source = "local"
-artifact = "/srv/weights/mistral"
+artifact = "hf-cache"
 
 [[route]]
 name = "chat"
@@ -185,13 +185,13 @@ func TestApplyLeavesOrphansAloneWithoutPrune(t *testing.T) {
 id = "llama-3"
 backend = "vllm"
 source = "local"
-artifact = "/srv/w/a"
+artifact = "hf-cache"
 
 [[model]]
 id = "mistral"
 backend = "vllm"
 source = "local"
-artifact = "/srv/w/b"
+artifact = "hf-cache"
 `)
 	if code, _, stderr := a.run("config", "apply", "-f", full); code != ExitOK {
 		t.Fatalf("apply: %d %s", code, stderr)
@@ -203,7 +203,7 @@ artifact = "/srv/w/b"
 id = "llama-3"
 backend = "vllm"
 source = "local"
-artifact = "/srv/w/a"
+artifact = "hf-cache"
 `)
 	code, _, stderr := a.run("config", "apply", "-f", partial)
 	if code != ExitOK {
@@ -254,7 +254,7 @@ func TestApplyRefusesAnUnknownKey(t *testing.T) {
 id = "llama-3"
 backend = "vllm"
 source = "local"
-artifact = "/srv/w"
+artifact = "hf-cache"
 licence = "apache-2.0"
 `)
 	code, _, stderr := a.run("config", "apply", "-f", f)
@@ -313,14 +313,14 @@ func TestAnExportRestoresOntoAFreshDatabase(t *testing.T) {
 id = "llama-3-70b"
 backend = "vllm"
 source = "local"
-artifact = "/srv/weights/llama-3-70b"
+artifact = "hf-cache"
 origin_country = "US"
 
 [[model]]
 id = "mistral"
 backend = "vllm"
 source = "local"
-artifact = "/srv/weights/mistral"
+artifact = "hf-cache"
 
 [[route]]
 name = "chat"
@@ -421,7 +421,7 @@ func TestAPartialApplyDoesNotReportDeletionsItDidNotMake(t *testing.T) {
 id       = "kept/model"
 backend  = "vllm"
 source   = "local"
-artifact = "weights"
+artifact = "hf-cache"
 `)
 	if code, _, stderr := a.run("config", "apply", "-f", first); code != ExitOK {
 		t.Fatalf("apply: exit %d, %s", code, stderr)
@@ -435,7 +435,7 @@ artifact = "weights"
 id       = "added/model"
 backend  = "vllm"
 source   = "local"
-artifact = "weights"
+artifact = "hf-cache"
 `)
 	code, stdout, stderr := a.run("config", "apply", "-f", second)
 	if code != ExitOK {
@@ -456,5 +456,49 @@ artifact = "weights"
 	// And it really is still there.
 	if code, out, _ := a.run("config", "show"); code != ExitOK || !strings.Contains(out, "kept/model") {
 		t.Errorf("the model the apply did not mention is gone:\n%s", out)
+	}
+}
+
+// TestAModelWhoseArtifactItsBackendCannotReadIsRefused is docs/specs/05-catalog.md
+// §1's "must match the backend's weights_layout", enforced where it can still
+// be corrected.
+//
+// Without it the apply succeeds and the failure lands on a node, as a model
+// reported `corrupt` with "unknown weights layout" — a message naming neither
+// the field nor the document that set it, on a machine that is not the one the
+// operator is typing on. A catalog entry that can never stage is not a catalog
+// entry.
+func TestAModelWhoseArtifactItsBackendCannotReadIsRefused(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+
+	f := filepath.Join(a.dir, "bad.toml")
+	write(t, f, `
+[[model]]
+id       = "some/model"
+backend  = "vllm"
+source   = "local"
+artifact = "weights"
+`)
+	code, _, stderr := a.run("config", "apply", "-f", f)
+	if code == ExitOK {
+		t.Fatal("a model its backend cannot read was applied")
+	}
+	for _, want := range []string{"some/model", "weights", "hf-cache", "vllm"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the refusal does not name %q:\n%s", want, stderr)
+		}
+	}
+
+	// The right one applies, so this is a check and not a wall.
+	write(t, f, `
+[[model]]
+id       = "some/model"
+backend  = "vllm"
+source   = "local"
+artifact = "hf-cache"
+`)
+	if code, _, stderr := a.run("config", "apply", "-f", f); code != ExitOK {
+		t.Errorf("a matching artifact was refused: %s", stderr)
 	}
 }

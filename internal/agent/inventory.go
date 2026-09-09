@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/nodarynet/nodary/internal/preflight"
 )
 
 // GPU is one card as `nvidia-smi` reports it.
@@ -29,7 +31,14 @@ type GPU struct {
 // than by an enrolment that will not complete, and a node with an empty
 // inventory is visible as exactly that.
 func probeGPUs(ctx context.Context) ([]GPU, string) {
-	out, err := exec.CommandContext(ctx, "nvidia-smi",
+	// **Resolved, not looked up on PATH.** On WSL2 the NVIDIA tools live in
+	// /usr/lib/wsl/lib, which the login profile adds to PATH and which sudo's
+	// `secure_path` and a systemd unit's PATH both drop. preflight learned this
+	// the hard way and this call did not: the agent found no GPU, enrolled
+	// advertising an empty offer, and every deployment was refused with "GPU 0
+	// is not on this node's offer" — on a host whose own `nodary doctor`
+	// reported an RTX 5090, because doctor resolves and this did not.
+	out, err := exec.CommandContext(ctx, preflight.Resolve("nvidia-smi"),
 		"--query-gpu=index,name,memory.total,uuid,driver_version",
 		"--format=csv,noheader,nounits").Output()
 	if err != nil {
