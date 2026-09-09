@@ -229,3 +229,60 @@ func short(sum string) string {
 	}
 	return sum
 }
+
+// WriteManifest digests every file beside the weights and writes the list.
+//
+// The inverse of ParseManifest, and the half that had no implementation: the
+// manifest "travels with the weights", which is true once somebody has made
+// one, and the only thing that made one was a shell script in this repository
+// that is not installed on any customer machine. `model register` calls this.
+//
+// **Sorted, and in `sha256sum -c` format.** Sorted so re-running produces the
+// same bytes and therefore the same manifest digest — the catalog pins that
+// digest, so a manifest that varied between runs would report the weights
+// corrupt after a re-register. The format so that a machine with no nodary on
+// it can still check the media it was handed.
+//
+// Only the top level. docs/specs/05-catalog.md §3's `hf-cache` layout is flat
+// here for the reason internal/agent/plan.go renders `--model` as the directory
+// itself, and a manifest that walked subdirectories would describe a layout
+// that cannot load.
+func WriteManifest(dir string) (sum string, files int, bytes int64, err error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == ManifestName {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "", 0, 0, fmt.Errorf("%s holds no files to digest", dir)
+	}
+
+	var b strings.Builder
+	for _, name := range names {
+		f, err := os.Open(filepath.Join(dir, name))
+		if err != nil {
+			return "", 0, 0, err
+		}
+		h := sha256.New()
+		n, err := io.Copy(h, f)
+		f.Close()
+		if err != nil {
+			return "", 0, 0, err
+		}
+		bytes += n
+		// Two spaces, which is what sha256sum writes and what `-c` reads.
+		fmt.Fprintf(&b, "%s  %s\n", hex.EncodeToString(h.Sum(nil)), name)
+	}
+	body := []byte(b.String())
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), body, 0o644); err != nil {
+		return "", 0, 0, err
+	}
+	return hexSHA256(body), len(names), bytes, nil
+}
