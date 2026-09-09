@@ -103,7 +103,7 @@ func TestAnUnreachableHomeIsNotABrokenCredential(t *testing.T) {
 //
 // The consequence is the unrecoverable one: nodary starts cleanly under the new
 // key, the agent CA can never be decrypted again, and the first symptom is an
-// enrolment failing much later for a reason that names none of this.
+// enrollment failing much later for a reason that names none of this.
 func TestServerInstallBindsTheSealingKey(t *testing.T) {
 	a := newAppliance(t)
 	code, _, stderr := runWithStdin(t, "", "server", "install",

@@ -12,7 +12,7 @@ import (
 
 // Config is /etc/nodary/agent.toml: how this node reaches its control plane.
 //
-// It holds no secrets. The join token is spent at enrolment and never written
+// It holds no secrets. The join token is spent at enrollment and never written
 // down, and the node's private key is a file this points at rather than
 // material it carries — so this file is 0644 and safe in a configuration
 // backup, while node.key is 0600 and is not.
@@ -86,7 +86,7 @@ func RenderConfig(c Config) []byte {
 #                 ` + "`nodary server install`" + `. Changing it re-points this node
 #                 at a different control plane, which is why it is here and not
 #                 discovered
-# certificate     this node's client certificate, issued at enrolment
+# certificate     this node's client certificate, issued at enrollment
 # key             its private half. 0600, and never leaves this machine
 # models_dir      where weights are staged
 

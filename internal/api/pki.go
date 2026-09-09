@@ -128,7 +128,7 @@ func EnsureAgentCA(ctx context.Context, dir string, k *secret.Key, now time.Time
 		}
 		// A certificate whose key is gone is worse than neither: it looks
 		// usable and cannot sign, and the failure would surface at the first
-		// node enrolment.
+		// node enrollment.
 		return "", fmt.Errorf("%s exists but its sealed key does not: the agent CA cannot sign", certPath)
 	}
 
@@ -189,7 +189,7 @@ const agentCertificateLifetime = 90 * 24 * time.Hour
 //
 // It returns an error rather than a nil key when the sealed half is missing,
 // for the reason EnsureAgentCA gives: a CA that cannot sign is worse than no CA
-// at all, because it looks usable until the first enrolment.
+// at all, because it looks usable until the first enrollment.
 func LoadAgentCA(dir string, k *secret.Key) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	certPath := AgentCAPath(dir)
 	certPEM, err := os.ReadFile(certPath)

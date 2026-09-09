@@ -68,7 +68,7 @@ every commercial verb and explains what it would produce, rather than hiding it
 | :--- | :--- | :--- |
 | Control plane, agent, gateway, backends | ✔ | |
 | The hash chain, `audit verify`, `audit export` | ✔ | |
-| Enrolment, staging, guardrails, egress isolation | ✔ | |
+| Enrollment, staging, guardrails, egress isolation | ✔ | |
 | Both policy profiles, the FIPS build, OIDC, the SIEM sink | ✔ | |
 | `nodary evidence export` — the signed bundle | | ✔ |
 | The control index and SSP narratives | | ✔ |
@@ -143,7 +143,7 @@ override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
 
 **The MVP route is complete.** A single command installs a control plane, prints a one-time
 link that creates the first administrator with a password nobody else ever knows, and stages
-the runtime every GPU host bootstraps from. A node enrols, speaks the agent protocol, and
+the runtime every GPU host bootstraps from. A node enrolls, speaks the agent protocol, and
 reconciles itself onto its desired state through systemd. The gateway authenticates,
 authorises, proxies and meters. The evidence bundle is signed, and the advisory feed has a
 format and a verb that reads it.
@@ -160,7 +160,7 @@ happened.
 | **R1** Core, audit, identity | done | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 28 of 42 | schema, revisions, the HTTP API, the shared core, TLS and the PKI |
 | **R9** Evidence | 14 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
-| **R4** Agent | 17 of 37 | enrolment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health, egress isolation |
+| **R4** Agent | 17 of 37 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, units, health, egress isolation |
 | **R6** Backends | 2 of 12 | the descriptor schema and argument translation, vLLM and SGLang |
 | **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, the route allowlist, metering, LiteLLM |
 | **R5** Install | 13 of 27 | both installs end to end, the layout and its ownership, the setup link, `--with-node`, preflight, `doctor` |
@@ -190,7 +190,7 @@ the database, its write-ahead log and the gateway's log is searched for it.
 embedded manifest, verifying each digest before it lands, and then serves that cache to nodes
 over the same mTLS the agent protocol uses — so a GPU host bootstraps without reaching the
 internet at all. `nodary node install` fetches from it, places the runtime, creates the
-isolated network, enrols, and starts the agent; `--with-node` does both on one machine and
+isolated network, enrolls, and starts the agent; `--with-node` does both on one machine and
 waits for the control plane's own port before enrolling into it.
 
 The install ends with a one-time URL, valid for fifteen minutes, single-use, that creates the

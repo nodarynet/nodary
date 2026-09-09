@@ -63,7 +63,7 @@ The design stands and is recorded so it is not re-derived: a one-time URL carryi
 valid for 15 minutes, stored hashed, single-use, burned when the first administrator sets a
 password. R5-08's `done:` is one line — *no default password ever exists* — and every
 alternative creates one, because a printed generated password is a default until it is
-changed. Reusing the join-token machinery is rejected: a join token enrols a *machine*
+changed. Reusing the join-token machinery is rejected: a join token enrolls a *machine*
 ([02 §4](../specs/02-enrollment.md#4-token-types)), and giving one a second, much larger
 meaning defeats the point of having distinct prefixes.
 

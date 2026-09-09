@@ -86,7 +86,7 @@ func cmdAgentPlan(e env, args []string) int {
 	}
 
 	// The offer, not the machine: the plan must refuse a GPU this node does not
-	// advertise, so it is built against the same narrowing enrolment reported.
+	// advertise, so it is built against the same narrowing enrollment reported.
 	// node.toml sits beside agent.toml, so a --config pointing somewhere else
 	// finds the guardrails that go with it rather than the host's.
 	guardrails, err := agent.LoadNodeConfig(filepath.Join(filepath.Dir(confFile), "node.toml"))

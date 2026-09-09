@@ -539,7 +539,7 @@ func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 //
 // The decrement *is* the check: `uses_left > 0` and the expiry live in the
 // UPDATE's WHERE clause, so a single-use token cannot be spent twice even if
-// two enrolments arrive together. A SELECT-then-UPDATE would be safe today
+// two enrollments arrive together. A SELECT-then-UPDATE would be safe today
 // because store.WriteTx serialises writers, but it would be safe by accident —
 // it reads correct and depends on something in another package staying true.
 //

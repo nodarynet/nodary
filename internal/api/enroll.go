@@ -81,7 +81,7 @@ var rebootPolicies = []string{"manual-console", "host-managed", "unattended"}
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	var body EnrollRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-		s.fail(w, r, badRequest("expected an enrolment request"))
+		s.fail(w, r, badRequest("expected an enrollment request"))
 		return
 	}
 	if !nodeNamePattern.MatchString(body.Name) {
@@ -140,7 +140,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 		state = "pending"
 		if existing != nil {
-			// docs/plans/R4a-agent-protocol.md §8. Re-enrolment is 02 §3's
+			// docs/plans/R4a-agent-protocol.md §8. Re-enrollment is 02 §3's
 			// path for a node that was offline past expiry; anything earlier
 			// is a leaked token trying to inherit a live node's approval.
 			if existing.expires.IsZero() || now.Before(existing.expires) {
@@ -215,7 +215,7 @@ func nodeCertExpiry(ctx context.Context, tx *sql.Tx, name string) (*enrolled, er
 // upsertEnrolledNode writes the row, leaving an existing node's approval alone.
 //
 // The ON CONFLICT list is exhaustive on purpose: approved_by, approved_at and
-// departed_at are absent from it, so a re-enrolment cannot grant itself the
+// departed_at are absent from it, so a re-enrollment cannot grant itself the
 // approval 02 §2 requires an administrator to give.
 func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 	state, fingerprint string, expires, now time.Time) error {

@@ -45,7 +45,7 @@ A plan carries three things the tracker cannot:
 | [R2a — The fleet schema](R2a-fleet-schema.md) | [R2](../tasks/R2-control-plane.md) | R2-01, R2-04 – R2-10 | complete |
 | [R2b — Revisions and `config`](R2b-revisions.md) | [R2](../tasks/R2-control-plane.md) | R2-11 – R2-13 | complete |
 | [R2c — The shared core and the HTTP layer](R2c-api-core.md) | [R2](../tasks/R2-control-plane.md) | R2-15 – R2-20, R2-24 – R2-26, R2-28 – R2-31, R2-33 – R2-36, R2-39, R2-40, R2-42 | complete |
-| [R4a — Enrolment and the agent protocol](R4a-agent-protocol.md) | [R4](../tasks/R4-agent.md) | R4-01 – R4-04, R4-07 – R4-09 | complete |
+| [R4a — Enrollment and the agent protocol](R4a-agent-protocol.md) | [R4](../tasks/R4-agent.md) | R4-01 – R4-04, R4-07 – R4-09 | complete |
 | [R4b — Descriptors, guardrails, staging, and the plan](R4b-backends-and-the-plan.md) | [R4](../tasks/R4-agent.md) | R4-13, R4-17, R4-34, R6-01 – R6-03 | complete |
 | [R4c — The reconcile loop, units, and the daemon](R4c-reconcile.md) | [R4](../tasks/R4-agent.md) | R4-12, R4-18 – R4-20 | complete |
 | [R4d — Egress isolation and its assertion](R4d-egress-isolation.md) | [R4](../tasks/R4-agent.md) | R4-26, R4-27, R4-29 | complete |

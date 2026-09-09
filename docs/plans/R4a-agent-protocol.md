@@ -1,17 +1,17 @@
-# R4a — Enrolment and the agent protocol
+# R4a — Enrollment and the agent protocol
 
 **Slice of:** [R4](../tasks/R4-agent.md) ·
 **Tasks:** R4-01 – R4-04, R4-07 – R4-09 · **Status:** complete
 
 The control plane's half of [S5](mvp.md#4-the-route). Everything here is server-side plus
-the smallest client that proves it: a node that enrols, is refused a workload until somebody
+the smallest client that proves it: a node that enrolls, is refused a workload until somebody
 approves it, long-polls a desired state, and heartbeats. The agent that *acts* on that
 document is R4b; the isolation it acts under is R4c.
 
 ## Why these seven tasks are one slice
 
-None of them is provable alone. An enrolment endpoint with nothing behind mTLS issues a
-certificate nobody has demonstrated works. A long-poll with no enrolment has no caller that
+None of them is provable alone. An enrollment endpoint with nothing behind mTLS issues a
+certificate nobody has demonstrated works. A long-poll with no enrollment has no caller that
 could reach it. [R4-04](../tasks/R4-agent.md)'s guarantee — *a `pending` node can heartbeat
 and cannot serve* — is a statement about all three endpoints at once, and it is the sentence
 [02 §2](../specs/02-enrollment.md#2-why-approval-is-a-separate-step) exists to make true.
@@ -42,7 +42,7 @@ by construction.
 ## 2. The CSR contributes a public key and nothing else
 
 **Decided.** The server ignores the CSR's subject entirely. The certificate's common name is
-the node name from the enrolment request, which is also the name recorded in `node`.
+the node name from the enrollment request, which is also the name recorded in `node`.
 
 **Why.** The CSR is attacker-controlled input on the one unauthenticated endpoint in the
 product, and its subject would otherwise become the fleet identity that mTLS then trusts. A
@@ -53,7 +53,7 @@ could reconcile.
 is what most PKIs do. It puts the naming decision in the hands of whoever holds the token,
 and it makes the certificate and the database disagreeable in a way no constraint catches.
 
-## 3. Enrolment is audited through `audit.Log.Act`, not `core.Act`
+## 3. Enrollment is audited through `audit.Log.Act`, not `core.Act`
 
 **Decided.** `POST /api/v1/enroll` calls the log directly, with
 `Actor{ID: <node>, Method: "join-token"}`.
@@ -72,7 +72,7 @@ exempt, one exemption away from being exemptable by anything.
 
 ## 4. What a human decided is audited; what a machine observed is not
 
-**Decided.** Enrolment, approval and revocation go through `audit.Log.Act`. The heartbeat
+**Decided.** Enrollment, approval and revocation go through `audit.Log.Act`. The heartbeat
 writes `last_seen`, `agent_version`, `protocol` and reported inventory through
 `store.WriteTx` and produces no audit record.
 
@@ -164,7 +164,7 @@ instantly. It couples the writer to the reader's lifecycle, and it is wrong the 
 is a second process writing the database — which is not hypothetical, because the CLI writes
 directly.
 
-## 8. Re-enrolment is allowed only once the certificate has expired
+## 8. Re-enrollment is allowed only once the certificate has expired
 
 **Decided.** Enrolling a name that already exists is refused, unless the recorded certificate
 has expired — in which case a new one is issued and the node keeps its state and its
@@ -215,9 +215,9 @@ be deferred, and it leaves the MVP unable to start a model at all.
 
 `nodary node enroll` is a new verb. [10 §1](../specs/10-cli.md#1-surface) listed `node
 install`, which [01 §5](../specs/01-install.md#5-node-install) defines as six steps of which
-enrolment is one; the other five are components, the CNI network and the units, and they are
-R4c and R5. Enrolment is separately runnable regardless, because
-[02 §3](../specs/02-enrollment.md#3-certificate-lifecycle) requires re-enrolment after expiry
+enrollment is one; the other five are components, the CNI network and the units, and they are
+R4c and R5. Enrollment is separately runnable regardless, because
+[02 §3](../specs/02-enrollment.md#3-certificate-lifecycle) requires re-enrollment after expiry
 and that is not a reinstall. The specification gains the verb rather than the verb pretending
 to be the installer.
 
@@ -239,7 +239,7 @@ to be the installer.
 
 - [10 §1](../specs/10-cli.md#1-verbs) gains `node enroll`, and
   [01 §5](../specs/01-install.md#5-node-install) says why it is separately runnable.
-- [02 §3](../specs/02-enrollment.md#3-certificate-lifecycle) gains the re-enrolment
+- [02 §3](../specs/02-enrollment.md#3-certificate-lifecycle) gains the re-enrollment
   condition and the supersession rule — §8 above.
 - [08 §1](../specs/08-data-model.md) gains `cert_expires_at` on `node`.
 - **A defect found on the way through.** `GET /api/v1/audit` returned Go's exported field

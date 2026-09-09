@@ -233,13 +233,13 @@ func TestTheAgentEndpointsRequireAClientCertificate(t *testing.T) {
 	}
 }
 
-// A certificate superseded by a re-enrolment stops working at once, rather than
+// A certificate superseded by a re-enrollment stops working at once, rather than
 // when it eventually expires.
 func TestASupersededCertificateIsRefused(t *testing.T) {
 	f := newFixture(t)
 	n := f.join("gpu-01")
 
-	// Expire the certificate on record so re-enrolment is permitted, then
+	// Expire the certificate on record so re-enrollment is permitted, then
 	// re-enroll with a fresh key.
 	if err := f.db.WriteTx(context.Background(), func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(context.Background(),

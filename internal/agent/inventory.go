@@ -28,7 +28,7 @@ type GPU struct {
 //
 // No GPU is not an error here. A control-plane-only host has none, an operator
 // enrolling before installing a driver should be told by preflight (R5) rather
-// than by an enrolment that will not complete, and a node with an empty
+// than by an enrollment that will not complete, and a node with an empty
 // inventory is visible as exactly that.
 func probeGPUs(ctx context.Context) ([]GPU, string) {
 	// **Resolved, not looked up on PATH.** On WSL2 the NVIDIA tools live in

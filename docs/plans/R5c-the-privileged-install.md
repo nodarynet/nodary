@@ -19,16 +19,16 @@ user, and touching nftables — and those are covered by
 [`scripts/verify-privileged.sh`](../../scripts/verify-privileged.sh), which is checked in so it
 can be read before it is run.
 
-**What the staged run proved here:** preflight, enrolment, the layout with its exact modes,
+**What the staged run proved here:** preflight, enrollment, the layout with its exact modes,
 108 MB fetched through the control plane's mirror over mTLS, containerd 2.3.4, `nerdctl` 2.3.5
 and runc 1.5.1 placed and *executing*, 20 CNI plugins extracted, the unit written, and a second
 run reporting **zero** changes.
 
-## 2. Enrolment happens before the fetch, inverting the specification's order
+## 2. Enrollment happens before the fetch, inverting the specification's order
 
-**Decided.** `node install` enrols first, then fetches components through the mirror.
+**Decided.** `node install` enrolls first, then fetches components through the mirror.
 
-**Why.** [01 §5](../specs/01-install.md#5-node-install) lists the fetch as step 2 and enrolment
+**Why.** [01 §5](../specs/01-install.md#5-node-install) lists the fetch as step 2 and enrollment
 as step 4, and that order assumes components come from upstream. They do not:
 [01 §3](../specs/01-install.md#3-bootstrap-order) makes the control plane the only host that
 contacts an upstream source, and [R5a](R5a-components-and-units.md) put the mirror behind the

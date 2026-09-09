@@ -106,7 +106,7 @@ func TestWithNodeRefusesAStagedInstall(t *testing.T) {
 //
 // `systemctl enable --now` returns once the unit is active, and Type=exec means
 // active as soon as the binary is exec'd — not once it holds the port. Without
-// this the enrolment lands in that gap and the install works most of the time.
+// this the enrollment lands in that gap and the install works most of the time.
 func TestWaitForListenerWaitsAndGivesUp(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

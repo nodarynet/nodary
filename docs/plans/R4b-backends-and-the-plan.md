@@ -112,7 +112,7 @@ weaker claim than the one an assessor is being shown.
 ## 4. `node.toml` is parsed and reported, and enforces nothing yet
 
 **Decided.** R4-13 only: the file is read, refused if malformed, and its contents become the
-node's advertised offer and constraints at enrolment.
+node's advertised offer and constraints at enrollment.
 [R4-14 – R4-16](../tasks/R4-agent.md) — evaluate-before-side-effect, refusals, `out_of_policy`
 — stay open. R4-17 closes here, because it is the reporting half and falls out of R4-13
 rather than needing anything of its own.
@@ -150,7 +150,7 @@ and writing it against a loop that does not exist is writing it twice.
 - [x] `internal/backend`: parse, validate, reject unknown keys
 - [x] Embed the vLLM and SGLang descriptors
 - [x] Canonical translation, `extra_args` appended verbatim
-- [x] `node.toml` parsed, and the offer it produces at enrolment
+- [x] `node.toml` parsed, and the offer it produces at enrollment
 - [x] Local staging verified against its manifest
 - [x] `Plan` — the desired document rendered as actions, side-effect free
 - [x] `nodary agent plan`, so the plan is inspectable without running it

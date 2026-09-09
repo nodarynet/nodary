@@ -131,7 +131,7 @@ func TestEnrollRefusesWhatItShould(t *testing.T) {
 	_, csr := csrFor(t)
 	good := f.joinToken(1)
 
-	// Spent by a successful enrolment, so the replay below is a real one.
+	// Spent by a successful enrollment, so the replay below is a real one.
 	if status, body := f.enroll("gpu-01", good, csr); status != http.StatusOK {
 		t.Fatalf("enroll: %d %v", status, body)
 	}
@@ -173,7 +173,7 @@ func TestEnrollRefusesACSRWithABorrowedPublicKey(t *testing.T) {
 }
 
 // The two halves against each other, with nothing hand-rolled in between: the
-// node's own enrolment code, the real endpoint, and the pin as the only thing
+// node's own enrollment code, the real endpoint, and the pin as the only thing
 // establishing trust.
 func TestTheNodeEnrollsAgainstTheRealControlPlane(t *testing.T) {
 	f := newFixture(t)
@@ -187,7 +187,7 @@ func TestTheNodeEnrollsAgainstTheRealControlPlane(t *testing.T) {
 		// /etc/nodary/node.toml, so the test would depend on whether the
 		// machine running it has had nodary installed — and on a host where
 		// that directory is root-owned and 0700, it fails with a permission
-		// error that has nothing to do with enrolment.
+		// error that has nothing to do with enrollment.
 		NodeConfig: filepath.Join(dir, "node.toml"),
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func TestEnrollmentRefusesAnUnpinnedControlPlane(t *testing.T) {
 	// handshake never reached it.
 	_, listed := f.do(http.MethodGet, "/nodes", f.admin, nil, nil)
 	if nodes, _ := listed["nodes"].([]any); len(nodes) != 0 {
-		t.Errorf("a refused enrolment created %v", listed)
+		t.Errorf("a refused enrollment created %v", listed)
 	}
 }
 

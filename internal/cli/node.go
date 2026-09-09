@@ -155,7 +155,7 @@ func cmdNodeEnroll(e env, args []string) int {
 // writeNodeConfig places node.toml from the flags, refusing rather than
 // overwriting: the file is edited by root on the node
 // (docs/specs/12-node-guardrails.md §2), and silently replacing an operator's
-// limits during a re-enrolment would widen what the machine offers without
+// limits during a re-enrollment would widen what the machine offers without
 // anybody asking.
 func writeNodeConfig(e env, path, gpus string, maxDeployments int, maintenance string) int {
 	if _, err := os.Stat(path); err == nil {

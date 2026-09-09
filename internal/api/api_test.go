@@ -80,7 +80,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 
-	// The PKI the enrolment endpoint signs from. Generated the way `server
+	// The PKI the enrollment endpoint signs from. Generated the way `server
 	// install` generates it, so a test cannot enroll against a CA no install
 	// would have produced.
 	pki := filepath.Join(dir, "pki")

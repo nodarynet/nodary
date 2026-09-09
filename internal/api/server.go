@@ -26,7 +26,7 @@ type Server struct {
 	db  *store.DB
 	log *audit.Log
 	key func() (*secret.Key, error)
-	// pki is where the agent CA lives: the enrolment endpoint signs from it and
+	// pki is where the agent CA lives: the enrollment endpoint signs from it and
 	// the listener verifies client certificates against it.
 	pki string
 	// dist is the component cache this control plane serves to nodes

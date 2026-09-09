@@ -43,7 +43,7 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
 ## Guardrails
 
 - [x] **R4-13** `/etc/nodary/node.toml` parsing; every field optional, an absent `[limits]` offering the whole machine · [12 §2](../specs/12-node-guardrails.md#2-the-file)
-  - parsed and **reported**, enforcing nothing: the offer it produces is what enrolment advertises, and R4-14 – R4-17 stay open · [mvp §6](../plans/mvp.md#6-what-an-mvp-install-cannot-claim)
+  - parsed and **reported**, enforcing nothing: the offer it produces is what enrollment advertises, and R4-14 – R4-17 stay open · [mvp §6](../plans/mvp.md#6-what-an-mvp-install-cannot-claim)
   - an unknown key is refused rather than ignored. Here more than anywhere else: an operator who misspells `gpu_indices` and is not told believes a GPU is withheld that is in fact on offer
   - an absent `gpu_indices` and an empty one are different answers, and TOML tells them apart. Collapsing them would turn "offer nothing" into "offer everything"
 - [ ] **R4-14** `evaluate` runs before any side effect · [03 §3](../specs/03-agent.md#3-reconcile-loop)
@@ -54,7 +54,7 @@ never refuses. · [00 §8](../specs/00-overview.md#8-milestones)
   - *done:* editing a config file never terminates a serving model. A guardrail nobody dares touch is not a guardrail
 - [x] **R4-01a** The GPU probe resolves `nvidia-smi` rather than looking it up on PATH
   - the WSL2 trap again, in the one place it had not been fixed. `/usr/lib/wsl/lib` is added by a login profile and dropped by both sudo's `secure_path` and a systemd unit's PATH, so the agent found no card, **enrolled advertising an empty offer**, and every deployment was refused with `GPU 0 is not on this node's offer` — on a host whose own `nodary doctor` reported an RTX 5090, because doctor resolved and this did not
-  - the offer is written **only at enrolment** ([02](../specs/02-enrollment.md)), deliberately — it is what the node put on the table, not something it may quietly widen later — so a node that enrolled blind has to `nodary node enroll` again to advertise what it has
+  - the offer is written **only at enrollment** ([02](../specs/02-enrollment.md)), deliberately — it is what the node put on the table, not something it may quietly widen later — so a node that enrolled blind has to `nodary node enroll` again to advertise what it has
 - [x] **R4-17** Reported inventory is the offer, not the machine: a four-GPU host offering three appears as a three-GPU node · [12 §4](../specs/12-node-guardrails.md#4-reported-inventory)
   - the narrowing happens **on the node**, before the wire, so the control plane is never told the fourth card exists and cannot place work on it. Filtering at the far end would leave the knowledge on the wrong side of the boundary
 

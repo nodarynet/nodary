@@ -28,7 +28,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		mux.HandleFunc(method+" "+Prefix+path, fn)
 	}
 
-	// The node protocol. Enrolment is the only unauthenticated endpoint in the
+	// The node protocol. Enrollment is the only unauthenticated endpoint in the
 	// product (docs/specs/03-agent.md §1); everything under /agent/ is mTLS.
 	h("POST", "/enroll", s.enroll)
 	h("GET", "/agent/desired", s.agentDesired)
@@ -36,7 +36,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/agent/dist/{name}", s.serveDist)
 
 	// The one address a person opens rather than a program calls, so it sits at
-	// the root and not under Prefix. Unauthenticated, like enrolment, and for
+	// the root and not under Prefix. Unauthenticated, like enrollment, and for
 	// the same reason: it runs before the credential it creates exists.
 	mux.HandleFunc("GET "+SetupPath, s.setup)
 	mux.HandleFunc("POST "+SetupPath, s.setup)
@@ -66,7 +66,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/revisions/{seq}/rollback", s.rollback)
 	h("GET", "/config/export", s.exportConfig)
 
-	// Nodes — R2-26. Reads and the administrative transitions; enrolment and
+	// Nodes — R2-26. Reads and the administrative transitions; enrollment and
 	// verify-egress are the agent's, and arrive with R4.
 	h("GET", "/nodes", s.listNodes)
 	h("GET", "/nodes/{name}", s.showNode)

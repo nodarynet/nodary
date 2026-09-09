@@ -130,7 +130,7 @@ func dataDirOf() string {
 //
 // docs/specs/02-enrollment.md §3 renews at two-thirds of lifetime, so a
 // certificate inside the last third and not renewing is a node heading for a
-// re-enrolment that needs an administrator.
+// re-enrollment that needs an administrator.
 func certificateCheck(conf agent.Config) preflight.Check {
 	c := preflight.Check{Name: "certificate"}
 	body, err := os.ReadFile(conf.Certificate)

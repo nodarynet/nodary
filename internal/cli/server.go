@@ -15,6 +15,7 @@ import (
 
 	"crypto/rand"
 	"encoding/hex"
+
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
@@ -317,7 +318,7 @@ func cmdServerInstall(e env, args []string) int {
 	}
 
 	// 10. A join token, so the printed command is one an operator can run rather
-	// than one they have to complete. It expires in an hour and enrols one node
+	// than one they have to complete. It expires in an hour and enrolls one node
 	// (02 §4: minutes to hours), which is the shape of a credential printed to a
 	// terminal — long enough to walk to the GPU host, short enough that the
 	// scrollback stops being a way in.
@@ -366,7 +367,7 @@ func cmdServerInstall(e env, args []string) int {
 	fmt.Fprintf(e.stderr, "\nNodes pin that fingerprint. On each GPU host:\n\n")
 	fmt.Fprintf(e.stderr, "  nodary node install --server https://%s --token %s \\\n      --ca-fingerprint %s\n\n",
 		firstHost(hosts, *bind), joinToken, fingerprint)
-	fmt.Fprintf(e.stderr, "  That token enrols one node and expires in an hour; `nodary token join` mints more.\n\n")
+	fmt.Fprintf(e.stderr, "  That token enrolls one node and expires in an hour; `nodary token join` mints more.\n\n")
 	fmt.Fprintf(e.stderr, "The agent CA is separate from that certificate and its key is sealed\nunder %s.\n", s.keyPath)
 
 	if *withNode {
@@ -442,7 +443,7 @@ func installLocalNode(e env, s *session, root, bind, fingerprint string) int {
 // passes.
 //
 // A TCP connect rather than a request: the question is whether the port is
-// held, and the enrolment immediately after is the real test of whether the
+// held, and the enrollment immediately after is the real test of whether the
 // control plane works. Answering the smaller question keeps this from having
 // its own opinion about what "ready" means.
 func waitForListener(addr string, within time.Duration) bool {

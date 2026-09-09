@@ -7,12 +7,12 @@
 -- on this column.
 --
 -- Renewal at two-thirds of lifetime is the agent's, and the agent has its own
--- copy. Re-enrolment is the server's: docs/plans/R4a-agent-protocol.md 8
+-- copy. Re-enrollment is the server's: docs/plans/R4a-agent-protocol.md 8
 -- allows a node to enroll under a name that already exists only once the
 -- recorded certificate has expired, so that a leaked join token plus a guessed
 -- name cannot replace a live node's identity -- and inherit its approval.
 --
 -- Nullable, because every node enrolled before this migration has a
 -- certificate whose expiry nobody recorded. NULL reads as "unknown", and
--- unknown refuses re-enrolment rather than permitting it.
+-- unknown refuses re-enrollment rather than permitting it.
 ALTER TABLE node ADD COLUMN cert_expires_at TEXT;

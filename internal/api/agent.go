@@ -84,7 +84,7 @@ type node struct {
 // departed, because docs/specs/02-enrollment.md §3 says a revoked node's
 // certificate is refused on next contact and the server is the side that
 // enforces it. And the presented certificate must be the one currently on
-// record: a re-enrolment supersedes the previous certificate immediately,
+// record: a re-enrollment supersedes the previous certificate immediately,
 // without waiting for it to expire.
 func (s *Server) agentNode(r *http.Request) (node, error) {
 	if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 {

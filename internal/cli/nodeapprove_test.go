@@ -9,7 +9,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// enrolled puts a node in the database the way enrolment would, so a test can
+// enrolled puts a node in the database the way enrollment would, so a test can
 // approve one. A node cannot be created from configuration — it joins by
 // enrolling — which is exactly why this is SQL and not a fixture verb.
 func (a *appliance) enrolled(name string) {
