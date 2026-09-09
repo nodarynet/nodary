@@ -50,6 +50,13 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 	if p.Stage[0].State != StateStaged {
 		t.Errorf("staging = %+v, want staged", p.Stage[0])
 	}
+	// VerifyStaged's byte count used to be computed and then dropped: Stage
+	// carried no field for it, so every heartbeat reported 0 regardless of
+	// what was actually staged — `nodary node show` showed "0 B" for a model
+	// that was, in fact, fully verified.
+	if p.Stage[0].Bytes != int64(len("{}")) {
+		t.Errorf("stage bytes = %d, want %d", p.Stage[0].Bytes, len("{}"))
+	}
 
 	u := p.Units[0]
 	if u.Service != "nodary-model@dep_one.service" {

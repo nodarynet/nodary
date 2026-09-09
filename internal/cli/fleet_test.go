@@ -120,3 +120,24 @@ func TestNodeShowNamesTheVerbThatListsNodes(t *testing.T) {
 		t.Errorf("the error does not say how to find the name:\n%s", stderr)
 	}
 }
+
+func TestProgressAndSizeRendering(t *testing.T) {
+	// The bug: a 999 MB model — most of them, in practice — rounded to one
+	// decimal of a GiB figure smaller than one, and every staged deployment
+	// showed its own byte count twice ("X / X") for a state that can't yet be
+	// partial.
+	for _, tc := range []struct {
+		done, total int64
+		want        string
+	}{
+		{500, 0, "500 B"},
+		{999604126, 999604126, "953.3 MiB"},
+		{999604126, 0, "953.3 MiB"},
+		{2147483648, 2147483648, "2.0 GiB"},
+		{1 << 20, 2 << 20, "1.0 MiB / 2.0 MiB"},
+	} {
+		if got := progress(tc.done, tc.total); got != tc.want {
+			t.Errorf("progress(%d, %d) = %q, want %q", tc.done, tc.total, got, tc.want)
+		}
+	}
+}

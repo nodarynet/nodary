@@ -398,16 +398,30 @@ func joinInts(v []int) string {
 	return strings.Join(parts, ",")
 }
 
+// progress renders staging bytes. `source: local` verification is
+// all-or-nothing (R4-33's remote staging is what would ever make done and
+// total differ), so today's done always equals total once staged, and
+// showing "0.9 GiB / 0.9 GiB" would say the same number twice for every
+// deployment that exists — collapsed to one figure until there is a real
+// partial state to report.
 func progress(done, total int64) string {
-	if total <= 0 {
-		return gib(done)
+	if total <= 0 || done == total {
+		return size(done)
 	}
-	return fmt.Sprintf("%s / %s", gib(done), gib(total))
+	return fmt.Sprintf("%s / %s", size(done), size(total))
 }
 
-func gib(b int64) string {
-	if b < 1<<20 {
+// size renders a byte count at whichever unit keeps it readable. Most model
+// weights fall in the hundreds of megabytes, and a bare GiB tier rounds that
+// range to one decimal digit of a number smaller than one — "0.9 GiB" for a
+// 999 MB model — which is worse than just naming the unit that fits.
+func size(b int64) string {
+	switch {
+	case b < 1<<20:
 		return fmt.Sprintf("%d B", b)
+	case b < 1<<30:
+		return fmt.Sprintf("%.1f MiB", float64(b)/(1<<20))
+	default:
+		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
 	}
-	return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
 }

@@ -234,8 +234,12 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		})
 	}
 	for _, st := range d.last.Stage {
+		// Bytes is done-and-total together: `source: local` verification is
+		// all-or-nothing, so there is nothing between "not yet staged" (0) and
+		// "staged" (the full count) for a partial figure to mean.
 		body.Staging = append(body.Staging, api.StatusStaging{
 			Model: st.Model, State: st.State, Error: st.Reason,
+			BytesDone: st.Bytes, BytesTotal: st.Bytes,
 		})
 	}
 

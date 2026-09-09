@@ -78,6 +78,12 @@ type Stage struct {
 	// not in the MVP (docs/plans/mvp.md §5.4).
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
+	// Bytes is what VerifyStaged actually read and verified, filled only once
+	// State is StateStaged. `source: local` staging is all-or-nothing rather
+	// than incremental — there is no partial state between "verified" and
+	// "not yet" for weights already on disk — so this doubles as both the done
+	// and the total count once it is set; see the heartbeat in run.go.
+	Bytes int64 `json:"bytes,omitempty"`
 }
 
 type Refusal struct {
@@ -157,7 +163,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			st.State, st.Reason = "unverified", "the manifest was not read; run without --no-verify to check it"
 		default:
 			v := VerifyStaged(opt.ModelsDir, s.Layout, s.Model, s.ManifestSHA256)
-			st.State, st.Reason = v.State, v.Reason
+			st.State, st.Reason, st.Bytes = v.State, v.Reason, v.Bytes
 		}
 		byModel[s.Model] = st
 	}
