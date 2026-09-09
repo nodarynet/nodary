@@ -56,12 +56,21 @@ fallback, so placing weights is always a deliberate, verifiable act, and no part
 touches the network as root.
 
 `nodary`'s models directory (`/var/lib/nodary/models` by default) is owned by the `nodary`
-service account, which is what actually needs to read it later — so the one privileged step
-here is granting *yourself* write access to it, once:
+service account, which is what actually needs to read it later — so the privileged part
+here is granting *yourself* write access to it, once. Two steps, not one: owning the
+directory's group is not the same as being *in* that group, and the second is what your
+shell actually checks.
 
 ```sh
+sudo usermod -aG nodary "$USER"
 sudo install -d -o "$USER" -g nodary -m 2750 /var/lib/nodary/models
+newgrp nodary
 ```
+
+`newgrp` starts a shell with that membership active right away — without it, `usermod`
+doesn't take effect until you log out and back in, and the next command would still refuse
+you with nothing having visibly changed. Run everything from here in that shell (or a new
+terminal, once you've logged out and back in once).
 
 That's a permission grant, not a download — nothing reaches the network. From here on,
 everything runs as yourself. Grab the download helper and run it:
