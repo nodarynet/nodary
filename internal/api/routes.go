@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/core"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/policy"
 )
@@ -468,25 +470,11 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
-		rows, err := d.DB.Read().QueryContext(r.Context(),
-			`SELECT name, state, coalesce(agent_version, ''), coalesce(last_seen, ''),
-			        reboot_policy FROM node ORDER BY name`)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		out := []map[string]any{}
-		for rows.Next() {
-			var name, state, version, seen, reboot string
-			if err := rows.Scan(&name, &state, &version, &seen, &reboot); err != nil {
-				return nil, err
-			}
-			out = append(out, map[string]any{"name": name, "state": state,
-				"agent_version": version, "last_seen": seen, "reboot_policy": reboot,
-				// Derived, never stored — docs/plans/R4a-agent-protocol.md §5.
-				"stale": Stale(seen, s.now())})
-		}
-		return map[string]any{"nodes": out}, rows.Err()
+		// internal/fleet, not SQL here: `nodary node list` answers the same
+		// question and this handler used to be the only implementation of it,
+		// so the two could disagree about what a fleet looks like.
+		nodes, err := fleet.Nodes(r.Context(), d.DB.Read(), s.now())
+		return map[string]any{"nodes": nodes}, err
 	})
 }
 
@@ -671,20 +659,11 @@ func (s *Server) diffPolicy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) showNode(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
 		name := r.PathValue("name")
-		var state, gpus, offer, reboot, seen string
-		err := d.DB.Read().QueryRowContext(r.Context(),
-			`SELECT state, gpus_json, offer_json, reboot_policy, coalesce(last_seen, '')
-			 FROM node WHERE name = ?`, name).
-			Scan(&state, &gpus, &offer, &reboot, &seen)
-		if err == sql.ErrNoRows {
+		detail, err := fleet.Show(r.Context(), d.DB.Read(), name, s.now())
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: no node named %q", identity.ErrNotFound, name)
 		}
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"name": name, "state": state, "reboot_policy": reboot,
-			"last_seen": seen, "stale": Stale(seen, s.now()),
-			"gpus": json.RawMessage(gpus), "offer": json.RawMessage(offer)}, nil
+		return detail, err
 	})
 }
 

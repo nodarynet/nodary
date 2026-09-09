@@ -6,19 +6,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/observed"
 )
 
-// StaleAfter is docs/specs/11-failure-modes.md §1's silence threshold.
-//
-// Derived at read time and never stored: a node is stale whether or not
-// anything wrote it down, and the alternative needs a sweeper that can leave the
-// database claiming `ready` about a node that has been gone for a minute
-// (docs/plans/R4a-agent-protocol.md §5).
-const StaleAfter = 60 * time.Second
+// StaleAfter and Stale are internal/fleet's, re-exported because this package
+// named them first and its handlers, its tests and the agent protocol document
+// all refer to them here. The rule itself moved so that the CLI could apply it
+// without importing the HTTP surface.
+const StaleAfter = fleet.StaleAfter
 
 // StatusReport is the heartbeat of docs/specs/03-agent.md §1.
 type StatusReport struct {
@@ -101,14 +99,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"node": n.name, "state": n.state, "rev": seq, "protocol": Protocol,
 	})
-} // Stale reports whether a last_seen timestamp is older than the threshold.
-func Stale(lastSeen string, now time.Time) bool {
-	if lastSeen == "" {
-		return true
-	}
-	ts, err := time.Parse(audit.TimeFormat, lastSeen)
-	if err != nil {
-		return true
-	}
-	return now.Sub(ts) > StaleAfter
 }
+
+// Stale reports whether a last_seen timestamp is older than the threshold.
+func Stale(lastSeen string, now time.Time) bool { return fleet.Stale(lastSeen, now) }
