@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
@@ -278,6 +279,7 @@ func cmdConfigApply(e env, args []string, forced string) int {
 	cer := attestFlags(fs)
 	file := fs.String("f", "", "the configuration to apply")
 	prune := fs.Bool("prune", false, "delete objects the configuration does not mention")
+	noSync := fs.Bool("no-sync", false, "do not re-render the data plane even if routes changed")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -300,7 +302,7 @@ func cmdConfigApply(e env, args []string, forced string) int {
 		fmt.Fprintf(e.stderr, "nodary config apply: %v\n", err)
 		return ExitUsage
 	}
-	return applySnapshot(e, "config apply", want, *prune, cer, dbPath, keyPath, credsPath)
+	return applySnapshot(e, "config apply", want, *prune, *noSync, cer, dbPath, keyPath, credsPath)
 }
 
 func cmdConfigRollback(e env, args []string) int {
@@ -308,6 +310,7 @@ func cmdConfigRollback(e env, args []string) int {
 	dbPath, keyPath, credsPath := stateFlags(fs)
 	cer := attestFlags(fs)
 	prune := fs.Bool("prune", false, "delete objects the target revision does not mention")
+	noSync := fs.Bool("no-sync", false, "do not re-render the data plane even if routes changed")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -332,12 +335,12 @@ func cmdConfigRollback(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary config rollback: %v\n", err)
 		return ExitFailure
 	}
-	return applySnapshot(e, "config rollback", target.Snapshot, *prune, cer, dbPath, keyPath, credsPath)
+	return applySnapshot(e, "config rollback", target.Snapshot, *prune, *noSync, cer, dbPath, keyPath, credsPath)
 }
 
 // applySnapshot is the one path `apply` and `rollback` share, so a rollback
 // cannot restore something different from what an export said was there.
-func applySnapshot(e env, verb string, want *config.Snapshot, prune bool,
+func applySnapshot(e env, verb string, want *config.Snapshot, prune, noSync bool,
 	cer ceremonyFlags, dbPath, keyPath, credsPath *string) int {
 
 	s, ok := openSession(e, verb, *dbPath, *keyPath, *credsPath)
@@ -390,7 +393,60 @@ func applySnapshot(e env, verb string, want *config.Snapshot, prune bool,
 		fmt.Fprintf(e.stderr, "pass --prune to delete them\n")
 	}
 	reportRecord(e, rec)
+	autoSync(e, verb, result.Changes, noSync, dbPath)
 	return ExitOK
+}
+
+// autoSync re-renders the data plane when the change moved what it serves.
+//
+// **Because the step that was separate was the step people forgot.** LiteLLM
+// reads its routes from a file written by `gateway sync`, so applying a
+// configuration and stopping there leaves a model that starts, becomes healthy,
+// reports ready — and answers 404 to every client, because the data plane has
+// never heard of it. That happened on the first end-to-end deployment here and
+// the symptom named nothing: `/v1/models` was simply empty.
+//
+// It is what R3-14 will do properly, by making route membership live. Until
+// then this is the cheap version, and it belongs on the verb that changes
+// routes rather than in a sentence an operator has to remember.
+//
+// **Skipped when the database was named explicitly.** Then this is not the
+// installed control plane — a copy, a test, a mirror pulled off another machine
+// — and re-rendering /etc/nodary from it would point the running data plane at
+// something else's routes. The command is printed instead.
+func autoSync(e env, verb string, changes []string, noSync bool, dbPath *string) {
+	if !movesTheDataPlane(changes) {
+		return
+	}
+	_, explicit := resolveDB(*dbPath)
+	if noSync || explicit {
+		fmt.Fprintf(e.stderr,
+			"\nRoutes moved. The data plane serves what `nodary gateway sync` last wrote:\n"+
+				"  nodary gateway sync\n")
+		return
+	}
+	fmt.Fprintf(e.stderr, "\nRoutes moved; re-rendering the data plane.\n")
+	if code := syncGateway(e, *dbPath, "", "", false); code != ExitOK {
+		// Not fatal: the configuration is applied and recorded either way, and
+		// failing the verb here would say the apply did not happen.
+		fmt.Fprintf(e.stderr,
+			"nodary %s: the configuration is applied; the data plane is not updated.\n"+
+				"  `nodary gateway sync` retries it.\n", verb)
+	}
+}
+
+// movesTheDataPlane reports whether a change list touches what LiteLLM serves.
+//
+// Deployments count as well as routes: an api_base is a deployment's port, so
+// moving a deployment to another node or port changes the rendering without
+// any route line appearing at all.
+func movesTheDataPlane(changes []string) bool {
+	for _, c := range changes {
+		if strings.Contains(c, " route ") || strings.Contains(c, " deployment ") {
+			return true
+		}
+	}
+	return false
 }
 
 func cerJustification(c ceremonyFlags) string {

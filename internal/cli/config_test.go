@@ -502,3 +502,19 @@ artifact = "hf-cache"
 		t.Errorf("a matching artifact was refused: %s", stderr)
 	}
 }
+
+// A route change has to reach the data plane, and against a database the
+// operator named it must not: that is not the installed control plane.
+func TestARouteChangeAgainstANamedDatabaseOnlyPrintsTheSync(t *testing.T) {
+	if !movesTheDataPlane([]string{"+ route tiny"}) {
+		t.Error("a new route does not move the data plane")
+	}
+	// A deployment moving port or node re-renders every api_base without any
+	// route line appearing at all.
+	if !movesTheDataPlane([]string{"~ deployment tiny-fractal"}) {
+		t.Error("a changed deployment does not move the data plane")
+	}
+	if movesTheDataPlane([]string{"+ grant alice/tiny", "~ policy a -> b"}) {
+		t.Error("a grant restarted the data plane for nothing")
+	}
+}

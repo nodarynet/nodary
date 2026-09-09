@@ -42,14 +42,19 @@ func cmdGatewaySync(e env, args []string) int {
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
+	return syncGateway(e, *dbPath, *confDir, *root, *dryRun)
+}
 
+// syncGateway is the verb's body, so `config apply` can run the same thing
+// rather than telling an operator to remember it. See autoSync.
+func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 	ctx := context.Background()
-	dir := *confDir
+	dir := confDir
 	if dir == "" {
-		dir = filepath.Join(*root, "/etc/nodary")
+		dir = filepath.Join(root, "/etc/nodary")
 	}
 
-	path, _ := resolveDB(*dbPath)
+	path, _ := resolveDB(dbPath)
 	db, ok := openForReading(e, "gateway sync", path)
 	if !ok {
 		return ExitFailure
@@ -89,7 +94,7 @@ func cmdGatewaySync(e env, args []string) int {
 	existing, _ := os.ReadFile(conf)
 	changed := !bytes.Equal(existing, body)
 
-	if *dryRun {
+	if dryRun {
 		fmt.Fprintf(e.stdout, "%d route(s) would be served", len(models))
 		if skipped > 0 {
 			fmt.Fprintf(e.stdout, ", %d skipped", skipped)
@@ -124,14 +129,14 @@ func cmdGatewaySync(e env, args []string) int {
 	// file anyway, so a missing marker means "unknown", which restarts. The
 	// alternative, restarting unconditionally, would drop live requests every
 	// time somebody ran this to check.
-	applied := appliedMarker(*root)
+	applied := appliedMarker(root)
 	if !changed {
 		if prior, err := os.ReadFile(applied); err == nil &&
 			strings.TrimSpace(string(prior)) == digestOf(body) {
 			return ExitOK
 		}
 	}
-	step, err := install.Start(ctx, "nodary-litellm.service", install.Options{Root: *root})
+	step, err := install.Start(ctx, "nodary-litellm.service", install.Options{Root: root})
 	if err != nil {
 		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "restart", err)
 		fmt.Fprintf(e.stderr, "\nThe configuration is written. `systemctl restart nodary-litellm` applies it.\n")
