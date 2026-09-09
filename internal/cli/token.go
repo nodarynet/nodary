@@ -11,6 +11,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/policy"
@@ -189,6 +190,9 @@ func cmdTokenCreate(e env, args []string) int {
 		fmt.Fprintf(e.stderr,
 			"This credential may mutate unattended; the grant is audit record %d.\n", rec.Seq)
 	}
+	if kind == identity.KindService {
+		reportRouteAccess(e, s, *userName)
+	}
 	reportRecord(e, rec)
 
 	if *save {
@@ -212,6 +216,43 @@ func cmdTokenCreate(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "Saved to %s.\n", path)
 	}
 	return ExitOK
+}
+
+// reportRouteAccess says what a service key may actually call.
+//
+// **docs/specs/06-gateway.md §2 is deny-by-default**: a user with no row in
+// user_route may call nothing, which is what makes 07 §5's "least privilege by
+// default" true rather than decorative — and it is invisible at the moment a
+// credential is minted. The symptom otherwise is a 403 from a fleet where the
+// node is approved, the model is loaded and the route is served, on a key that
+// was just printed as though it were usable.
+//
+// Reported and not fixed here. Granting is a configuration change with an
+// author and a revision like any other, and a mint that quietly widened access
+// would be the one act in this product that changed what somebody may reach
+// without recording that anybody decided it.
+func reportRouteAccess(e env, s *session, user string) {
+	snap, err := config.Read(context.Background(), s.db.Read())
+	if err != nil || len(snap.Routes) == 0 {
+		// No routes yet is an ordinary state on a fresh install, and there is
+		// nothing useful to say about access to nothing.
+		return
+	}
+	var granted []string
+	for _, g := range snap.Grants {
+		if g.User == user {
+			granted = append(granted, g.Route)
+		}
+	}
+	if len(granted) > 0 {
+		fmt.Fprintf(e.stderr, "It may call: %s\n", strings.Join(granted, ", "))
+		return
+	}
+	fmt.Fprintf(e.stderr,
+		"\nIt may call nothing yet — a route is granted per user and denied by default.\n"+
+			"  printf '[[grant]]\\nuser  = \"%s\"\\nroute = \"%s\"\\n' > grant.toml\n"+
+			"  nodary config apply -f grant.toml --yes --justify \"grant %s the %s route\"\n",
+		user, snap.Routes[0].Name, user, snap.Routes[0].Name)
 }
 
 func cmdTokenJoin(e env, args []string) int {
