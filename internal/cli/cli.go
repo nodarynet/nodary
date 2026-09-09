@@ -154,6 +154,8 @@ func dispatch(e env, args []string) int {
 		return cmdConfig(e, args[1:])
 	case "server":
 		return cmdServer(e, args[1:])
+	case "install":
+		return cmdInstall(e, args[1:])
 	case "node":
 		return cmdNode(e, args[1:])
 	case "model":
@@ -189,6 +191,7 @@ Usage:
   nodary <command> [flags]
 
 Available in this release:
+  install              Interactive: install, enroll, approve, stage and grant, asking as it goes
   version              Print version and platform
   components           The pinned third-party component manifest
                          list    Show components this binary pins
