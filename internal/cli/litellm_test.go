@@ -3,11 +3,13 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/install"
 )
 
 // install runs a staged, offline `server install` into the appliance's tree.
@@ -156,5 +158,33 @@ func TestServerStatusReportsTheFingerprintTheInstallPrinted(t *testing.T) {
 	}
 	if !strings.Contains(out, want) {
 		t.Errorf("status does not report the pin the install printed (%s):\n%s", want, out)
+	}
+}
+
+// TestEveryUnitTheInstallWritesIsAlsoStarted is the gap that produced a silent
+// dead end.
+//
+// `WriteUnits` wrote nodary-gateway.service and the start list did not name it,
+// so the inference API was installed, enabled by nobody, and listening nowhere.
+// The first completion attempt got **no response at all** and no usage row —
+// a failure with no error anywhere, because no request ever reached anything.
+//
+// Written against the same source the install uses, so a unit added to a role
+// later cannot quietly go unstarted.
+func TestEveryUnitTheInstallWritesIsAlsoStarted(t *testing.T) {
+	for _, role := range []string{"server", "node"} {
+		written := install.Units(role)
+		started := startedUnits(role)
+		for name := range written {
+			if !slices.Contains(started, name) {
+				t.Errorf("%s install writes %s and never starts it; it would be installed "+
+					"and listening nowhere", role, name)
+			}
+		}
+		for _, name := range started {
+			if _, ok := written[name]; !ok {
+				t.Errorf("%s install starts %s and never writes it", role, name)
+			}
+		}
 	}
 }

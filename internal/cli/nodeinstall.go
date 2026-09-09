@@ -199,9 +199,11 @@ func cmdNodeInstall(e env, args []string) int {
 		return ExitFailure
 	}
 	report(e, units)
-	// containerd first: nodary-model@.service requires it, and the agent will
-	// try to start a deployment as soon as it has one.
-	for _, unit := range []string{"containerd.service", "nodary-agent.service"} {
+	// One list, shared with the test that compares it against install.Units:
+	// a unit written and never started is installed and listening nowhere.
+	// containerd is first because nodary-model@.service requires it, and the
+	// agent will try to start a deployment as soon as it has one.
+	for _, unit := range startedUnits("node") {
 		step, err := install.Start(ctx, unit, o)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary node install: %v\n", err)

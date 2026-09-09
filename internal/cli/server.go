@@ -344,7 +344,7 @@ func cmdServerInstall(e env, args []string) int {
 	// gateway proxies to LiteLLM. systemd would order these itself; starting
 	// them in this order means a failure is reported against the thing that
 	// actually failed rather than against whatever depended on it.
-	for _, unit := range []string{"containerd.service", "nodary-litellm.service", "nodary-server.service"} {
+	for _, unit := range startedUnits("server") {
 		step, err := install.Start(ctx, unit, o)
 		if err != nil {
 			// Not fatal. Everything is written and correct; what failed is the
@@ -819,4 +819,27 @@ func trimEnvValue(body, key string) string {
 		}
 	}
 	return ""
+}
+
+// startedUnits is what an install enables, in dependency order.
+//
+// It is a function rather than a literal in the loop so a test can compare it
+// against install.Units: **nodary-gateway.service was written and never
+// started**, so the inference API was installed, enabled by nobody, and
+// listening nowhere — a completion attempt that got no response and left no
+// error anywhere, because no request reached anything.
+//
+// Ordered by what depends on what: containerd before the data plane it runs,
+// the data plane before the gateway that proxies to it. systemd would order
+// these itself; doing it here means a failure is reported against the thing
+// that actually failed rather than against whatever waited on it.
+func startedUnits(role string) []string {
+	switch role {
+	case "server":
+		return []string{"containerd.service", "nodary-litellm.service",
+			"nodary-server.service", "nodary-gateway.service"}
+	case "node":
+		return []string{"containerd.service", "nodary-agent.service"}
+	}
+	return nil
 }
