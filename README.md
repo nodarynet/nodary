@@ -121,7 +121,7 @@ vLLM and SGLang have backend descriptors. The route is
 | **R2** Control plane | 28 of 42 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, route allowlist, metering, LiteLLM kept in sync automatically |
 | **R4** Agent | 20 of 40 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails, staging, reconcile, health-gated ready, egress isolation |
-| **R5** Install | 16 of 30 | both installs end to end, layout and ownership, the setup link, `--with-node`, preflight, `doctor` |
+| **R5** Install | 17 of 31 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor` |
 | **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM and SGLang |
 | **R9** Evidence | 14 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
 

@@ -11,6 +11,7 @@ aspiration.
 ## 1. Verbs
 
 ```
+nodary install
 nodary server   install | start | stop | status
 nodary gateway  start
 nodary node     install | enroll | list | show | approve | drain | revoke
@@ -36,6 +37,15 @@ nodary doctor
 nodary restart
 nodary status
 ```
+
+`nodary install` is the interactive route: run at a terminal with no flags, it asks a
+handful of plain questions — control plane, node, or both; host; approve now; stage a
+model now; create a user; mint a key — and drives the verbs above on the operator's
+behalf, in order. It is not a second implementation of any of them: every step is the
+same `cmdXxx` function the flag-driven verb calls, so the two can never disagree about
+what a given answer does. It refuses to run when stdin is not a terminal, and it never
+prompts for a password — the one-time setup link [01 §4](01-install.md#4-server-install)
+step 9 requires is unaffected, printed exactly as `server install` always prints it.
 
 ## 2. Global flags
 

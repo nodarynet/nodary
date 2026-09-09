@@ -6,6 +6,13 @@ path — control plane and GPU node together — which is the fastest way to see
 shape of the product. [Below](#running-the-control-plane-and-the-gpu-node-separately)
 covers splitting them onto two machines.
 
+!!! tip "Prefer being asked, not remembering flags?"
+    After `install.sh` places the binary, `sudo nodary install` is the same walk as a
+    short conversation — a handful of plain questions, defaults you can just hit enter
+    on, and it runs the exact verbs below on your behalf. The steps that follow are
+    what it's doing underneath, and the ones you'll reach for once there's a second
+    node or a script instead of a person at the keyboard.
+
 !!! note "You'll need"
     A Linux host (or Windows with an NVIDIA GPU, which joins [inside
     WSL2](https://github.com/nodarynet/nodary/blob/main/docs/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
