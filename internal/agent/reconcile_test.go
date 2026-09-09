@@ -25,10 +25,14 @@ type fakeHost struct {
 func newFakeHost(t *testing.T) (Host, *fakeHost) {
 	f := &fakeHost{active: map[string]bool{}, fail: map[string]string{}}
 	dir := t.TempDir()
+	// Asserted, like RealHost. Without it every test ran against a nil map,
+	// which is a configuration production never has — and a nil map answers
+	// "nothing concluded" forever, so the egress retry could not be tested.
 	return Host{
 		Run:       f.run,
 		UnitDir:   filepath.Join(dir, "units"),
 		ConfigDir: filepath.Join(dir, "etc"),
+		Asserted:  map[string]string{},
 	}, f
 }
 
@@ -137,8 +141,12 @@ func TestASecondReconcileOfTheSamePlanChangesNothing(t *testing.T) {
 	if second.Units[0].Action != "" {
 		t.Errorf("second pass: action = %q, want nothing to do", second.Units[0].Action)
 	}
-	if second.Units[0].State != "ready" {
-		t.Errorf("second pass: state = %q, want ready", second.Units[0].State)
+	// Not `ready`. Reconcile observes systemd, and systemd's `active` is the
+	// process being up — whether it can serve is health's question, answered by
+	// the heartbeat. Claiming ready here is what reported a deployment as
+	// serving while nerdctl was still pulling its image.
+	if second.Units[0].State != "starting" {
+		t.Errorf("second pass: state = %q, want starting", second.Units[0].State)
 	}
 	for _, forbidden := range []string{"start", "restart", "daemon-reload"} {
 		if f.did("systemctl " + forbidden) {
@@ -341,12 +349,24 @@ func TestEgressIsAssertedAfterAStartAndNotSilentlySkipped(t *testing.T) {
 			got)
 	}
 
-	// And a converged pass does not re-probe: three network operations per
-	// deployment every fifteen seconds, for a namespace nothing has touched.
+	// The next pass looks again. "Could not tell" is not an answer, and the
+	// probe fires immediately after `systemctl start`, when the container it
+	// looks for may not exist yet — so a single attempt would record
+	// inconclusive forever.
 	f.reset()
 	second := Reconcile(context.Background(), p, h)
-	if second.Units[0].Egress != nil {
-		t.Errorf("a converged reconcile re-ran the assertion: %+v", second.Units[0].Egress)
+	if second.Units[0].Egress == nil || second.Units[0].Egress.State != Inconclusive {
+		t.Errorf("an inconclusive verdict was not retried: %+v", second.Units[0].Egress)
+	}
+
+	// Once it reaches one, it stops: re-probing a settled deployment every
+	// fifteen seconds is three network operations per deployment for a
+	// namespace nothing has touched. `nodary node verify-egress` asks again.
+	h.Asserted["dep_one"] = Compliant
+	f.reset()
+	third := Reconcile(context.Background(), p, h)
+	if third.Units[0].Egress != nil {
+		t.Errorf("a converged reconcile re-ran a settled assertion: %+v", third.Units[0].Egress)
 	}
 	if f.did("nsenter") {
 		t.Error("a converged reconcile entered a namespace")
