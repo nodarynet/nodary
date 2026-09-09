@@ -86,6 +86,8 @@ R2-34 rather than reimplementing behaviour.
 
 - [x] **R2-25** Auth — `POST /auth/login`, `POST /auth/logout`, `GET /auth/whoami`
 - [ ] **R2-26** Nodes — list, show, `approve`, `drain`, `revoke`, `verify-egress`
+  - *note:* list, show, `approve` and `drain` are built **over the API**. `nodary node approve` and `node drain` are now CLI verbs too, building the same `core.Change` rather than a second one — the install's own closing line tells an operator to run `nodary node approve <name>`, and until then that meant creating an administrator, minting a token and reaching for curl to move a machine already sitting in front of them. Found the first time a model was deployed: everything applied, the node stayed `pending`, and the agent correctly had nothing to do
+  - a **console** approval records no `approved_by`, because 0006_fleet.sql pairs that column with `approved_at` in a CHECK and a local principal has an actor but no user row ([07 §1](../specs/07-identity-audit.md#1-users-and-roles)). Both are left NULL and the chain carries who and when; inventing a user id would put a name in the fleet table that resolves to nothing
   - *note:* list, show, `approve` and `drain` are built. `revoke` and `verify-egress` act on a node that has enrolled and hold a certificate to withdraw or a namespace to probe, so their cores are [R4](R4-agent.md)'s — [R4-06](R4-agent.md) and [R4-29](R4-agent.md). Serving them now would mean serving something that cannot work
   - *note:* `verify-egress` returns the stored result in R2; the probe itself lands in [R4](R4-agent.md)
 - [ ] **R2-27** Backends — list, show, create, delete, `build`, build status
