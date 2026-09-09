@@ -123,3 +123,38 @@ func TestTheLiteLLMImageIsPinnedByDigest(t *testing.T) {
 		t.Error("an unknown component resolved to an image")
 	}
 }
+
+// TestServerStatusReportsTheFingerprintTheInstallPrinted closes a gap that only
+// shows up on the second node.
+//
+// The pin was printed once, by `server install`, and by nothing else — while
+// every node that ever enrolls needs it. Recovering it meant re-running the
+// install, which mints a fresh setup link and join token and retires the
+// outstanding ones, or reaching for `openssl x509 -outform DER | sha256sum`.
+// Asked for, on a real box, halfway through enrolling a node.
+func TestServerStatusReportsTheFingerprintTheInstallPrinted(t *testing.T) {
+	a := newAppliance(t)
+	code, printed, stderr := runWithStdin(t, "", "server", "install",
+		"--root", a.dir, "--offline", "--db", a.db, "--secret-key", a.key,
+		"--config", filepath.Join(a.dir, "server.toml"),
+		"--user", "", "--skip-preflight", "--bind", "127.0.0.1:18443")
+	if code != ExitOK {
+		t.Fatalf("server install: exit %d, %s", code, stderr)
+	}
+	// Last line of stdout: the install's step reports share the stream, which is
+	// why scripts/verify-privileged.sh takes it with `tail -1`.
+	lines := strings.Split(strings.TrimSpace(printed), "\n")
+	want := strings.TrimSpace(lines[len(lines)-1])
+	if !strings.HasPrefix(want, "sha256:") {
+		t.Fatalf("the install did not print a fingerprint: %q", want)
+	}
+
+	code, out, stderr := runWithStdin(t, "", "server", "status",
+		"--config", filepath.Join(a.dir, "server.toml"), "--db", a.db)
+	if code != ExitOK {
+		t.Fatalf("server status: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, want) {
+		t.Errorf("status does not report the pin the install printed (%s):\n%s", want, out)
+	}
+}

@@ -102,6 +102,23 @@ func EnsureServerCertificate(dir string, now time.Time, hosts []string) (certPat
 
 // Fingerprint is what a node pins. SHA-256 over the DER, printed the way
 // install.sh and `node install --ca-fingerprint` expect.
+// FingerprintOfFile is the pin a node carries, read back from a certificate on
+// disk.
+//
+// It exists because the fingerprint was printed once, by `server install`, and
+// by nothing else — while every node that ever enrolls needs it. Recovering it
+// meant re-running the install, which mints a fresh setup link and join token
+// and retires the outstanding ones, or reaching for
+// `openssl x509 -outform DER | sha256sum`. Neither is a thing to need in order
+// to read a value the control plane already holds.
+func FingerprintOfFile(path string) (string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return fingerprintOfPEM(body)
+}
+
 func fingerprintOfPEM(certPEM []byte) (string, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {

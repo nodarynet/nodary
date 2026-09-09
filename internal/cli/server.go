@@ -518,6 +518,14 @@ func cmdServerStatus(e env, args []string) int {
 		doc["installed"] = true
 		doc["bind"] = c.Bind
 		doc["tls_certificate"] = c.TLS.Certificate
+		// The pin every node carries, read from the certificate rather than
+		// remembered. It was printed once by `server install` and by nothing
+		// else, so an operator enrolling a second node had to re-run the
+		// install — which retires the outstanding setup link and join token —
+		// or compute it with openssl.
+		if fp, err := api.FingerprintOfFile(c.TLS.Certificate); err == nil {
+			doc["ca_fingerprint"] = fp
+		}
 	}
 
 	path, _ := resolveDB(*dbPath)
@@ -539,8 +547,8 @@ func cmdServerStatus(e env, args []string) int {
 	if *format == "json" {
 		return writeJSON(e, "server status", doc)
 	}
-	for _, k := range []string{"installed", "bind", "tls_certificate", "setup_pending",
-		"audit_records", "audit_ok", "detail"} {
+	for _, k := range []string{"installed", "bind", "tls_certificate", "ca_fingerprint",
+		"setup_pending", "audit_records", "audit_ok", "detail"} {
 		if v, ok := doc[k]; ok {
 			fmt.Fprintf(e.stdout, "%-16s %v\n", k, v)
 		}
