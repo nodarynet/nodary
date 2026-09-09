@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
@@ -49,6 +50,20 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 		return Result{}, err
 	}
 	res := Result{Changes: Changes(have, want)}
+	if !opt.Prune {
+		// **A `-` line is a deletion, and with prune off no deletion happens.**
+		// Those objects are Orphans, reported separately as left in place.
+		// Leaving them in the change list makes an ordinary partial apply say
+		// it removed the node the operator is standing on — which is the most
+		// alarming thing this verb could say untruthfully, and it said it every
+		// time somebody applied a fragment.
+		//
+		// The prune path appends its own `-` lines below, as it deletes, so
+		// what survives here is what was actually done.
+		res.Changes = slices.DeleteFunc(res.Changes, func(c string) bool {
+			return strings.HasPrefix(c, "- ")
+		})
+	}
 
 	// Nodes first: deployments reference them, and a node this control plane
 	// has never met cannot be conjured by a file. A node joins by enrolling

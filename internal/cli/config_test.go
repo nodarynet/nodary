@@ -399,3 +399,62 @@ name = "chat"
 		t.Errorf("the operator was handed the constraint's own text:\n%s", stderr)
 	}
 }
+
+// TestAPartialApplyDoesNotReportDeletionsItDidNotMake is the most alarming
+// thing this verb could say untruthfully.
+//
+// `--prune` is off by default so that `config apply -f fragment.toml` adds
+// rather than replaces — but the change list was the *whole* diff, so every
+// partial apply printed `- node <the machine you are standing on>` beside the
+// things it really did. Found on a first real deployment, where the line read
+// as though applying a model had removed the only GPU host.
+//
+// Objects the document does not mention are Orphans and are reported as left
+// in place. The change list is what was done.
+func TestAPartialApplyDoesNotReportDeletionsItDidNotMake(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+
+	first := filepath.Join(a.dir, "first.toml")
+	write(t, first, `
+[[model]]
+id       = "kept/model"
+backend  = "vllm"
+source   = "local"
+artifact = "weights"
+`)
+	if code, _, stderr := a.run("config", "apply", "-f", first); code != ExitOK {
+		t.Fatalf("apply: exit %d, %s", code, stderr)
+	}
+
+	// A second, unrelated fragment. It says nothing about the first model, and
+	// with prune off nothing about it changes.
+	second := filepath.Join(a.dir, "second.toml")
+	write(t, second, `
+[[model]]
+id       = "added/model"
+backend  = "vllm"
+source   = "local"
+artifact = "weights"
+`)
+	code, stdout, stderr := a.run("config", "apply", "-f", second)
+	if code != ExitOK {
+		t.Fatalf("apply: exit %d, %s", code, stderr)
+	}
+	if strings.Contains(stdout, "- model kept/model") {
+		t.Errorf("the apply reported deleting a model it left in place:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "+ model added/model") {
+		t.Errorf("the apply did not report what it did:\n%s", stdout)
+	}
+	// Said, not silent: left in place is a fact the operator wants, and it goes
+	// to stderr as an orphan rather than into the change list as a deletion.
+	if !strings.Contains(stderr, "kept/model") {
+		t.Errorf("the untouched model is not reported as left in place:\n%s", stderr)
+	}
+
+	// And it really is still there.
+	if code, out, _ := a.run("config", "show"); code != ExitOK || !strings.Contains(out, "kept/model") {
+		t.Errorf("the model the apply did not mention is gone:\n%s", out)
+	}
+}
