@@ -1,0 +1,15 @@
+-- Environment for a deployment's container.
+--
+-- A backend is configured by arguments *and* by environment, and nodary could
+-- express only the first. That is not a gap in the abstract: on WSL2 -- a
+-- platform docs/specs/01-install.md 8 supports -- vLLM refuses to start with
+-- "RuntimeError: UVA is not available", and both published fixes are
+-- environment variables (VLLM_WSL2_ENABLE_PIN_MEMORY, VLLM_USE_V2_MODEL_RUNNER).
+-- Neither has a command-line form, so no deployment could be made to run.
+--
+-- A JSON object of string to string, like params_json and extra_args_json
+-- beside it. It is part of the configuration snapshot and therefore of a
+-- revision's hash preimage, which is why it lands now rather than later:
+-- docs/plans/mvp.md 2 makes adding a field to that preimage the one change that
+-- invalidates every chain a customer already holds.
+ALTER TABLE deployment ADD COLUMN env_json TEXT NOT NULL DEFAULT '{}';

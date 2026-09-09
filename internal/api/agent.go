@@ -53,9 +53,11 @@ type DesiredDeployment struct {
 	GPUs      []int           `json:"gpus"`
 	Params    json.RawMessage `json:"params"`
 	ExtraArgs json.RawMessage `json:"extra_args"`
-	Port      int             `json:"port"`
-	Network   string          `json:"network"`
-	State     string          `json:"state"`
+	// Env is the container's environment, a JSON object of string to string.
+	Env     json.RawMessage `json:"env"`
+	Port    int             `json:"port"`
+	Network string          `json:"network"`
+	State   string          `json:"state"`
 }
 
 type DesiredStaging struct {
@@ -204,6 +206,7 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 			GPUs:      gpusOrEmpty(d.GPUs),
 			Params:    rawOrLiteral(d.Params, "{}"),
 			ExtraArgs: rawOrLiteral(d.ExtraArgs, "[]"),
+			Env:       rawOrLiteral(d.Env, "{}"),
 			Port:      d.Port, Network: IsolatedNetwork,
 			// Every deployment in the configuration is wanted running. Stopping
 			// one without removing it is `nodary model disable`, which is R4-36

@@ -286,3 +286,45 @@ func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
 		})
 	}
 }
+
+// TestADeploymentCarriesItsEnvironment is the gap that stopped the first real
+// model.
+//
+// A backend is configured by arguments *and* by environment, and only the first
+// was expressible. On WSL2 vLLM refuses to start — `RuntimeError: UVA is not
+// available` — and both published fixes, `VLLM_WSL2_ENABLE_PIN_MEMORY=1` and
+// `VLLM_USE_V2_MODEL_RUNNER=0`, are environment variables with no command-line
+// form. No deployment could be made to run on a platform 01 §8 supports.
+func TestADeploymentCarriesItsEnvironment(t *testing.T) {
+	got, err := envFlags([]byte(`{"VLLM_WSL2_ENABLE_PIN_MEMORY":"1","HF_HUB_OFFLINE":"1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sorted, because this goes into a unit's environment file and a set that
+	// reordered between reconciles would restart a serving model for nothing.
+	if want := "-e HF_HUB_OFFLINE=1 -e VLLM_WSL2_ENABLE_PIN_MEMORY=1"; got != want {
+		t.Errorf("env = %q, want %q", got, want)
+	}
+
+	// Absent is empty, not `-e`: the template expands it unquoted, and a stray
+	// flag with no argument would make nerdctl consume the image reference.
+	if got, err := envFlags(nil); err != nil || got != "" {
+		t.Errorf("no env rendered %q, %v; want empty", got, err)
+	}
+	if got, err := envFlags([]byte(`{}`)); err != nil || got != "" {
+		t.Errorf("an empty object rendered %q, %v; want empty", got, err)
+	}
+
+	// Whitespace is refused rather than escaped — the same rule extra_args
+	// follows, and for the same reason: systemd splits this on whitespace and
+	// no quoting convention invented here would survive it.
+	if _, err := envFlags([]byte(`{"A":"one two"}`)); err == nil {
+		t.Error("a value with whitespace was accepted")
+	}
+	if _, err := envFlags([]byte(`{"A B":"1"}`)); err == nil {
+		t.Error("a name with whitespace was accepted")
+	}
+	if _, err := envFlags([]byte(`{"A":1}`)); err == nil {
+		t.Error("a non-string value was accepted")
+	}
+}

@@ -202,6 +202,10 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	if err != nil {
 		return Unit{}, err
 	}
+	env, err := envFlags(d.Env)
+	if err != nil {
+		return Unit{}, err
+	}
 
 	st, ok := staged[d.Model]
 	if !ok {
@@ -275,6 +279,9 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 			// The whole `--gpus` value, not just the indices: what the runtime
 			// accepts depends on what the host's CDI specification declares.
 			{"NODARY_GPUS", gpus},
+			// `-e KEY=VALUE` pairs, or empty. Unbraced in the template so
+			// systemd splits it, the same mechanism NODARY_ARGS uses.
+			{"NODARY_ENV", env},
 			{"NODARY_IMAGE", d.Image},
 			{"NODARY_MODELS_DIR", opt.ModelsDir},
 			{"NODARY_MOUNT_PATH", desc.Backend.MountPath},
@@ -375,4 +382,48 @@ func gpuFlag(assigned []int, offered map[int]bool, cdi []string) (string, error)
 			"device node for nvidia-ctk to name", len(assigned), len(offered))
 	}
 	return "all", nil
+}
+
+// envFlags renders a deployment's environment as `-e KEY=VALUE` pairs.
+//
+// A backend is configured by arguments *and* by environment, and only the first
+// was expressible. The case that proved it: on WSL2 vLLM refuses to start with
+// `RuntimeError: UVA is not available`, and both published fixes —
+// `VLLM_WSL2_ENABLE_PIN_MEMORY=1` and `VLLM_USE_V2_MODEL_RUNNER=0` — are
+// environment variables with no command-line form. No deployment could be made
+// to run on a platform docs/specs/01-install.md §8 supports.
+//
+// Sorted, because the result goes into a unit's environment file and a set that
+// reordered between reconciles would rewrite the file and restart a serving
+// model for no reason — the same rule the argv follows.
+//
+// Whitespace is refused rather than escaped, for the reason extra_args gives:
+// the template expands this unquoted so systemd splits it, and no quoting
+// convention invented here would survive that.
+func envFlags(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+	var env map[string]string
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return "", fmt.Errorf("env is not an object of strings: %v", err)
+	}
+	names := make([]string, 0, len(env))
+	for k := range env {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	var out []string
+	for _, k := range names {
+		if k == "" || strings.ContainsAny(k, " \t\n=") {
+			return "", fmt.Errorf("env name %q is not usable in an environment file", k)
+		}
+		if strings.ContainsAny(env[k], " \t\n") {
+			return "", fmt.Errorf(
+				"env %s contains whitespace, which the unit's EnvironmentFile cannot carry", k)
+		}
+		out = append(out, "-e", k+"="+env[k])
+	}
+	return strings.Join(out, " "), nil
 }

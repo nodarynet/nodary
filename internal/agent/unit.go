@@ -39,6 +39,7 @@ EnvironmentFile=%[1]s/deployments/%%i.env
 ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-%%i
 ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-%%i \
     --gpus ${NODARY_GPUS} \
+    $NODARY_ENV \
     --network ${NODARY_NETWORK} \
     -v ${NODARY_MODELS_DIR}:${NODARY_MOUNT_PATH}:ro \
     -p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT} \

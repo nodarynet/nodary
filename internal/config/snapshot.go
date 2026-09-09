@@ -92,6 +92,17 @@ type Deployment struct {
 	GPUs      []int  `json:"gpus" toml:"gpus"`
 	Params    string `json:"params" toml:"params,omitempty"`
 	ExtraArgs string `json:"extra_args" toml:"extra_args,omitempty"`
+	// Env is the container's environment, a JSON object of string to string.
+	//
+	// A backend is configured by arguments *and* by environment, and only the
+	// first was expressible. On WSL2 vLLM refuses to start — "UVA is not
+	// available" — and both published fixes are environment variables with no
+	// command-line form, so no deployment could be made to run at all.
+	//
+	// Verbatim, like ExtraArgs: nodary does not interpret these, and a name it
+	// does not recognise is not an error. What it will not carry is a value
+	// with whitespace, for the reason ExtraArgs gives.
+	Env string `json:"env" toml:"env,omitempty"`
 	Port      int    `json:"port" toml:"port,omitempty"`
 }
 
@@ -203,7 +214,7 @@ func readModels(ctx context.Context, q Querier, s *Snapshot) error {
 
 func readDeployments(ctx context.Context, q Querier, s *Snapshot) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, model_id, node_name, backend,
-		coalesce(image_digest, ''), params_json, extra_args_json, coalesce(port, 0)
+		coalesce(image_digest, ''), params_json, extra_args_json, env_json, coalesce(port, 0)
 		FROM deployment ORDER BY id`)
 	if err != nil {
 		return err
@@ -212,7 +223,7 @@ func readDeployments(ctx context.Context, q Querier, s *Snapshot) error {
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(&d.ID, &d.ModelID, &d.NodeName, &d.Backend, &d.Image,
-			&d.Params, &d.ExtraArgs, &d.Port); err != nil {
+			&d.Params, &d.ExtraArgs, &d.Env, &d.Port); err != nil {
 			return err
 		}
 		d.GPUs = []int{}

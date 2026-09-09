@@ -40,7 +40,7 @@ func TestOneParameterSetTranslatesThroughEachDescriptor(t *testing.T) {
 		want    []string
 	}{
 		{"vllm", []string{
-			"--model=/models/gemma",
+			"/models/gemma",
 			"--gpu-memory-utilization=0.92",
 			"--max-model-len=131072",
 			"--tensor-parallel-size=2",
@@ -122,7 +122,7 @@ func TestArgvOrderIsStable(t *testing.T) {
 			t.Fatalf("argv reordered between renders:\n  %v\n  %v", first, again)
 		}
 	}
-	if first[0] != "--model=/m" {
+	if first[0] != "/m" {
 		t.Errorf("argv[0] = %q, want the model path first", first[0])
 	}
 	if first[len(first)-1] != "--x" {

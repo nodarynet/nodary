@@ -15,7 +15,12 @@ lora            = true
 cpu_offload     = false
 
 [backend.args]
-model_path          = "--model={v}"
+# Positional, not `--model=`. `vllm serve` deprecated the flag and prints a
+# warning naming the positional form; the positional argument has been accepted
+# since long before the version this manifest pins, so it is the form that works
+# across both. Args renders model_path first, which puts it immediately after
+# `serve` where the entrypoint expects it.
+model_path          = "{v}"
 served_name         = "--served-model-name={v}"
 tensor_parallel     = "--tensor-parallel-size={v}"
 max_context         = "--max-model-len={v}"

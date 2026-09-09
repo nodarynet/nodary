@@ -46,6 +46,10 @@ OUT=""
 #
 # So it is set explicitly. Raise it for a large model on a dedicated card.
 GPUMEM="0.80"
+# Container environment, a JSON object. On WSL2 vLLM needs one to start at all:
+# it refuses with "RuntimeError: UVA is not available", and the fix has no
+# command-line form. Detected below when this is left empty.
+ENVJSON=""
 shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +59,7 @@ while [ $# -gt 0 ]; do
     --port)       PORT="$2"; shift 2 ;;
     --route)      ROUTE="$2"; shift 2 ;;
     --gpu-memory) GPUMEM="$2"; shift 2 ;;
+    --env)        ENVJSON="$2"; shift 2 ;;
     -o)           OUT="$2"; shift 2 ;;
     *) printf 'unknown argument %q\n' "$1" >&2; exit 2 ;;
   esac
@@ -62,7 +67,7 @@ done
 
 if [ -z "$REPO" ]; then
   printf 'usage: %s <org/name> [--node NAME] [--gpu N] [--port P] [--route NAME] [-o FILE]\n' "$0" >&2
-  printf '       [--gpu-memory FRACTION] [--models-dir DIR]\n' >&2
+  printf '       [--gpu-memory FRACTION] [--env JSON] [--models-dir DIR]\n' >&2
   exit 2
 fi
 # The route is what a client asks for as its model name, so it defaults to
@@ -186,8 +191,20 @@ DOC="${OUT:-$PWD/${ROUTE}.toml}"
     printf 'gpus      = [%s]\nport      = %s\n' "$GPU" "$PORT"
     # served_name matters: LiteLLM sends the *route* name as the model, and vLLM
     # otherwise serves under the weights path and rejects it.
-    printf 'params    = %s{"served_name":"%s","gpu_memory_fraction":%s}%s\n\n' \
+    printf 'params    = %s{"served_name":"%s","gpu_memory_fraction":%s}%s\n' \
       "'" "$ROUTE" "$GPUMEM" "'"
+    # WSL2: vLLM's v2 model runner wants unified virtual addressing, which WSL2
+    # does not provide, and refuses to start with "UVA is not available". Pinned
+    # memory is the published fix and needs a 4.19.121+ kernel; every current
+    # WSL2 kernel is far past that.
+    if [ -z "$ENVJSON" ] && grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+      ENVJSON='{"VLLM_WSL2_ENABLE_PIN_MEMORY":"1"}'
+      printf '# WSL2 detected: vLLM needs this to start at all.\n' >&2
+    fi
+    if [ -n "$ENVJSON" ]; then
+      printf 'env       = %s%s%s\n' "'" "$ENVJSON" "'"
+    fi
+    printf '\n'
     printf '[[route]]\nname     = "%s"\nstrategy = "round-robin"\n\n' "$ROUTE"
     printf '  [[route.member]]\n  deployment_id = "%s"\n  weight        = 1\n' "$ROUTE-$NODE"
   fi
