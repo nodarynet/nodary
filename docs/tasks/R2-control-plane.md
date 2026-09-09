@@ -94,6 +94,7 @@ R2-34 rather than reimplementing behavior.
 - [ ] **R2-27** Backends — list, show, create, delete, `build`, build status
 - [ ] **R2-28** Models — list, register, show, `enable`, `disable`, `restart`, `stage`, `unstage`, delete
   - *note:* list and show are built, and registration and deletion are declarative — they go through `config apply`, which is one applier rather than a second set of writers. `enable`, `disable`, `restart`, `stage` and `unstage` all direct a node to do something and are [R4](R4-agent.md)'s
+  - *done:* `nodary model register` is the declarative path with the arithmetic done for the operator: it digests the placed weights, writes [`nodary-manifest.sha256`](../../internal/agent/staging.go) beside them, pins the backend image this build was tested against, and applies a model, a deployment and a route through `applySnapshot`. It downloads nothing — R4-33 is still unbuilt — and says where the weights must be when they are not there. Before it, that whole step was `scripts/stage-model.sh` generating TOML, which no install places on a customer machine; the script now downloads and stops
 - [ ] **R2-29** Deployments — list, show, `logs`
   - *note:* list and show are built. `logs` reads a container's output on a node, which needs the agent
 - [x] **R2-30** Routes — list, show, `PUT /routes/{name}`
