@@ -18,11 +18,8 @@ import (
 // modelVerbs that this release does not implement, listed rather than falling
 // through to "unknown" for the reason nodeVerbs gives.
 var modelVerbs = map[string]string{
-	"list":    "the catalog, from an operator workstation",
-	"show":    "one model in detail",
-	"enable":  "directing a node to start a deployment",
-	"disable": "directing a node to stop one",
-	"restart": "directing a node to restart one",
+	"list": "the catalog, from an operator workstation",
+	"show": "one model in detail",
 	// Staging already starts the instant a deployment references a model
 	// (internal/agent/plan.go's Build), so there is no distinct "kick it off"
 	// act for this verb to perform. `restage` (stuck/corrupt) and `unstage`
@@ -40,6 +37,9 @@ func cmdModel(e env, args []string) int {
 	}
 	if args[0] == "unstage" || args[0] == "restage" {
 		return cmdModelStageReset(e, args[1:], args[0])
+	}
+	if args[0] == "enable" || args[0] == "disable" {
+		return cmdModelToggle(e, args[1:], args[0], args[0] == "disable")
 	}
 	if what, ok := modelVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary model %s: %s is not implemented in this release (%s)\n",
