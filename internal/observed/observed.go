@@ -50,6 +50,10 @@ type NodeReport struct {
 	TopologyJSON string
 	Deployments  []DeploymentReport
 	Staging      []StagingReport
+	// ResetDone is models this node just discarded in response to a
+	// `nodary model restage`/`unstage` request — an observation of what
+	// happened, the same as the rest of this report, not a decision.
+	ResetDone []string
 }
 
 type DeploymentReport struct {
@@ -111,6 +115,16 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 				st.Model, name, st.State, st.BytesDone, positiveOrNull(st.BytesTotal),
 				nullOr(st.Error), stamp, st.Model); err != nil {
 				return fmt.Errorf("recording staging of %s on %s: %w", st.Model, name, err)
+			}
+		}
+
+		// Consumed once acted on, the same as a join token's uses_left: the
+		// row's only job was asking the agent to do this, and it did.
+		for _, modelID := range r.ResetDone {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM stage_reset WHERE node_name = ? AND model_id = ?`,
+				name, modelID); err != nil {
+				return fmt.Errorf("clearing the reset request for %s on %s: %w", modelID, name, err)
 			}
 		}
 		return nil
