@@ -139,7 +139,13 @@ claim a technically curious buyer will test in the demo.
 
 ### 5.4 Staging is local-path only
 
-**Decided.** R4-34, the air-gapped path. R4-33's resumable remote download is deferred.
+**Decided**, for the route through MVP as originally scoped: R4-34, the air-gapped path,
+with R4-33's resumable remote download deferred. **Since built** — a real operator asked
+for it directly rather than continuing to fetch weights by hand before every
+registration, and by the time that happened R4-34 (and the rest of the golden path
+around it) was solid enough that adding R4-33 cost a schema column and an agent-side
+downloader rather than a redesign. See R4-33 in [R4-agent.md](../tasks/R4-agent.md) for
+what is and is not there.
 
 **Why.** [04 §5](../specs/04-backends.md) already treats local staging as first-class
 rather than a workaround, and a defense subcontractor is the buyer most likely to be
@@ -190,7 +196,6 @@ honest form of "it is on the roadmap".
 | No FIPS-validated build shipped | R5-25, R5-26 |
 | No offline install, no upgrade path | R5-13 – R5-17 |
 | No node guardrail enforcement — the limits are reported, not enforced | R4-14 – R4-16 |
-| No remote weight staging | R4-33 |
 | Password hashing still specified as argon2id | 07 §1, open — §8 |
 
 ## 7. The risk

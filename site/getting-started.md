@@ -99,6 +99,32 @@ Llama and Mistral release) needs a token: `HF_TOKEN=hf_… ./stage-model.sh …`
     `/var/lib/nodary/models/hub/models--<org>--<name>/` — `config.json` has to sit at that
     top level, because the agent points a backend's `--model` at the directory itself.
 
+??? tip "Or let the node fetch its own copy"
+    Everything above places weights on *this* box, which only matters if this box is also
+    the node — the common case for a single-machine install, not the only one. For a node
+    elsewhere, running the download helper here just to `scp` the result over is a step you
+    can skip: run it anywhere to get a manifest, without keeping the weights it downloaded
+    to produce one —
+
+    ```sh
+    ./stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+    ```
+
+    prints `Wrote nodary-manifest.sha256` beside the files. Register with `--source remote
+    --manifest` and that path, and skip straight to [step 4](#4-register-it) — the agent on
+    the node it's placed on downloads its own copy directly from HuggingFace, verified
+    against the same manifest, across as many reconcile cycles as it takes, resumable if
+    the agent restarts partway through:
+
+    ```sh
+    sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
+        --source remote --manifest ./nodary-manifest.sha256 \
+        --node fractal --gpu 0 --port 8001 --grant alice --justify "first model"
+    ```
+
+    `nodary node show fractal` shows it moving `staging → staged` with the byte count
+    climbing, the same as any other progress this guide has you watch.
+
 ## 4. Register it
 
 This is the step that turns files on disk into a model a client can call — it digests the
