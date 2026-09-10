@@ -80,17 +80,25 @@ you with nothing having visibly changed. Run everything from here in that shell 
 terminal, once you've logged out and back in once).
 
 That's a permission grant, not a download — nothing reaches the network. From here on,
-everything runs as yourself. Grab the download helper and run it:
+everything runs as yourself, and the quickest way to both download and stage a model is
+one line — no checkout, no separate download-then-run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh -o stage-model.sh
-chmod +x stage-model.sh
-./stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
+    | bash -s -- Qwen/Qwen2.5-0.5B-Instruct
 ```
 
-It's a plain script — you don't need a checkout of the repository for it, just that one
-file. A repository that requires accepting a license on huggingface.co first (every Gemma,
-Llama and Mistral release) needs a token: `HF_TOKEN=hf_… ./stage-model.sh …`.
+A repository that requires accepting a license on huggingface.co first (every Gemma, Llama
+and Mistral release) needs a token, set for the script and not for `curl`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
+    | HF_TOKEN=hf_… bash -s -- google/gemma-3-1b-it
+```
+
+It downloads the files, writes `nodary-manifest.sha256` beside them, and prints the exact
+`nodary model register` command to run next — the step this guide covers on its own below,
+since it's the one that's audited.
 
 ??? note "Placing weights another way"
     Any tool works — `huggingface-cli download`, `git lfs clone`, or copying files in over
@@ -101,24 +109,28 @@ Llama and Mistral release) needs a token: `HF_TOKEN=hf_… ./stage-model.sh …`
 
 ??? tip "Or let the node fetch its own copy"
     Everything above places weights on *this* box, which only matters if this box is also
-    the node — the common case for a single-machine install, not the only one. For a node
-    elsewhere, running the download helper here just to `scp` the result over is a step you
-    can skip: run it anywhere to get a manifest, without keeping the weights it downloaded
-    to produce one —
+    the node — the common case for a single-machine install, not the only one. From any
+    other machine — an admin laptop with no `nodary` installed at all is fine — the same
+    script, pointed at a scratch directory instead of `/var/lib/nodary/models`, gets you a
+    manifest:
 
     ```sh
-    ./stage-model.sh Qwen/Qwen2.5-0.5B-Instruct
+    curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
+        | bash -s -- Qwen/Qwen2.5-0.5B-Instruct --models-dir /tmp/qwen
     ```
 
-    prints `Wrote nodary-manifest.sha256` beside the files. Register with `--source remote
-    --manifest` and that path, and skip straight to [step 4](#4-register-it) — the agent on
-    the node it's placed on downloads its own copy directly from HuggingFace, verified
-    against the same manifest, across as many reconcile cycles as it takes, resumable if
-    the agent restarts partway through:
+    The download still has to happen somewhere to hash it, but not permanently: keep only
+    `/tmp/qwen/hub/models--Qwen--Qwen2.5-0.5B-Instruct/nodary-manifest.sha256` and
+    `rm -rf /tmp/qwen` once it's copied out — a few kilobytes travels to the control plane,
+    not the weights. Register with `--source remote --manifest` and that path, and skip
+    straight to
+    [step 4](#4-register-it) — the agent on the node it's placed on downloads its own copy
+    directly from HuggingFace, verified against the same manifest, across as many reconcile
+    cycles as it takes, resumable if the agent restarts partway through:
 
     ```sh
     sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
-        --source remote --manifest ./nodary-manifest.sha256 \
+        --source remote --manifest /tmp/qwen/hub/models--Qwen--Qwen2.5-0.5B-Instruct/nodary-manifest.sha256 \
         --node fractal --gpu 0 --port 8001 --grant alice --justify "first model"
     ```
 
