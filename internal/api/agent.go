@@ -231,7 +231,7 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 			ExtraArgs: rawOrLiteral(d.ExtraArgs, "[]"),
 			Env:       rawOrLiteral(d.Env, "{}"),
 			Port:      d.Port, Network: IsolatedNetwork,
-			State:     stateFor(d),
+			State: stateFor(d),
 		})
 		if m, ok := models[d.ModelID]; ok && !staged[m.ID] {
 			staged[m.ID] = true
