@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -231,6 +234,77 @@ func TestRemoteStagingWithNoDownloaderSaysWhy(t *testing.T) {
 	}
 	if !strings.Contains(p.Stage[0].Reason, "agent plan") {
 		t.Errorf("reason = %q, want it to name why nothing started", p.Stage[0].Reason)
+	}
+}
+
+// TestBuildAppliesAReset_Restage is the restage shape: the model is still in
+// doc.Staging (a deployment wants it), the Downloader's cache says corrupt
+// from an earlier attempt, and doc.Reset asks for it to be cleared. Build
+// should discard the stale cache entry and let staging start over, within
+// the same call — not wait for a second reconcile cycle.
+func TestBuildAppliesAReset_Restage(t *testing.T) {
+	srv, manifest := remoteFixture(t, map[string]string{"config.json": `{"model_type":"tiny"}`})
+	defer srv.Close()
+	digest := sha256.Sum256([]byte(manifest))
+
+	doc := desired()
+	doc.Staging[0].Source = "remote"
+	doc.Staging[0].ManifestBody = manifest
+	doc.Staging[0].ManifestSHA256 = hex.EncodeToString(digest[:])
+	doc.Reset = []api.DesiredReset{{Model: "acme/tiny", Layout: "hf-cache"}}
+
+	root := t.TempDir()
+	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{
+		"acme/tiny": {state: StateCorrupt, reason: "a previous attempt failed"},
+	}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.ResetDone) != 1 || p.ResetDone[0] != "acme/tiny" {
+		t.Errorf("ResetDone = %v, want [acme/tiny]", p.ResetDone)
+	}
+	if p.Stage[0].State == StateCorrupt {
+		t.Errorf("staging = %+v, want the stale corrupt cache entry cleared", p.Stage[0])
+	}
+
+	// Reset's redownload started in its own goroutine and outlives this
+	// call to Build; drained to completion so it is not still writing into
+	// t.TempDir() when the test's own cleanup removes it.
+	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
+	if st := waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateStaged); st.State != StateStaged {
+		t.Fatalf("the redownload never finished: %s (%s)", st.State, st.Reason)
+	}
+}
+
+// TestBuildAppliesAReset_Unstage is the unstage shape: nothing in doc.Staging
+// or doc.Deployments names the model at all — the deployment was already
+// removed — but doc.Reset still asks for its weights back. Build should
+// delete them even though nothing wants them staged.
+func TestBuildAppliesAReset_Unstage(t *testing.T) {
+	root, _ := stage(t, map[string]string{"config.json": "{}"})
+	dir, err := ModelDir(root, "hf-cache", "acme/tiny")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc := api.Desired{Rev: 7, Node: "gpu-01",
+		Reset: []api.DesiredReset{{Model: "acme/tiny", Layout: "hf-cache"}}}
+	dl := &Downloader{byModel: map[string]*download{}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.ResetDone) != 1 || p.ResetDone[0] != "acme/tiny" {
+		t.Errorf("ResetDone = %v, want [acme/tiny]", p.ResetDone)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("weights at %s were not removed", dir)
+	}
+	if len(p.Stage) != 0 {
+		t.Errorf("Stage = %+v, want empty: nothing in doc.Staging names this model", p.Stage)
 	}
 }
 

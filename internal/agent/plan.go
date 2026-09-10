@@ -33,6 +33,11 @@ type Plan struct {
 	// is a normal outcome (docs/specs/03-agent.md §2) and is reported, not
 	// retried.
 	Refused []Refusal `json:"refused"`
+	// ResetDone is models whose weights this run actually discarded in
+	// response to doc.Reset (`nodary model restage`/`unstage`), reported
+	// back on the next heartbeat so the control plane can stop asking
+	// (internal/observed.Heartbeat consumes it).
+	ResetDone []string `json:"reset_done,omitempty"`
 }
 
 // Unit is one deployment rendered as everything systemd needs.
@@ -146,6 +151,24 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	offered := map[int]bool{}
 	for _, g := range opt.Present {
 		offered[g.Index] = true
+	}
+
+	// Reset runs before staging is evaluated, so a restage's deletion is
+	// visible to this same cycle's VerifyStaged/Downloads.Status call rather
+	// than costing an extra ~60s round trip. Guarded the same way remote
+	// staging itself is: a one-shot preview (opt.Downloads == nil) must
+	// never delete anything, and neither should a plan that never read the
+	// manifest in the first place.
+	if opt.Verify && opt.Downloads != nil {
+		for _, r := range doc.Reset {
+			dir, err := ModelDir(opt.ModelsDir, r.Layout, r.Model)
+			if err != nil {
+				continue
+			}
+			if opt.Downloads.Reset(r.Model, dir) {
+				p.ResetDone = append(p.ResetDone, r.Model)
+			}
+		}
 	}
 
 	// Staging first, and the order is not cosmetic: docs/specs/03-agent.md §3

@@ -186,6 +186,30 @@ func (dl *Downloader) run(modelID, manifestBody, manifestSHA256, finalDir string
 	d.set(StateStaged, done, done, "")
 }
 
+// Reset discards whatever this Downloader has for modelID — cached progress
+// and anything on disk — so the next Status call starts clean.
+//
+// **Status never revisits a model on its own once it reaches a terminal
+// state.** The map entry set by run is permanent for the life of the agent
+// process: staged stays staged even if the directory is deleted out from
+// under it, and corrupt stays corrupt forever, which is the point of corrupt
+// (docs/specs/05-catalog.md §3 makes it terminal, on purpose) but not of
+// staged. Reset is the only way either gets revisited short of restarting
+// the whole agent — every deployment on the node, to unstick one model.
+//
+// Called for both `nodary model restage` (weights are corrupt, an operator
+// asked to try again) and `unstage` (an operator wants the disk space back);
+// Build tells them apart only by whether the model still appears in
+// doc.Staging afterward.
+func (dl *Downloader) Reset(modelID, dir string) bool {
+	err1 := os.RemoveAll(dir)
+	err2 := os.RemoveAll(dir + ".downloading")
+	dl.mu.Lock()
+	delete(dl.byModel, modelID)
+	dl.mu.Unlock()
+	return err1 == nil && err2 == nil
+}
+
 func (dl *Downloader) authorize(req *http.Request) {
 	if dl.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+dl.Token)

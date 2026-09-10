@@ -251,6 +251,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 			BytesDone: st.Bytes, BytesTotal: total,
 		})
 	}
+	body.ResetDone = d.last.ResetDone
 
 	raw, err := json.Marshal(body)
 	if err != nil {

@@ -192,3 +192,37 @@ func TestDownloaderCatchesATamperedManifest(t *testing.T) {
 		t.Errorf("reason = %q, want it to name the mismatch", st.Reason)
 	}
 }
+
+func TestDownloaderResetClearsCacheAndRetries(t *testing.T) {
+	srv, manifest := remoteFixture(t, map[string]string{"config.json": `{"model_type":"tiny"}`})
+	defer srv.Close()
+	digest := sha256.Sum256([]byte(manifest))
+	sum := hex.EncodeToString(digest[:])
+
+	root := t.TempDir()
+	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
+	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
+
+	st := waitFor(t, dl, dir, manifest, sum, StateStaged)
+	if st.State != StateStaged {
+		t.Fatalf("state = %s (%s), want staged", st.State, st.Reason)
+	}
+
+	// Deleted out from under a "staged" cache entry: without Reset, Status
+	// would keep replaying the stale entry forever — the bug this exists to
+	// fix.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if ok := dl.Reset("acme/tiny", dir); !ok {
+		t.Fatal("Reset reported failure")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("Reset left something behind at %s", dir)
+	}
+
+	st = waitFor(t, dl, dir, manifest, sum, StateStaged)
+	if st.State != StateStaged {
+		t.Fatalf("after Reset, state = %s (%s), want staged again", st.State, st.Reason)
+	}
+}
