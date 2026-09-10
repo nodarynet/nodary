@@ -123,7 +123,12 @@ Llama and Mistral release) needs a token: `HF_TOKEN=hf_… ./stage-model.sh …`
     ```
 
     `nodary node show fractal` shows it moving `staging → staged` with the byte count
-    climbing, the same as any other progress this guide has you watch.
+    climbing, the same as any other progress this guide has you watch. If a transfer
+    lands corrupt (media, a flaky link), that state is terminal on purpose — nothing
+    silently retries — and `sudo nodary model restage Qwen/Qwen2.5-0.5B-Instruct --node
+    fractal` is the explicit unstick. `nodary model unstage` is the inverse of this whole
+    section: once nothing deploys a model on a node, it removes the weights and reclaims
+    the disk.
 
 ## 4. Register it
 
