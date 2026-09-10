@@ -237,19 +237,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		})
 	}
 	for _, st := range d.last.Stage {
-		// Total falls back to Bytes: `source: local` verification is
-		// all-or-nothing and never sets Total, so there is nothing between
-		// "not yet staged" (0) and "staged" (the full count) for a partial
-		// figure to mean. `source: remote` sets both independently while a
-		// download is in progress.
-		total := st.Total
-		if total == 0 {
-			total = st.Bytes
-		}
-		body.Staging = append(body.Staging, api.StatusStaging{
-			Model: st.Model, State: st.State, Error: st.Reason,
-			BytesDone: st.Bytes, BytesTotal: total,
-		})
+		body.Staging = append(body.Staging, stagingStatus(st))
 	}
 	body.ResetDone = d.last.ResetDone
 
@@ -273,6 +261,22 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		return fmt.Errorf("the control plane returned %s", resp.Status)
 	}
 	return nil
+}
+
+// stagingStatus is one Stage rendered onto the wire. Total falls back to
+// Bytes: `source: local` verification is all-or-nothing and never sets
+// Total, so there is nothing between "not yet staged" (0) and "staged" (the
+// full count) for a partial figure to mean. `source: remote` sets both
+// independently while a download is in progress.
+func stagingStatus(st Stage) api.StatusStaging {
+	total := st.Total
+	if total == 0 {
+		total = st.Bytes
+	}
+	return api.StatusStaging{
+		Model: st.Model, State: st.State, Error: st.Reason,
+		BytesDone: st.Bytes, BytesTotal: total,
+	}
 }
 
 // observedState asks systemd rather than reporting what the last reconcile

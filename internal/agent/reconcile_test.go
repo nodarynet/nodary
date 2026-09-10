@@ -324,6 +324,23 @@ func TestTheReportEncodesWithEmptySlicesNotNulls(t *testing.T) {
 	}
 }
 
+// R4-37: a heartbeat reports bytes completed against total, not just a
+// running count. `source: local` never sets Total (VerifyStaged is
+// all-or-nothing), so that case has to fall back to Bytes rather than
+// reporting 0 — a fully-verified model showing "bytes_total: 0" would read as
+// nothing being staged at all.
+func TestStagingStatusFallsBackToBytesWhenTotalIsUnknown(t *testing.T) {
+	got := stagingStatus(Stage{Model: "acme/tiny", State: StateStaged, Bytes: 40})
+	if got.BytesTotal != 40 {
+		t.Errorf("bytes_total = %d, want 40 (falls back to bytes done)", got.BytesTotal)
+	}
+
+	got = stagingStatus(Stage{Model: "acme/tiny", State: StateStaging, Bytes: 10, Total: 100})
+	if got.BytesTotal != 100 {
+		t.Errorf("bytes_total = %d, want 100 (a real total is never overridden)", got.BytesTotal)
+	}
+}
+
 // R4-29 runs the assertion after every start, and a start whose assertion
 // cannot run has not passed it.
 //

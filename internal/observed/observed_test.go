@@ -72,3 +72,51 @@ func TestHeartbeatConsumesAnAckedResetRequest(t *testing.T) {
 		t.Errorf("stage_reset rows left = %v, want only [acme/other]: acme/tiny was acked, acme/other was not", left)
 	}
 }
+
+// R4-37: staging progress is reported as bytes against a total, and this is
+// the one hop that actually writes it — everywhere else along the way is a
+// field carried from one struct to the next, and this is where it lands in
+// the database `nodary node show` reads back.
+func TestHeartbeatWritesStagingBytesAgainstTotal(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Format(audit.TimeFormat)
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO node (name, state, created_at) VALUES (?, 'approved', ?)`, "gpu-01", now); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO model (id, backend, source, artifact, created_at) VALUES (?, 'vllm', 'remote', 'hf-cache', ?)`,
+			"acme/tiny", now)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	report := NodeReport{Staging: []StagingReport{
+		{Model: "acme/tiny", State: "staging", BytesDone: 40, BytesTotal: 100},
+	}}
+	if err := Heartbeat(ctx, db, "gpu-01", report, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	var done, total int64
+	row := db.Read().QueryRowContext(ctx,
+		`SELECT bytes_done, bytes_total FROM staging WHERE node_name = ? AND model_id = ?`,
+		"gpu-01", "acme/tiny")
+	if err := row.Scan(&done, &total); err != nil {
+		t.Fatal(err)
+	}
+	if done != 40 || total != 100 {
+		t.Errorf("bytes_done, bytes_total = %d, %d, want 40, 100", done, total)
+	}
+}

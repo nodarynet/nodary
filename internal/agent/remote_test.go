@@ -193,6 +193,75 @@ func TestDownloaderCatchesATamperedManifest(t *testing.T) {
 	}
 }
 
+// R4-37: while a download is running, Status reports bytes done against a
+// total known up front — not just "0" until it suddenly finishes. Both files'
+// sizes come from HEAD requests that happen before any GET, so Total is known
+// the instant staging starts; this blocks the second file's GET so the test
+// can observe the point after the first file lands and before the second
+// does, where done is nonzero and still short of total.
+func TestDownloaderReportsBytesAgainstTotalWhileInProgress(t *testing.T) {
+	const small = `{"model_type":"tiny"}`
+	const big = "a large-enough second file to make a second GET request"
+	unblock := make(chan struct{})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/acme/tiny/resolve/main/config.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(small)))
+		if r.Method != http.MethodHead {
+			w.Write([]byte(small))
+		}
+	})
+	mux.HandleFunc("/acme/tiny/resolve/main/model.safetensors", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(big)))
+		if r.Method != http.MethodHead {
+			<-unblock
+			w.Write([]byte(big))
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	sum1 := sha256.Sum256([]byte(small))
+	sum2 := sha256.Sum256([]byte(big))
+	// Manifest text, not remoteFixture: file order has to be config.json
+	// first so the first file to land is the one this test can predict.
+	manifest := hex.EncodeToString(sum1[:]) + "  config.json\n" +
+		hex.EncodeToString(sum2[:]) + "  model.safetensors\n"
+	digest := sha256.Sum256([]byte(manifest))
+	sum := hex.EncodeToString(digest[:])
+
+	root := t.TempDir()
+	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
+	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var st Stage
+	for {
+		st = dl.Status("acme/tiny", manifest, sum, dir)
+		if st.Bytes == int64(len(small)) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(unblock)
+
+	if st.Total != int64(len(small)+len(big)) {
+		t.Errorf("total = %d, want %d: both files' sizes are known before either downloads",
+			st.Total, len(small)+len(big))
+	}
+	if st.Bytes != int64(len(small)) {
+		t.Fatalf("bytes = %d, want %d: only the first file had landed", st.Bytes, len(small))
+	}
+	if st.Bytes == st.Total {
+		t.Fatal("bytes == total while the second file was still blocked; this test proves nothing mid-flight")
+	}
+
+	final := waitFor(t, dl, dir, manifest, sum, StateStaged)
+	if final.State != StateStaged {
+		t.Fatalf("state = %s (%s), want staged", final.State, final.Reason)
+	}
+}
+
 func TestDownloaderResetClearsCacheAndRetries(t *testing.T) {
 	srv, manifest := remoteFixture(t, map[string]string{"config.json": `{"model_type":"tiny"}`})
 	defer srv.Close()
