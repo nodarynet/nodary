@@ -216,15 +216,21 @@ func TestCorruptWeightsRefuseTheDeployment(t *testing.T) {
 
 // Remote staging is R4-33 and is not in this release. A node that cannot stage
 // says which path it is missing rather than sitting silently at `absent`.
-func TestRemoteStagingSaysItIsNotImplemented(t *testing.T) {
+// TestRemoteStagingWithNoDownloaderSaysWhy is `agent plan` against a remote
+// model: R4-33 is built, but a one-shot preview never constructs a
+// Downloader (see PlanOptions.Downloads's comment), and a node that cannot
+// stage should say which path it is missing rather than silently doing
+// nothing. Downloader.Status itself — a Downloads that is set — is
+// remote_test.go's.
+func TestRemoteStagingWithNoDownloaderSaysWhy(t *testing.T) {
 	doc := desired()
 	doc.Staging[0].Source = "remote"
 	p, err := Build(doc, PlanOptions{ModelsDir: t.TempDir(), Present: twoGPUs(), Verify: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(p.Stage[0].Reason, "R4-33") {
-		t.Errorf("reason = %q, want the task number", p.Stage[0].Reason)
+	if !strings.Contains(p.Stage[0].Reason, "agent plan") {
+		t.Errorf("reason = %q, want it to name why nothing started", p.Stage[0].Reason)
 	}
 }
 

@@ -34,10 +34,11 @@ type Daemon struct {
 	Host   Host
 	Log    *slog.Logger
 
-	client  *http.Client
-	health  *Health
-	rev     int64
-	backoff time.Duration
+	client    *http.Client
+	health    *Health
+	rev       int64
+	backoff   time.Duration
+	downloads *Downloader
 	// last is the most recent plan, so the health poller has something to probe
 	// between reconciles.
 	last Plan
@@ -57,7 +58,8 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 		log = slog.Default()
 	}
 	return &Daemon{Config: conf, Node: node, Host: h, Log: log,
-		client: client, health: NewHealth(), backoff: backoffMin}, nil
+		client: client, health: NewHealth(), backoff: backoffMin,
+		downloads: NewDownloader()}, nil
 }
 
 // Run reconciles until the context is cancelled.
@@ -109,6 +111,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		WSL2:       IsWSL2(),
 		CDIDevices: CDIDevices(ctx),
 		Verify:     true,
+		Downloads:  d.downloads,
 	})
 	if err != nil {
 		d.Log.Error("agent", "detail", "planning: "+err.Error())
@@ -234,12 +237,18 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		})
 	}
 	for _, st := range d.last.Stage {
-		// Bytes is done-and-total together: `source: local` verification is
-		// all-or-nothing, so there is nothing between "not yet staged" (0) and
-		// "staged" (the full count) for a partial figure to mean.
+		// Total falls back to Bytes: `source: local` verification is
+		// all-or-nothing and never sets Total, so there is nothing between
+		// "not yet staged" (0) and "staged" (the full count) for a partial
+		// figure to mean. `source: remote` sets both independently while a
+		// download is in progress.
+		total := st.Total
+		if total == 0 {
+			total = st.Bytes
+		}
 		body.Staging = append(body.Staging, api.StatusStaging{
 			Model: st.Model, State: st.State, Error: st.Reason,
-			BytesDone: st.Bytes, BytesTotal: st.Bytes,
+			BytesDone: st.Bytes, BytesTotal: total,
 		})
 	}
 

@@ -30,12 +30,17 @@ import (
 const ManifestName = "nodary-manifest.sha256"
 
 // Staging states are docs/specs/05-catalog.md §3's machine. `staging` and
-// `verifying` are transient and belong to a run in progress; this package
-// reports the two terminal ones plus `absent`.
+// `verifying` are transient, belonging to a run in progress — `VerifyStaged`
+// (source: local) never reports them, since reading local bytes is not slow
+// enough to need an intermediate state; `Downloader` (source: remote, R4-33)
+// is what produces them, across the many reconcile cycles a real download
+// spans.
 const (
-	StateAbsent  = "absent"
-	StateStaged  = "staged"
-	StateCorrupt = "corrupt"
+	StateAbsent    = "absent"
+	StateStaging   = "staging"
+	StateVerifying = "verifying"
+	StateStaged    = "staged"
+	StateCorrupt   = "corrupt"
 )
 
 // Verdict is what a node concluded about one model's weights.

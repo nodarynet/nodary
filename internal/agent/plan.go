@@ -73,17 +73,20 @@ type Stage struct {
 	Model  string `json:"model"`
 	Source string `json:"source"`
 	Dir    string `json:"dir"`
-	// Verdict is only filled for `source: local`, which verifies from the
-	// manifest that travels with the weights. Remote staging is R4-33 and is
-	// not in the MVP (docs/plans/mvp.md §5.4).
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
-	// Bytes is what VerifyStaged actually read and verified, filled only once
-	// State is StateStaged. `source: local` staging is all-or-nothing rather
-	// than incremental — there is no partial state between "verified" and
-	// "not yet" for weights already on disk — so this doubles as both the done
-	// and the total count once it is set; see the heartbeat in run.go.
+	// Bytes is progress: for `source: local` (VerifyStaged), all-or-nothing —
+	// there is no partial state between "verified" and "not yet" for weights
+	// already on disk, so it is 0 until State is StateStaged and then the full
+	// count. For `source: remote` (Downloader, R4-33) it climbs while State is
+	// StateStaging, against Total once Total is known — a HEAD request away,
+	// not from anything the control plane has to be trusted to report
+	// correctly.
 	Bytes int64 `json:"bytes,omitempty"`
+	// Total is 0 when unknown — a local verdict never sets it (Bytes already
+	// means "the whole thing" once staged) and a remote download that has not
+	// finished its HEAD requests yet has nothing to report.
+	Total int64 `json:"total,omitempty"`
 }
 
 type Refusal struct {
@@ -115,6 +118,10 @@ type PlanOptions struct {
 	// device `nvidia.com/gpu=0`, and whether that device exists is a property
 	// of the host rather than of the deployment. See gpuFlag.
 	CDIDevices []string
+	// Downloads runs `source: remote` staging. Nil in every caller except
+	// Daemon.reconcile — `agent plan` passes none, deliberately: a one-shot
+	// preview command must never be what starts a download that outlives it.
+	Downloads *Downloader
 }
 
 // Build turns one desired-state document into a plan.
@@ -155,15 +162,31 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		}
 		st.Dir = dir
 		switch {
-		case s.Source != "local":
-			// R4-33. Named rather than silently skipped, so a node that cannot
-			// stage says which path it is missing.
-			st.Reason = "remote staging is not implemented in this release (R4-33); register the model as source = \"local\""
 		case !opt.Verify:
+			// Applies to remote as much as local: a preview must not start a
+			// download any more than it re-reads bytes it already has.
 			st.State, st.Reason = "unverified", "the manifest was not read; run without --no-verify to check it"
-		default:
+		case s.Source == "local":
 			v := VerifyStaged(opt.ModelsDir, s.Layout, s.Model, s.ManifestSHA256)
 			st.State, st.Reason, st.Bytes = v.State, v.Reason, v.Bytes
+		case opt.Downloads == nil:
+			// R4-33's download itself needs a long-lived Downloader to poll
+			// across reconcile cycles, which `agent plan` — a one-shot preview
+			// — deliberately never constructs. Named rather than silently
+			// skipped, so a node that cannot stage says which path it is
+			// missing.
+			st.Reason = "remote staging needs a running agent; `agent plan` never starts a download"
+		default:
+			// Already staged from an earlier run — including one this same
+			// process finished before a restart — costs one read, not a
+			// network round trip: VerifyStaged answers that without the
+			// Downloader ever being asked.
+			if v := VerifyStaged(opt.ModelsDir, s.Layout, s.Model, s.ManifestSHA256); v.State == StateStaged {
+				st.State, st.Bytes, st.Total, st.Reason = v.State, v.Bytes, v.Bytes, v.Reason
+			} else {
+				got := opt.Downloads.Status(s.Model, s.ManifestBody, s.ManifestSHA256, dir)
+				st.State, st.Bytes, st.Total, st.Reason = got.State, got.Bytes, got.Total, got.Reason
+			}
 		}
 		byModel[s.Model] = st
 	}
