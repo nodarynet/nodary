@@ -3,15 +3,17 @@
 #
 # WHY THIS IS A SCRIPT AND NOT A VERB
 #
-# nodary cannot download weights. R4-33 (`source: remote` staging) is unbuilt;
-# R4-34 (`source: local`) is what exists, and it verifies weights an operator
-# placed rather than fetching them. That is the air-gapped path and it is
-# first-class by design — docs/specs/05-catalog.md §3 — so placing weights by
-# hand is the supported flow, not a workaround. This script is the hand, and
-# **only the hand**: it downloads files and stops.
+# nodary's own agent can fetch weights too (`--source remote`, R4-33), but only
+# once a manifest exists to verify the download against, and only onto a node
+# that already has a `nodary`. Producing that first manifest, or placing
+# weights on a box before it ever runs an install, is the air-gapped path and
+# it is first-class by design — docs/specs/05-catalog.md §3 — not a fallback.
+# This script is the hand: it downloads files and hashes them, nothing more.
 #
-# Everything after that is `nodary model register`, which digests the files,
-# writes the manifest, looks up the image this build pins and applies a
+# Registering is `nodary model register`, which either digests these files
+# directly (`--source local`, weights and node are the same machine) or reads
+# the manifest this script wrote and hands it to a different node's agent
+# (`--source remote`), looks up the image this build pins, and applies a
 # configuration document through the same applier `config apply` uses. This
 # script used to generate that document itself, which meant two implementations
 # of the same arithmetic and one of them shipped in a repository that no install
@@ -124,19 +126,45 @@ BYTES=$(du -sb "$DIR" | cut -f1)
 FILECOUNT=$(find "$DIR" -maxdepth 1 -type f | wc -l)
 printf '\n\033[1m== Staged\033[0m  %s file(s), %s bytes\n\n' "$FILECOUNT" "$BYTES"
 
-# No manifest and no configuration document written here. `nodary model
-# register` writes both, from these files, and it is installed on the machine
-# that needs it.
-printf 'Next:\n'
+# The manifest is written here, not only by `nodary model register`: it is
+# what lets these bytes register a *different* node with `--source remote`
+# without this script's caller ever running `nodary` at all — the machine
+# producing the manifest need not be the one that ends up serving it. Plain
+# python3 (already a required dependency, not sha256sum, which macOS does not
+# ship) so this stays exactly the sha256sum format `nodary` reads and `sha256sum
+# -c` checks, without a second implementation of the digest loop to keep in
+# sync with internal/agent/staging.go's WriteManifest — `register` recomputes
+# and overwrites this file identically when it digests weights already here,
+# so the two never have a chance to disagree.
+python3 -c '
+import hashlib, os, sys
+d = sys.argv[1]
+names = sorted(n for n in os.listdir(d) if n != "nodary-manifest.sha256")
+with open(os.path.join(d, "nodary-manifest.sha256"), "w") as out:
+    for n in names:
+        h = hashlib.sha256()
+        with open(os.path.join(d, n), "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        out.write(f"{h.hexdigest()}  {n}\n")
+' "$DIR" || { printf 'could not write the manifest\n' >&2; exit 1; }
+printf 'Wrote %s/nodary-manifest.sha256\n\n' "$DIR"
+
+printf 'Next, either:\n\n'
 if [ -n "$NODE" ]; then
-  printf '  sudo nodary model register %s --node %s --gpu %s --port %s\n\n' \
+  printf '  sudo nodary model register %s --node %s --gpu %s --port %s\n' \
     "$REPO" "$NODE" "$GPU" "$PORT"
 else
   printf '  sudo nodary model register %s --node NAME --gpu 0 --port 8001\n' "$REPO"
-  printf '  `nodary node list` names the enrolled nodes.\n\n'
+  printf '  (`nodary node list` names the enrolled nodes)\n'
 fi
-printf 'That digests these files, writes the manifest beside them, pins the image this\n'
-printf 'build was tested against, and applies a model, a deployment and a route.\n\n'
+printf '    — registers these weights for the node right here; or\n\n'
+printf '  sudo nodary model register %s --source remote \\\n' "$REPO"
+printf '      --manifest %s/nodary-manifest.sha256 --node NAME --gpu 0 --port 8001\n' "$DIR"
+printf "    — registers %s for a *different* node, whose own agent downloads its\n" "$REPO"
+printf '    own copy using the manifest just written, verified against it.\n\n'
+printf 'Either way this digests or reuses the files, pins the image this build was\n'
+printf 'tested against, and applies a model, a deployment and a route.\n\n'
 printf 'Note: the weights are flat in that directory because the agent renders --model as\n'
 printf 'the directory itself. A real HuggingFace cache — blobs/, refs/, snapshots/ — would\n'
 printf 'not load, even though docs/specs/05-catalog.md §3 says this layout adopts one.\n'
