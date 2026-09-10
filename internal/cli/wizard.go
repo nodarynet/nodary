@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/fleet"
+	"github.com/nodarynet/nodary/internal/install"
 )
 
 // cmdInstall is the interactive route: one command, a handful of plain
@@ -86,6 +88,12 @@ type wizard struct {
 	// an install that chose a non-default location — and, in a test, for
 	// exactly the reason db/key are here.
 	modelsDir string
+	// runCmd and download are fetchWeights's seams (internal/cli/modelfetch.go):
+	// nil in every real run, defaulting to install.Exec and execStreaming —
+	// set by a test so "download and stage now" can be exercised without a
+	// real system group, root, or the network.
+	runCmd   install.Runner
+	download streamCommand
 }
 
 // staged appends this wizard's test-only --root/--skip-preflight to a verb's
@@ -190,19 +198,26 @@ func (w *wizard) model(node string) int {
 		return ExitOK
 	}
 
-	// Local needs weights already sitting under the models directory, which
-	// on a single-machine install (this flow's recommended path) is one
-	// download either way — nothing to gain from a manifest detour. Remote
-	// is what actually removes friction: for a node this wizard *isn't*
-	// sitting on, or an operator who has already run stage-model.sh
-	// somewhere, it skips granting this account write access to
-	// /var/lib/nodary/models at all — the node's own agent fetches it.
+	// Every path into model() ends in this wizard's own machine being the
+	// node: afterEnroll only runs after --with-node or a `node install` that
+	// is itself joining, and a control-plane-only install returns before
+	// ever asking. So "download and stage now" fetching straight into this
+	// box's own models directory is never a wasted, wrong-machine download —
+	// it is always the right one, and it is the default for exactly that
+	// reason.
+	dir := orElse(w.modelsDir, agent.DefaultModelsDir())
 	source := "local"
 	manifest := ""
-	if w.choice("Weights for "+repo, []string{
+	switch w.choice("Weights for "+repo, []string{
+		"Download and stage them now (recommended)",
 		"Already staged under the models directory on this node",
-		"Let the node's agent download them (needs a manifest — `stage-model.sh` writes one)",
-	}) == 1 {
+		"I already have a manifest (from stage-model.sh, run elsewhere)",
+	}) {
+	case 0:
+		if !w.fetchWeights(repo, dir) {
+			return ExitFailure
+		}
+	case 2:
 		source = "remote"
 		manifest = w.string("Manifest path (nodary-manifest.sha256, from stage-model.sh)", "")
 		if manifest == "" {
@@ -227,7 +242,14 @@ func (w *wizard) model(node string) int {
 
 	user := ""
 	if w.yesNo("Create a user who can call it?", true) {
-		user = w.string("  Name", "alice")
+		// $SUDO_USER, not identity's audit actor (which stays "root" on
+		// purpose) — this is a friendlier default for a solo operator's own
+		// account, not a claim about who performed the install.
+		suggested := invokingUser()
+		if suggested == "" || suggested == "root" {
+			suggested = "alice"
+		}
+		user = w.string("  Name", suggested)
 		role := w.string("  Role", "operator")
 		userArgs := w.dbArgs([]string{user, "--role", role,
 			"--yes", "--justify", "created during interactive install"})

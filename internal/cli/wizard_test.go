@@ -3,10 +3,14 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nodarynet/nodary/internal/install"
 )
 
 // wizardEnv builds the env dispatch() would, minus the dispatch — the wizard
@@ -94,7 +98,7 @@ func TestWizardWalksApproveStageRegisterGrantAndKey(t *testing.T) {
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
-		"",          // weights: already staged (the default)
+		"2",         // weights: already staged under the models directory
 		"0",         // gpu
 		"8001",      // port
 		"y",         // create a user?
@@ -127,6 +131,101 @@ func TestWizardWalksApproveStageRegisterGrantAndKey(t *testing.T) {
 	}
 }
 
+// TestWizardDownloadsAndStagesNow is the recommended, default path: the
+// operator brings only a repo name. Both privileged seams are faked — no
+// real usermod, no real network — but the fake download writes the same
+// shape of files the real stage-model.sh would, so the registration that
+// follows is real and has to actually digest and accept them.
+func TestWizardDownloadsAndStagesNow(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	t.Setenv("SUDO_USER", "alice") // the wizard always runs under sudo in practice
+
+	var ran []string
+	fakeRun := install.Runner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		ran = append(ran, strings.Join(append([]string{name}, args...), " "))
+		return nil, nil
+	})
+
+	models := t.TempDir()
+	var downloadArgs []string
+	var sawToken string
+	fakeDownload := streamCommand(func(_ context.Context, stdout, stderr io.Writer, env []string, name string, args ...string) error {
+		downloadArgs = append([]string{name}, args...)
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "HF_TOKEN=") {
+				sawToken = strings.TrimPrefix(kv, "HF_TOKEN=")
+			}
+		}
+		dir := filepath.Join(models, "hub", "models--acme--tiny")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644)
+	})
+
+	script := strings.Join([]string{
+		"y",         // approve fractal now?
+		"y",         // stage and register a model now?
+		"acme/tiny", // model
+		"",          // weights: download and stage them now (the default)
+		"hf_secret", // HuggingFace token
+		"0",         // gpu
+		"8001",      // port
+		"n",         // create a user?
+	}, "\n") + "\n"
+
+	e, _, errOut := wizardEnv(script)
+	w := &wizard{e: e, db: a.db, key: a.key, modelsDir: models, runCmd: fakeRun, download: fakeDownload}
+	if code := w.afterEnroll(); code != ExitOK {
+		t.Fatalf("afterEnroll: exit %d\nstderr: %s", code, errOut)
+	}
+
+	// install -d targets the top-level models directory, the same one
+	// getting-started.md's manual `install -d ... /var/lib/nodary/models`
+	// does — the per-model subdirectory is the *script's* to create, the
+	// same way it always has been.
+	if len(ran) != 2 ||
+		ran[0] != "usermod -aG nodary alice" ||
+		ran[1] != "install -d -o alice -g nodary -m 2750 "+models {
+		t.Errorf("privileged setup calls = %v, want usermod then install -d for alice on %s", ran, models)
+	}
+	joined := strings.Join(downloadArgs, " ")
+	if !strings.Contains(joined, " acme/tiny ") || !strings.HasSuffix(joined, "--models-dir "+models) {
+		t.Errorf("download args = %v, want the repo and --models-dir %s", downloadArgs, models)
+	}
+	if sawToken != "hf_secret" {
+		t.Errorf("token seen by the download env = %q, want it passed through, not as an argv", sawToken)
+	}
+	if strings.Contains(joined, "hf_secret") {
+		t.Errorf("the token appeared in argv (%v), which `ps` on the box could read — it belongs in the environment only", downloadArgs)
+	}
+
+	_, show, _ := a.run("config", "show", "--format", "json")
+	if !strings.Contains(show, `"source": "local"`) {
+		t.Errorf("the catalog entry is not source: local:\n%s", show)
+	}
+}
+
+// TestWizardRefusesToDownloadWithNoUnprivilegedAccount is fetchWeights's
+// other refusal: root itself running `sudo nodary install` (or, equally,
+// logged in as root directly with no sudo at all — user.Current() lands on
+// "root" the same way) has nobody to drop privileges to for the fetch, and
+// downloading as root is exactly what this mechanism exists to avoid.
+// $SUDO_USER is set explicitly here rather than left empty, so the assertion
+// holds regardless of which account actually runs `go test`.
+func TestWizardRefusesToDownloadWithNoUnprivilegedAccount(t *testing.T) {
+	t.Setenv("SUDO_USER", "root")
+	e, _, errOut := wizardEnv("")
+	w := &wizard{e: e}
+	if ok := w.fetchWeights("acme/tiny", t.TempDir()); ok {
+		t.Fatal("fetchWeights succeeded with no unprivileged account to run as")
+	}
+	if !strings.Contains(errOut.String(), "not run through sudo") {
+		t.Errorf("stderr = %q, want it to say why", errOut.String())
+	}
+}
+
 // TestWizardOffersARemoteDownloadInsteadOfAlreadyStagedWeights is the point of
 // wiring --source remote into the wizard at all: an operator who already has
 // a manifest (from stage-model.sh, possibly produced on a different machine
@@ -146,7 +245,7 @@ func TestWizardOffersARemoteDownloadInsteadOfAlreadyStagedWeights(t *testing.T) 
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
-		"2",         // weights: let the node's agent download them
+		"3",         // weights: I already have a manifest
 		manifest,    // manifest path
 		"0",         // gpu
 		"8001",      // port
