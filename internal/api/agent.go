@@ -49,7 +49,13 @@ type Desired struct {
 	// deployment on this node at all, so it can't be read off a Staging
 	// entry the way Build ordinarily resolves a layout.
 	Reset []DesiredReset `json:"reset,omitempty"`
-	Agent DesiredAgent   `json:"agent"`
+	// Restart names deployments `nodary model restart` (R4-36) asked to be
+	// cycled now, on this node — a one-shot request the agent consumes and
+	// acknowledges over the heartbeat, the same edge-triggered shape Reset
+	// already uses, since docs/specs/03-agent.md §2's protocol has no other
+	// way to express "do this now".
+	Restart []string     `json:"restart,omitempty"`
+	Agent   DesiredAgent `json:"agent"`
 }
 
 type DesiredReset struct {
@@ -253,6 +259,23 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 		doc.Reset = append(doc.Reset, r)
 	}
 	if err := rows.Err(); err != nil {
+		return Desired{}, err
+	}
+
+	restarts, err := s.db.Read().QueryContext(ctx,
+		`SELECT deployment_id FROM deployment_restart WHERE node_name = ?`, n.name)
+	if err != nil {
+		return Desired{}, err
+	}
+	defer restarts.Close()
+	for restarts.Next() {
+		var id string
+		if err := restarts.Scan(&id); err != nil {
+			return Desired{}, err
+		}
+		doc.Restart = append(doc.Restart, id)
+	}
+	if err := restarts.Err(); err != nil {
 		return Desired{}, err
 	}
 	return doc, nil

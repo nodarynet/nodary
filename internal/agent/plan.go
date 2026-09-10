@@ -45,6 +45,12 @@ type Plan struct {
 	// (internal/agent/reconcile.go) is what actually stops it, since it is
 	// simply absent from Units.
 	Disabled []string `json:"disabled,omitempty"`
+	// Restart is deployment ids `nodary model restart` (R4-36) asked to be
+	// cycled now — the request, not the outcome. Unlike Reset (filesystem
+	// only, so Build can perform it directly) this needs `systemctl`, which
+	// only Reconcile has, so Reconcile is what actually restarts them and
+	// reports which ones landed as Report.RestartDone.
+	Restart []string `json:"restart,omitempty"`
 }
 
 // Unit is one deployment rendered as everything systemd needs.
@@ -176,6 +182,15 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 				p.ResetDone = append(p.ResetDone, r.Model)
 			}
 		}
+	}
+
+	// Restart is a request, not an outcome: cycling a unit needs systemctl,
+	// which only Reconcile has, so Build only carries the request forward.
+	// Guarded the same way Reset is — opt.Downloads is nil only for a
+	// one-shot `agent plan` preview, and a preview must restart nothing any
+	// more than it deletes anything.
+	if opt.Downloads != nil {
+		p.Restart = append(p.Restart, doc.Restart...)
 	}
 
 	// Staging first, and the order is not cosmetic: docs/specs/03-agent.md §3

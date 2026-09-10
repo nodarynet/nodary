@@ -54,6 +54,10 @@ type NodeReport struct {
 	// `nodary model restage`/`unstage` request — an observation of what
 	// happened, the same as the rest of this report, not a decision.
 	ResetDone []string
+	// RestartDone is deployments this node just cycled in response to a
+	// `nodary model restart` request — the same shape ResetDone uses, for
+	// the same reason.
+	RestartDone []string
 }
 
 type DeploymentReport struct {
@@ -125,6 +129,13 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 				`DELETE FROM stage_reset WHERE node_name = ? AND model_id = ?`,
 				name, modelID); err != nil {
 				return fmt.Errorf("clearing the reset request for %s on %s: %w", modelID, name, err)
+			}
+		}
+		for _, deploymentID := range r.RestartDone {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM deployment_restart WHERE node_name = ? AND deployment_id = ?`,
+				name, deploymentID); err != nil {
+				return fmt.Errorf("clearing the restart request for %s on %s: %w", deploymentID, name, err)
 			}
 		}
 		return nil

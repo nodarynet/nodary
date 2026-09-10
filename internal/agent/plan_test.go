@@ -138,6 +138,34 @@ func TestBuildSkipsAUnitForADisabledDeployment(t *testing.T) {
 	}
 }
 
+// R4-36: doc.Restart is a request Build only carries forward for a real
+// agent — opt.Downloads is nil only for a one-shot `agent plan` preview, and
+// a preview must restart nothing any more than it deletes anything (Reset's
+// own guard, mirrored here).
+func TestBuildCarriesRestartOnlyForARealAgent(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deployment())
+	doc.Staging[0].ManifestSHA256 = digest
+	doc.Restart = []string{"dep_one"}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Restart) != 0 {
+		t.Errorf("Restart = %v, want none: a preview (no Downloader) must not restart anything", p.Restart)
+	}
+
+	dl := &Downloader{byModel: map[string]*download{}}
+	p, err = Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Restart) != 1 || p.Restart[0] != "dep_one" {
+		t.Errorf("Restart = %v, want [dep_one]", p.Restart)
+	}
+}
+
 // The env file is compared against what is on disk to decide whether to
 // restart. A rendering that varied between runs would rewrite it every
 // reconcile and restart a serving model for no reason at all.

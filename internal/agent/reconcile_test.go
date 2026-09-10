@@ -353,6 +353,45 @@ func TestDisabledStatusReportsWhatSystemdActuallyShows(t *testing.T) {
 	}
 }
 
+// R4-36: `nodary model restart` reaches the agent as Plan.Restart, and an
+// active, unchanged unit — the case neither of Reconcile's existing branches
+// covers — must still be cycled when it is named there.
+func TestForcedRestartCyclesAnActiveUnchangedUnit(t *testing.T) {
+	h, f := newFakeHost(t)
+	p := planFor(t, h)
+
+	Reconcile(context.Background(), p, h)
+	f.reset()
+
+	p.Restart = []string{"dep_one"}
+	r := Reconcile(context.Background(), p, h)
+
+	if !f.did("restart nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want a restart even though nothing changed", f.calls)
+	}
+	if len(r.RestartDone) != 1 || r.RestartDone[0] != "dep_one" {
+		t.Errorf("RestartDone = %v, want [dep_one]", r.RestartDone)
+	}
+}
+
+// A restart request against a deployment that is not currently running is
+// satisfied by starting it — the operator's intent ("make it fresh") is met
+// either way, and there is no unit to restart in place.
+func TestForcedRestartOnAStoppedUnitJustStartsIt(t *testing.T) {
+	h, f := newFakeHost(t)
+	p := planFor(t, h)
+	p.Restart = []string{"dep_one"}
+
+	r := Reconcile(context.Background(), p, h)
+
+	if !f.did("start nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want it started", f.calls)
+	}
+	if len(r.RestartDone) != 1 || r.RestartDone[0] != "dep_one" {
+		t.Errorf("RestartDone = %v, want [dep_one]", r.RestartDone)
+	}
+}
+
 // R4-29 runs the assertion after every start, and a start whose assertion
 // cannot run has not passed it.
 //

@@ -42,6 +42,11 @@ type Daemon struct {
 	// last is the most recent plan, so the health poller has something to probe
 	// between reconciles.
 	last Plan
+	// lastRestartDone is which deployments the most recent reconcile actually
+	// cycled for `nodary model restart` (R4-36) — Reconcile's own Report is
+	// not kept anywhere else, so this is the only way report() (a different
+	// goroutine, on its own 15s timer) can learn about it.
+	lastRestartDone []string
 }
 
 // NewDaemon prepares the loop. It does not start it.
@@ -120,6 +125,11 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	d.last = p
 
 	r := Reconcile(ctx, p, d.Host)
+	// report() runs on a separate goroutine (the heartbeat loop) and only
+	// ever sees d.last — Reconcile's own Report is otherwise built, logged
+	// and discarded right here, so RestartDone has nowhere to reach the next
+	// heartbeat from unless it rides along on the same handoff.
+	d.lastRestartDone = r.RestartDone
 	for _, u := range r.Units {
 		if u.Action != "" || u.Error != "" {
 			d.Log.Info("agent", "deployment", u.Deployment, "state", u.State,
@@ -252,6 +262,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 			disabledStatus(id, d.Host.isActive(ctx, UnitName(id))))
 	}
 	body.ResetDone = d.last.ResetDone
+	body.RestartDone = d.lastRestartDone
 
 	raw, err := json.Marshal(body)
 	if err != nil {

@@ -73,6 +73,71 @@ func TestHeartbeatConsumesAnAckedResetRequest(t *testing.T) {
 	}
 }
 
+// R4-36: `nodary model restart` leaves a row in deployment_restart for the
+// agent to act on, acknowledged the same way stage_reset rows are.
+func TestHeartbeatConsumesAnAckedRestartRequest(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Format(audit.TimeFormat)
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO node (name, state, created_at) VALUES (?, 'approved', ?)`, "gpu-01", now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO model (id, backend, source, artifact, created_at) VALUES (?, 'vllm', 'local', 'hf-cache', ?)`,
+			"acme/tiny", now); err != nil {
+			return err
+		}
+		for _, id := range []string{"dep_one", "dep_two"} {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO deployment (id, model_id, node_name, backend, params_json, extra_args_json,
+				                         env_json, disabled, state, created_at, updated_at)
+				 VALUES (?, 'acme/tiny', 'gpu-01', 'vllm', '{}', '[]', '{}', 0, 'ready', ?, ?)`,
+				id, now, now); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO deployment_restart (node_name, deployment_id, requested_at) VALUES (?, ?, ?)`,
+				"gpu-01", id, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{RestartDone: []string{"dep_one"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	var left []string
+	rows, err := db.Read().QueryContext(ctx, `SELECT deployment_id FROM deployment_restart WHERE node_name = ?`, "gpu-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, id)
+	}
+	if len(left) != 1 || left[0] != "dep_two" {
+		t.Errorf("deployment_restart rows left = %v, want only [dep_two]: dep_one was acked, dep_two was not", left)
+	}
+}
+
 // R4-37: staging progress is reported as bytes against a total, and this is
 // the one hop that actually writes it — everywhere else along the way is a
 // field carried from one struct to the next, and this is where it lands in

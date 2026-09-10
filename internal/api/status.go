@@ -32,6 +32,10 @@ type StatusReport struct {
 	// it. See internal/observed's package doc for why this belongs on the
 	// heartbeat rather than anywhere audited.
 	ResetDone []string `json:"reset_done,omitempty"`
+	// RestartDone names deployments this node just cycled in response to
+	// Desired.Restart (`nodary model restart`) — the same shape ResetDone
+	// uses, for the same reason.
+	RestartDone []string `json:"restart_done,omitempty"`
 }
 
 type StatusUnit struct {
@@ -81,6 +85,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		GPUsJSON:      rawOrDefault(body.Inventory.GPUs, "[]"),
 		TopologyJSON:  rawOrDefault(body.Inventory.Topology, "{}"),
 		ResetDone:     body.ResetDone,
+		RestartDone:   body.RestartDone,
 	}
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{

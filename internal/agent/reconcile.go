@@ -79,6 +79,11 @@ type Report struct {
 	Stage   []StagingOutcome `json:"stage"`
 	Refused []Refusal        `json:"refused"`
 	Errors  []string         `json:"errors"`
+	// RestartDone is deployments `nodary model restart` (R4-36) asked for and
+	// this run actually cycled, reported back so the control plane can stop
+	// asking (internal/observed.Heartbeat consumes it, the same shape
+	// Plan.ResetDone already uses).
+	RestartDone []string `json:"restart_done,omitempty"`
 }
 
 // UnitOutcome is one deployment after the loop ran.
@@ -136,10 +141,19 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 		staged[s.Model] = s.State
 	}
 
+	force := map[string]bool{}
+	for _, id := range p.Restart {
+		force[id] = true
+	}
+
 	wanted := map[string]bool{}
 	for _, u := range p.Units {
 		wanted[UnitName(u.Deployment)] = true
-		r.Units = append(r.Units, reconcileUnit(ctx, u, staged, h))
+		outcome, restarted := reconcileUnit(ctx, u, staged, h, force[u.Deployment])
+		r.Units = append(r.Units, outcome)
+		if restarted {
+			r.RestartDone = append(r.RestartDone, u.Deployment)
+		}
 	}
 
 	// Stop what the plan no longer names. Scoped to nodary-model@* and nothing
@@ -166,8 +180,10 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	return r
 }
 
-// reconcileUnit brings one deployment to where the plan wants it.
-func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host) UnitOutcome {
+// reconcileUnit brings one deployment to where the plan wants it, and reports
+// whether a restart forced by `nodary model restart` (R4-36) actually landed
+// this cycle, so the caller knows whether to ack the request.
+func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host, forced bool) (UnitOutcome, bool) {
 	out := UnitOutcome{Deployment: u.Deployment}
 
 	// Weights before the unit — docs/specs/03-agent.md §3's first ordering
@@ -176,31 +192,36 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 	// and must not start a container that would fail obscurely.
 	if state := staged[u.ModelID]; state != StateStaged {
 		out.State, out.Action = "staging", "waiting for weights"
-		return out
+		return out, false
 	}
 
 	changed, err := writeEnvFile(u)
 	if err != nil {
 		out.State, out.Error = "failed", err.Error()
-		return out
+		return out, false
 	}
 
 	active := h.isActive(ctx, UnitName(u.Deployment))
 	switch {
-	case changed && active:
+	case (changed || forced) && active:
 		// The env file moved under a running deployment, so it is running the
-		// wrong thing. This is the only path that restarts something healthy,
-		// which is why writeEnvFile compares before it writes.
+		// wrong thing — or nothing moved and an operator asked for a cycle
+		// anyway (`nodary model restart`). Either is the only path that
+		// restarts something healthy, which is why writeEnvFile compares
+		// before it writes.
 		out.Action = "restarted: its configuration changed"
+		if forced && !changed {
+			out.Action = "restarted: requested by an operator"
+		}
 		if o, err := h.systemctl(ctx, "restart", UnitName(u.Deployment)); err != nil {
 			out.State, out.Error = "failed", fmt.Sprintf("%v: %s", err, tail(o))
-			return out
+			return out, false
 		}
 	case !active:
 		out.Action = "started"
 		if o, err := h.systemctl(ctx, "start", UnitName(u.Deployment)); err != nil {
 			out.State, out.Error = "failed", fmt.Sprintf("%v: %s", err, tail(o))
-			return out
+			return out, false
 		}
 	}
 
@@ -244,7 +265,10 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 			h.Asserted[u.Deployment] = out.Egress.State
 		}
 	}
-	return out
+	// Every earlier return above is a failure or a no-op for restart's
+	// purposes and already returned false; reaching here means whatever this
+	// cycle needed to do to the unit succeeded, so a forced restart is done.
+	return out, forced
 }
 
 // conclusive reports whether an egress verdict is one worth keeping.
