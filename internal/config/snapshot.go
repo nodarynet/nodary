@@ -117,6 +117,13 @@ type Deployment struct {
 	// with whitespace, for the reason ExtraArgs gives.
 	Env  string `json:"env" toml:"env,omitempty"`
 	Port int    `json:"port" toml:"port,omitempty"`
+	// Disabled is `nodary model disable`: the deployment and its weights stay
+	// exactly as registered, but the agent is not to run it. `nodary model
+	// enable` flips it back without re-registering anything
+	// (docs/specs/05-catalog.md §4). No `omitempty` on the json tag — this
+	// struct is a hash preimage (see Image's comment above) and every field
+	// must always be present in it.
+	Disabled bool `json:"disabled" toml:"disabled,omitempty"`
 }
 
 type Route struct {
@@ -229,7 +236,7 @@ func readModels(ctx context.Context, q Querier, s *Snapshot) error {
 
 func readDeployments(ctx context.Context, q Querier, s *Snapshot) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, model_id, node_name, backend,
-		coalesce(image_digest, ''), params_json, extra_args_json, env_json, coalesce(port, 0)
+		coalesce(image_digest, ''), params_json, extra_args_json, env_json, coalesce(port, 0), disabled
 		FROM deployment ORDER BY id`)
 	if err != nil {
 		return err
@@ -238,7 +245,7 @@ func readDeployments(ctx context.Context, q Querier, s *Snapshot) error {
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(&d.ID, &d.ModelID, &d.NodeName, &d.Backend, &d.Image,
-			&d.Params, &d.ExtraArgs, &d.Env, &d.Port); err != nil {
+			&d.Params, &d.ExtraArgs, &d.Env, &d.Port, &d.Disabled); err != nil {
 			return err
 		}
 		d.GPUs = []int{}

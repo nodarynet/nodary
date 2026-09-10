@@ -1,0 +1,13 @@
+-- `nodary model enable` / `nodary model disable` (docs/specs/05-catalog.md 4).
+--
+-- A decision, not an observation: it belongs beside params_json and env_json,
+-- not beside state/health/last_error, and it is part of the configuration
+-- snapshot and therefore of a revision's hash preimage -- the same reasoning
+-- 0012_deployment_env.sql and 0013_remote_manifest.sql already acted on for
+-- this struct. docs/plans/mvp.md 2 makes adding a field to that preimage the
+-- one change that invalidates every chain a customer already holds, which is
+-- why it lands now rather than later.
+--
+-- No CHECK: none of the other ALTER TABLE ADD COLUMN migrations in this
+-- directory add one, and this is validated in Go instead.
+ALTER TABLE deployment ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
