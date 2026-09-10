@@ -41,6 +41,9 @@ func cmdModel(e env, args []string) int {
 	if args[0] == "enable" || args[0] == "disable" {
 		return cmdModelToggle(e, args[1:], args[0], args[0] == "disable")
 	}
+	if args[0] == "restart" {
+		return cmdModelRestart(e, args[1:])
+	}
 	if what, ok := modelVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary model %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
