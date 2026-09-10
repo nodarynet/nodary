@@ -42,7 +42,19 @@ type Desired struct {
 	Node        string              `json:"node"`
 	Deployments []DesiredDeployment `json:"deployments"`
 	Staging     []DesiredStaging    `json:"staging"`
-	Agent       DesiredAgent        `json:"agent"`
+	// Reset names weights the agent should discard and, if still desired
+	// elsewhere in this document, restage from nothing — `nodary model
+	// restage`/`unstage` (docs/specs/05-catalog.md §3-4). A model here may or
+	// may not also appear in Staging: `unstage` targets one with no
+	// deployment on this node at all, so it can't be read off a Staging
+	// entry the way Build ordinarily resolves a layout.
+	Reset []DesiredReset `json:"reset,omitempty"`
+	Agent DesiredAgent   `json:"agent"`
+}
+
+type DesiredReset struct {
+	Model  string `json:"model"`
+	Layout string `json:"layout"`
 }
 
 type DesiredDeployment struct {
@@ -227,6 +239,25 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 				ManifestBody: m.ManifestBody,
 			})
 		}
+	}
+
+	rows, err := s.db.Read().QueryContext(ctx,
+		`SELECT stage_reset.model_id, model.artifact FROM stage_reset
+		 JOIN model ON model.id = stage_reset.model_id
+		 WHERE stage_reset.node_name = ?`, n.name)
+	if err != nil {
+		return Desired{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r DesiredReset
+		if err := rows.Scan(&r.Model, &r.Layout); err != nil {
+			return Desired{}, err
+		}
+		doc.Reset = append(doc.Reset, r)
+	}
+	if err := rows.Err(); err != nil {
+		return Desired{}, err
 	}
 	return doc, nil
 }

@@ -170,6 +170,36 @@ func TestANodeIsApprovedBeforeItReceivesAnyWork(t *testing.T) {
 	}
 }
 
+// TestTheDesiredDocumentCarriesAPendingReset is R4-35/R4-36's request half:
+// a row in stage_reset (what `nodary model restage`/`unstage` writes)
+// should appear in the desired document as a DesiredReset, with the model's
+// layout resolved from the catalog — desiredFor's job, since a model with no
+// deployment on this node (the unstage shape) has no DesiredStaging entry to
+// read a layout off of.
+func TestTheDesiredDocumentCarriesAPendingReset(t *testing.T) {
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	if status, body := f.do(http.MethodPost, "/nodes/gpu-01/approve", f.admin, nil,
+		map[string]string{api.HeaderJustify: "the node in the rack we ordered"}); status != http.StatusOK {
+		t.Fatalf("approve: %d %v", status, body)
+	}
+
+	if err := f.db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(),
+			`INSERT INTO stage_reset (node_name, model_id, requested_at) VALUES (?, ?, ?)`,
+			"gpu-01", "acme/tiny", time.Now().UTC().Format(audit.TimeFormat))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := n.desired(t, f, "")
+	if len(doc.Reset) != 1 || doc.Reset[0].Model != "acme/tiny" || doc.Reset[0].Layout != "hf-cache" {
+		t.Errorf("reset = %+v, want one entry for acme/tiny with its catalog layout", doc.Reset)
+	}
+}
+
 // The long-poll's contract: a caller already at the current revision waits, and
 // a caller behind it is answered at once.
 func TestTheLongPollWaitsOnlyWhenThereIsNothingNew(t *testing.T) {

@@ -26,6 +26,12 @@ type StatusReport struct {
 	Inventory    Inventory       `json:"inventory"`
 	Deployments  []StatusUnit    `json:"deployments"`
 	Staging      []StatusStaging `json:"staging"`
+	// ResetDone names models this node just discarded and cleared in
+	// response to Desired.Reset (`nodary model restage`/`unstage`) — the
+	// agent reporting what it did, so the control plane can stop asking for
+	// it. See internal/observed's package doc for why this belongs on the
+	// heartbeat rather than anywhere audited.
+	ResetDone []string `json:"reset_done,omitempty"`
 }
 
 type StatusUnit struct {
@@ -74,6 +80,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		DriverVersion: body.Inventory.DriverVersion,
 		GPUsJSON:      rawOrDefault(body.Inventory.GPUs, "[]"),
 		TopologyJSON:  rawOrDefault(body.Inventory.Topology, "{}"),
+		ResetDone:     body.ResetDone,
 	}
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{
