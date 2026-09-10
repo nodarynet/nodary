@@ -94,6 +94,7 @@ func TestWizardWalksApproveStageRegisterGrantAndKey(t *testing.T) {
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
+		"",          // weights: already staged (the default)
 		"0",         // gpu
 		"8001",      // port
 		"y",         // create a user?
@@ -123,6 +124,50 @@ func TestWizardWalksApproveStageRegisterGrantAndKey(t *testing.T) {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config show does not mention %s:\n%s", want, cfg)
 		}
+	}
+}
+
+// TestWizardOffersARemoteDownloadInsteadOfAlreadyStagedWeights is the point of
+// wiring --source remote into the wizard at all: an operator who already has
+// a manifest (from stage-model.sh, possibly produced on a different machine
+// entirely) never has to grant this account write access to the models
+// directory, and the wizard never reads --models-dir for this path either.
+func TestWizardOffersARemoteDownloadInsteadOfAlreadyStagedWeights(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+
+	manifest := filepath.Join(t.TempDir(), "nodary-manifest.sha256")
+	body := strings.Repeat("a", 64) + "  config.json\n" + strings.Repeat("b", 64) + "  model.safetensors\n"
+	if err := os.WriteFile(manifest, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script := strings.Join([]string{
+		"y",         // approve fractal now?
+		"y",         // stage and register a model now?
+		"acme/tiny", // model
+		"2",         // weights: let the node's agent download them
+		manifest,    // manifest path
+		"0",         // gpu
+		"8001",      // port
+		"n",         // create a user?
+		"n",         // mint a service key? (unreached if no user, but harmless)
+	}, "\n") + "\n"
+
+	e, _, errOut := wizardEnv(script)
+	// models points somewhere that is never created — proof --models-dir is
+	// not read for this path, the same way no weights are ever placed here.
+	w := &wizard{e: e, db: a.db, key: a.key, modelsDir: filepath.Join(t.TempDir(), "unused")}
+	if code := w.afterEnroll(); code != ExitOK {
+		t.Fatalf("afterEnroll: exit %d\nstderr: %s", code, errOut)
+	}
+
+	_, show, _ := a.run("config", "show", "--format", "json")
+	if !strings.Contains(show, `"source": "remote"`) {
+		t.Errorf("the catalog entry is not source: remote:\n%s", show)
+	}
+	if !strings.Contains(show, `"manifest_body"`) {
+		t.Errorf("the manifest's content was not carried into the snapshot:\n%s", show)
 	}
 }
 

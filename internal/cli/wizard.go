@@ -185,15 +185,43 @@ func (w *wizard) afterEnroll() int {
 }
 
 func (w *wizard) model(node string) int {
-	repo := w.string("Model (HuggingFace org/name, weights already staged under the models directory)", "")
+	repo := w.string("Model (HuggingFace org/name)", "")
 	if repo == "" {
 		return ExitOK
 	}
+
+	// Local needs weights already sitting under the models directory, which
+	// on a single-machine install (this flow's recommended path) is one
+	// download either way — nothing to gain from a manifest detour. Remote
+	// is what actually removes friction: for a node this wizard *isn't*
+	// sitting on, or an operator who has already run stage-model.sh
+	// somewhere, it skips granting this account write access to
+	// /var/lib/nodary/models at all — the node's own agent fetches it.
+	source := "local"
+	manifest := ""
+	if w.choice("Weights for "+repo, []string{
+		"Already staged under the models directory on this node",
+		"Let the node's agent download them (needs a manifest — `stage-model.sh` writes one)",
+	}) == 1 {
+		source = "remote"
+		manifest = w.string("Manifest path (nodary-manifest.sha256, from stage-model.sh)", "")
+		if manifest == "" {
+			fmt.Fprintln(w.e.stderr, "nodary install: a manifest path is required for a remote download")
+			return ExitUsage
+		}
+	}
+
 	gpu := w.string("GPU index", "0")
 	port := w.string("Port", "8001")
 	args := w.dbArgs([]string{repo, "--node", node, "--gpu", gpu, "--port", port,
 		"--yes", "--justify", "registered during interactive install"})
-	if w.modelsDir != "" {
+	if source == "remote" {
+		args = append(args, "--source", "remote", "--manifest", manifest)
+	} else if w.modelsDir != "" {
+		// Only meaningful for local: `model register` never reads
+		// --models-dir for --source remote, which resolves its files from
+		// the manifest and stages them wherever the *node's* agent.toml
+		// points, not from anything named here.
 		args = append(args, "--models-dir", w.modelsDir)
 	}
 
