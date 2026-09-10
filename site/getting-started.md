@@ -9,9 +9,12 @@ covers splitting them onto two machines.
 !!! tip "Prefer being asked, not remembering flags?"
     After `install.sh` places the binary, `sudo nodary install` is the same walk as a
     short conversation — a handful of plain questions, defaults you can just hit enter
-    on, and it runs the exact verbs below on your behalf. The steps that follow are
-    what it's doing underneath, and the ones you'll reach for once there's a second
-    node or a script instead of a person at the keyboard.
+    on, and it runs the verbs below on your behalf. For step 3 it goes one step
+    further and asks only for a HuggingFace repo: it runs the group grant itself,
+    drops to your own account for the download (never as root), and registers what
+    it fetched — no separate script, no `newgrp`. The steps that follow are what's
+    happening underneath either way, and the ones you'll reach for once there's a
+    second node or a script instead of a person at the keyboard.
 
 !!! note "You'll need"
     A Linux host (or Windows with an NVIDIA GPU, which joins [inside
