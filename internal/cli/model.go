@@ -23,9 +23,11 @@ var modelVerbs = map[string]string{
 	"enable":  "directing a node to start a deployment",
 	"disable": "directing a node to stop one",
 	"restart": "directing a node to restart one",
-	"stage":   "re-triggering staging on a model that already has a deployment",
-	"unstage": "directing a node to discard them",
-	"restage": "re-verifying weights already placed",
+	// Staging already starts the instant a deployment references a model
+	// (internal/agent/plan.go's Build), so there is no distinct "kick it off"
+	// act for this verb to perform. `restage` (stuck/corrupt) and `unstage`
+	// (reclaim disk) are real verbs, below.
+	"stage": "not a separate act here; register (or restage, for a stuck download) does this",
 }
 
 func cmdModel(e env, args []string) int {
@@ -35,6 +37,9 @@ func cmdModel(e env, args []string) int {
 	}
 	if args[0] == "register" {
 		return cmdModelRegister(e, args[1:])
+	}
+	if args[0] == "unstage" || args[0] == "restage" {
+		return cmdModelStageReset(e, args[1:], args[0])
 	}
 	if what, ok := modelVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary model %s: %s is not implemented in this release (%s)\n",
