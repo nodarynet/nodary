@@ -79,3 +79,69 @@ func TestModelRegisterTurnsPlacedWeightsIntoAServedRoute(t *testing.T) {
 		t.Errorf("the deployment does not pin an image by digest:\n%s", show)
 	}
 }
+
+// TestModelRegisterRemoteNeedsAManifestButNoWeightsOnDisk is the other half
+// of R4-33: registering `source: remote` succeeds with no weights on this
+// machine at all — nothing here downloads anything, the manifest is what
+// makes the resulting catalog entry checkable once an agent does.
+func TestModelRegisterRemoteNeedsAManifestButNoWeightsOnDisk(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+
+	manifest := filepath.Join(t.TempDir(), "nodary-manifest.sha256")
+	body := strings.Repeat("a", 64) + "  config.json\n" + strings.Repeat("b", 64) + "  model.safetensors\n"
+	if err := os.WriteFile(manifest, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := a.run("model", "register", "acme/tiny",
+		"--source", "remote", "--manifest", manifest,
+		"--node", "fractal", "--yes", "--justify", "remote model")
+	if code != ExitOK {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "2 file(s) named") {
+		t.Errorf("did not report what the manifest named:\n%s", stdout)
+	}
+	for _, want := range []string{"+ model acme/tiny", "+ deployment tiny-fractal", "+ route tiny"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout does not report %q:\n%s", want, stdout)
+		}
+	}
+
+	_, show, _ := a.run("config", "show", "--format", "json")
+	if !strings.Contains(show, `"source": "remote"`) {
+		t.Errorf("the catalog entry is not source: remote:\n%s", show)
+	}
+	if !strings.Contains(show, `"manifest_body"`) {
+		t.Errorf("the manifest's content was not carried into the snapshot:\n%s", show)
+	}
+}
+
+func TestModelRegisterRemoteRefusesWithNoManifest(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+
+	code, _, stderr := a.run("model", "register", "acme/tiny",
+		"--source", "remote", "--node", "fractal", "--yes", "--justify", "x")
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d: %s", code, ExitUsage, stderr)
+	}
+	if !strings.Contains(stderr, "--manifest is required") {
+		t.Errorf("did not say why it refused:\n%s", stderr)
+	}
+}
+
+func TestModelRegisterRefusesAnUnknownSource(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+
+	code, _, stderr := a.run("model", "register", "acme/tiny",
+		"--source", "sneakernet", "--node", "fractal", "--yes", "--justify", "x")
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d: %s", code, ExitUsage, stderr)
+	}
+	if !strings.Contains(stderr, `"sneakernet"`) {
+		t.Errorf("did not name the bad value:\n%s", stderr)
+	}
+}
