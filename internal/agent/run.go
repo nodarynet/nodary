@@ -239,6 +239,18 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	for _, st := range d.last.Stage {
 		body.Staging = append(body.Staging, stagingStatus(st))
 	}
+	// A disabled deployment builds no Unit, so it is not in d.last.Units and
+	// the loop above never mentions it — without this, its row in the
+	// control plane's database would freeze at whatever it last reported
+	// (possibly still "ready") forever, since observed.Heartbeat only
+	// touches a deployment id the report actually names. Reported as
+	// observed rather than assumed: Reconcile's stop runs synchronously
+	// before this heartbeat fires, but "stopped" is what is checked for,
+	// not what is asserted regardless.
+	for _, id := range d.last.Disabled {
+		body.Deployments = append(body.Deployments,
+			disabledStatus(id, d.Host.isActive(ctx, UnitName(id))))
+	}
 	body.ResetDone = d.last.ResetDone
 
 	raw, err := json.Marshal(body)
@@ -261,6 +273,18 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		return fmt.Errorf("the control plane returned %s", resp.Status)
 	}
 	return nil
+}
+
+// disabledStatus is one disabled deployment rendered onto the wire, as the
+// true observed fact rather than an assumption: Reconcile's stop runs
+// synchronously before this heartbeat fires, but "stopped" is what is
+// checked for, never asserted regardless of what systemd actually reports.
+func disabledStatus(id string, active bool) api.StatusUnit {
+	state := "stopped"
+	if active {
+		state = "starting"
+	}
+	return api.StatusUnit{ID: id, State: state, Health: "unknown"}
 }
 
 // stagingStatus is one Stage rendered onto the wire. Total falls back to

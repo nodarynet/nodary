@@ -341,6 +341,18 @@ func TestStagingStatusFallsBackToBytesWhenTotalIsUnknown(t *testing.T) {
 	}
 }
 
+// R4-36: a disabled deployment still has to be named on the heartbeat, or its
+// row in the control plane's database freezes at whatever it last reported —
+// possibly still "ready" for something systemd has, in fact, stopped.
+func TestDisabledStatusReportsWhatSystemdActuallyShows(t *testing.T) {
+	if got := disabledStatus("dep_one", false); got.State != "stopped" {
+		t.Errorf("state = %q, want stopped: systemd is not running it", got.State)
+	}
+	if got := disabledStatus("dep_one", true); got.State != "starting" {
+		t.Errorf("state = %q, want starting: disable was requested but systemd has not converged yet", got.State)
+	}
+}
+
 // R4-29 runs the assertion after every start, and a start whose assertion
 // cannot run has not passed it.
 //

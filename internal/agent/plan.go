@@ -38,6 +38,13 @@ type Plan struct {
 	// back on the next heartbeat so the control plane can stop asking
 	// (internal/observed.Heartbeat consumes it).
 	ResetDone []string `json:"reset_done,omitempty"`
+	// Disabled is a deployment `nodary model disable` turned off
+	// (docs/specs/05-catalog.md §4). No Unit is built for it — nothing about
+	// GPUs, the backend or staged weights matters for something that will
+	// not run — and Reconcile's existing "stop what is not wanted" loop
+	// (internal/agent/reconcile.go) is what actually stops it, since it is
+	// simply absent from Units.
+	Disabled []string `json:"disabled,omitempty"`
 }
 
 // Unit is one deployment rendered as everything systemd needs.
@@ -142,7 +149,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		opt.ConfigDir = paths.ConfigDir
 	}
 	p := Plan{Rev: doc.Rev, Node: doc.Node,
-		Units: []Unit{}, Stage: []Stage{}, Refused: []Refusal{}}
+		Units: []Unit{}, Stage: []Stage{}, Refused: []Refusal{}, Disabled: []string{}}
 
 	descriptors, err := backend.Builtins()
 	if err != nil {
@@ -218,6 +225,10 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	}
 
 	for _, d := range doc.Deployments {
+		if d.State == "disabled" {
+			p.Disabled = append(p.Disabled, d.ID)
+			continue
+		}
 		u, err := unitFor(d, descriptors, offered, byModel, opt)
 		if err != nil {
 			p.Refused = append(p.Refused, Refusal{Deployment: d.ID, Reason: err.Error()})

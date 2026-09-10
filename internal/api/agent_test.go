@@ -200,6 +200,32 @@ func TestTheDesiredDocumentCarriesAPendingReset(t *testing.T) {
 	}
 }
 
+// R4-36: `nodary model disable` reaches the agent over the existing
+// DesiredDeployment.State field, the seam desiredFor's own comment used to
+// name as unimplemented.
+func TestADisabledDeploymentIsNamedDisabled(t *testing.T) {
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	if status, body := f.do(http.MethodPost, "/nodes/gpu-01/approve", f.admin, nil,
+		map[string]string{api.HeaderJustify: "the node in the rack we ordered"}); status != http.StatusOK {
+		t.Fatalf("approve: %d %v", status, body)
+	}
+
+	if err := f.db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(),
+			`UPDATE deployment SET disabled = 1 WHERE id = ?`, "dep_one")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := n.desired(t, f, "")
+	if len(doc.Deployments) != 1 || doc.Deployments[0].State != "disabled" {
+		t.Errorf("deployments = %+v, want dep_one's State = \"disabled\"", doc.Deployments)
+	}
+}
+
 // The long-poll's contract: a caller already at the current revision waits, and
 // a caller behind it is answered at once.
 func TestTheLongPollWaitsOnlyWhenThereIsNothingNew(t *testing.T) {

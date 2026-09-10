@@ -225,11 +225,7 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 			ExtraArgs: rawOrLiteral(d.ExtraArgs, "[]"),
 			Env:       rawOrLiteral(d.Env, "{}"),
 			Port:      d.Port, Network: IsolatedNetwork,
-			// Every deployment in the configuration is wanted running. Stopping
-			// one without removing it is `nodary model disable`, which is R4-36
-			// and not in the MVP; until then this field has one value and says
-			// so rather than pretending to be read from somewhere.
-			State: "ready",
+			State:     stateFor(d),
 		})
 		if m, ok := models[d.ModelID]; ok && !staged[m.ID] {
 			staged[m.ID] = true
@@ -266,6 +262,16 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 // R4-13's agent.toml and the self-upgrade path (R5) give it somewhere else to
 // come from.
 func (s *Server) agentTargetVersion() string { return buildinfo.Version }
+
+// stateFor is `nodary model disable`'s R4-36 seam: a deployment nothing has
+// disabled is wanted running; one it has is a standing decision, not
+// something to keep guessing at every heartbeat.
+func stateFor(d config.Deployment) string {
+	if d.Disabled {
+		return "disabled"
+	}
+	return "ready"
+}
 
 func gpusOrEmpty(in []int) []int {
 	if in == nil {

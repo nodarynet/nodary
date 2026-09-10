@@ -108,6 +108,36 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 	}
 }
 
+// R4-36: `nodary model disable` reaches the agent as State: "disabled" on the
+// deployment. Build must not render a Unit for it — no GPU/backend/staged
+// check either, since none of that matters for something that will not run —
+// while its model stays verified and staged, since disable leaves weights in
+// place (docs/specs/05-catalog.md §4).
+func TestBuildSkipsAUnitForADisabledDeployment(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	dep := deployment()
+	dep.State = "disabled"
+	doc := desired(dep)
+	doc.Staging[0].ManifestSHA256 = digest
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Units) != 0 {
+		t.Errorf("units = %+v, want none: a disabled deployment must not run", p.Units)
+	}
+	if len(p.Refused) != 0 {
+		t.Errorf("refused = %+v, want none: disabled is not a refusal", p.Refused)
+	}
+	if len(p.Disabled) != 1 || p.Disabled[0] != "dep_one" {
+		t.Errorf("disabled = %v, want [dep_one]", p.Disabled)
+	}
+	if len(p.Stage) != 1 || p.Stage[0].State != StateStaged {
+		t.Errorf("stage = %+v, want the model still verified and staged", p.Stage)
+	}
+}
+
 // The env file is compared against what is on disk to decide whether to
 // restart. A rendering that varied between runs would rewrite it every
 // reconcile and restart a serving model for no reason at all.
