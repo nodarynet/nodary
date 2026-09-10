@@ -70,6 +70,19 @@ type Model struct {
 	ManifestSHA256 string `json:"manifest_sha256" toml:"manifest_sha256,omitempty"`
 	TotalBytes     int64  `json:"total_bytes" toml:"total_bytes,omitempty"`
 	Hints          string `json:"hints" toml:"hints,omitempty"`
+	// ManifestBody is the manifest's actual content, populated only for
+	// `source: remote`. Unlike ManifestSHA256 — the digest a local model's
+	// manifest is checked against, travelling with weights the operator
+	// already placed — a remote model's manifest has no such channel to
+	// arrive by; the agent has to download its own copy of the weights and
+	// needs the file list and hashes to check them against.
+	//
+	// A new field here changes every existing model's canonical JSON
+	// regardless — see the package comment above on why omitempty could not
+	// dodge that even if it were wanted. Adding one now, before any customer
+	// holds a revision chain, is what mvp.md §2 means by "later" being the
+	// problem; now is not later.
+	ManifestBody string `json:"manifest_body" toml:"manifest_body,omitempty"`
 }
 
 // Deployment is the placement decision. Its state, health and last error are
@@ -195,7 +208,8 @@ func readNodes(ctx context.Context, q Querier, s *Snapshot) error {
 func readModels(ctx context.Context, q Querier, s *Snapshot) error {
 	rows, err := q.QueryContext(ctx, `SELECT id, backend, source, artifact,
 		coalesce(origin_org, ''), coalesce(origin_country, ''), coalesce(license, ''),
-		coalesce(manifest_sha256, ''), coalesce(total_bytes, 0), hints_json
+		coalesce(manifest_sha256, ''), coalesce(total_bytes, 0), hints_json,
+		coalesce(manifest_body, '')
 		FROM model ORDER BY id`)
 	if err != nil {
 		return err
@@ -204,7 +218,8 @@ func readModels(ctx context.Context, q Querier, s *Snapshot) error {
 	for rows.Next() {
 		var m Model
 		if err := rows.Scan(&m.ID, &m.Backend, &m.Source, &m.Artifact, &m.OriginOrg,
-			&m.OriginCountry, &m.License, &m.ManifestSHA256, &m.TotalBytes, &m.Hints); err != nil {
+			&m.OriginCountry, &m.License, &m.ManifestSHA256, &m.TotalBytes, &m.Hints,
+			&m.ManifestBody); err != nil {
 			return err
 		}
 		s.Models = append(s.Models, m)

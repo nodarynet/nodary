@@ -66,6 +66,11 @@ type DesiredStaging struct {
 	Layout         string `json:"layout"`
 	ManifestSHA256 string `json:"manifest_sha256"`
 	ExpectBytes    int64  `json:"expect_bytes"`
+	// ManifestBody is the manifest's content, for `source: remote` — the
+	// agent has no other way to learn what files a remote model has and what
+	// they should hash to. Empty for `source: local`, which finds its
+	// manifest beside the weights an operator already placed.
+	ManifestBody string `json:"manifest_body,omitempty"`
 }
 
 type DesiredAgent struct {
@@ -219,6 +224,7 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 			doc.Staging = append(doc.Staging, DesiredStaging{
 				Model: m.ID, Source: m.Source, Layout: m.Artifact,
 				ManifestSHA256: m.ManifestSHA256, ExpectBytes: m.TotalBytes,
+				ManifestBody: m.ManifestBody,
 			})
 		}
 	}

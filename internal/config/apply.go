@@ -129,16 +129,17 @@ func applyModels(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO model
 			(id, backend, source, artifact, origin_org, origin_country, license,
-			 manifest_sha256, total_bytes, hints_json, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 manifest_sha256, total_bytes, hints_json, manifest_body, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET
 				backend = excluded.backend, source = excluded.source, artifact = excluded.artifact,
 				origin_org = excluded.origin_org, origin_country = excluded.origin_country,
 				license = excluded.license, manifest_sha256 = excluded.manifest_sha256,
-				total_bytes = excluded.total_bytes, hints_json = excluded.hints_json`,
+				total_bytes = excluded.total_bytes, hints_json = excluded.hints_json,
+				manifest_body = excluded.manifest_body`,
 			m.ID, m.Backend, m.Source, m.Artifact, nullable(m.OriginOrg), nullable(m.OriginCountry),
 			nullable(m.License), nullable(m.ManifestSHA256), nullableInt(m.TotalBytes),
-			orDefault(m.Hints, "{}"), stamp(now)); err != nil {
+			orDefault(m.Hints, "{}"), nullable(m.ManifestBody), stamp(now)); err != nil {
 			return fmt.Errorf("applying model %q: %w", m.ID, err)
 		}
 	}

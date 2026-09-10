@@ -1,0 +1,17 @@
+-- R4-33: `source: remote` staging (docs/specs/05-catalog.md 3).
+--
+-- For `source: local` the manifest travels with the weights, on removable
+-- media or over rsync, and the control plane holds only its digest
+-- (manifest_sha256) so the database stays small and the air-gapped path needs
+-- no network to verify. Remote has no such channel: nobody carries the bulk,
+-- the agent downloads it directly, and it has nothing to check a download
+-- against unless the control plane hands it the actual file list and hashes.
+--
+-- So this is the one case where the manifest's *content*, not only its
+-- digest, lives in the database. manifest_sha256 still exists and is still
+-- checked -- a manifest tampered with between an operator and the control
+-- plane is still caught -- this is additive, not a replacement.
+--
+-- Nullable and only ever populated for source = 'remote': a local model has
+-- nothing to put here.
+ALTER TABLE model ADD COLUMN manifest_body TEXT;
