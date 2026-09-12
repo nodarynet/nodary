@@ -160,10 +160,14 @@ func (w *wizard) nodeOnly() int {
 		}
 	}
 	args := w.staged([]string{"--server", server, "--token", token, "--ca-fingerprint", fingerprint})
-	if code := cmdNodeInstall(w.e, args); code != ExitOK {
-		return code
-	}
-	return w.afterEnroll()
+	// And it ends there, unlike the two installs that produce a control plane.
+	// afterEnroll approves and registers against the local database, and this
+	// host has none — the control plane it just enrolled with is somewhere
+	// else. Calling it here asked a reader to open a database that by
+	// definition does not exist, so the normal, successful node install ended
+	// on `no database here`. `node install` has already printed the right next
+	// step, naming the node and the verb that approves it.
+	return cmdNodeInstall(w.e, args)
 }
 
 // afterEnroll is the two installs' shared tail: exactly one node is now
