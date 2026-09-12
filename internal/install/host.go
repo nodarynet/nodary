@@ -264,6 +264,27 @@ func Start(ctx context.Context, unit string, o Options) (Step, error) {
 	return step, nil
 }
 
+// Stop disables a unit and stops it: Start's mirror, for `nodary node leave`.
+//
+// `disable --now` rather than `stop`, and the difference is the whole point.
+// A unit that is only stopped comes back at the next boot — for a node that
+// has been decommissioned that means a machine rejoining the fleet by being
+// rebooted, with credentials its operator believed were gone.
+func Stop(ctx context.Context, unit string, o Options) (Step, error) {
+	o.setDefaults()
+	step := Step{Name: "stop: " + unit}
+	if o.Root != "" {
+		step.Detail = "not stopped: this is a staged tree under " + o.Root
+		return step, nil
+	}
+	out, err := o.Run(ctx, "systemctl", "disable", "--now", unit)
+	if err != nil {
+		return step, fmt.Errorf("stopping %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+	}
+	step.Changed, step.Detail = true, "disabled and stopped"
+	return step, nil
+}
+
 // Restart is for a unit that may already be running and needs to pick up a
 // configuration written to disk after it started.
 //
