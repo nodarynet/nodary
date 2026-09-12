@@ -100,3 +100,12 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
   - *deps:* R9-20
 - [ ] **R9-20** Settle which revision the narratives target
   - *done:* CMMC 2.0 Level 2 is understood to assess against 800-171 Rev 2 while Rev 3 exists and renumbers. Confirmed against the current rule rather than assumed, and recorded with the migration it implies
+
+## Open
+
+- [ ] **R9-21** `TestBundleVerifiesWithSha256sumAndMinisignAlone` failed once under `make check` with a short chain, and has not reproduced
+  - *seen:* 2026-09-12, one failure in a full `go test -race ./...` run — `chain.jsonl holds 1 records, want at least the three this test made`. Did not reproduce in 60 isolated runs or 6 further full-package race runs
+  - *ruled out:* the `ts <= ?` bound is inclusive and `audit.TimeFormat` truncates to the same millisecond the column stores, so a record written in the bound's own millisecond is included; `session.now` is `time.Now()` per command, so the export's upper bound is always later than the records it follows
+  - *left:* a clock that steps backward between the records and the export would silently narrow `period`'s window, which fits a failure seen only under a loaded parallel run. Unconfirmed
+  - *why it matters more than a flaky test:* the assertion exists because a bound that silently excluded everything shipped once already. The failure mode it guards is an evidence bundle that covers a period and quietly omits records in it, which is the one artifact a customer keeps
+
