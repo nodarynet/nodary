@@ -20,7 +20,8 @@ Each task is the migration plus the type, its state machine where it has one, an
 the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-schema)
 
 - [x] **R2-01** `node` — inventory, offer, constraints, `reboot_policy`, states `pending → approved → ready → draining → departed` · [00 §3](../specs/00-overview.md#3-object-model)
-- [ ] **R2-02** `refusal` — a node's rejection of a desired-state document, against node and revision · [12 §1](../specs/12-node-guardrails.md#1-where-they-apply)
+- [x] **R2-02** `refusal` — a node's rejection of a desired-state document, against node and revision · [12 §1](../specs/12-node-guardrails.md#1-where-they-apply)
+  - *done:* `0017_refusal.sql`, keyed `(node_name, deployment_id)` and carrying the revision it was computed against, so an operator can tell "refused, and the configuration has not moved since" from "refused, and this is stale". Written by the heartbeat and surfaced by `nodary node show` ([R4-15](R4-agent.md))
 - [ ] **R2-03** `backend` and `derived_image` · [04 §9](../specs/04-backends.md#9-registering-a-backend)
 - [x] **R2-04** `model` and `staging`, keyed `(model_id, node_name)`, states `absent → staging → verifying → staged | corrupt` · [05 §3](../specs/05-catalog.md#3-staging)
 - [x] **R2-05** `deployment`, states `defined → staging → preparing → starting → ready → stopped | failed`
@@ -90,6 +91,8 @@ R2-34 rather than reimplementing behavior.
   - a **console** approval records no `approved_by`, because 0006_fleet.sql pairs that column with `approved_at` in a CHECK and a local principal has an actor but no user row ([07 §1](../specs/07-identity-audit.md#1-users-and-roles)). Both are left NULL and the chain carries who and when; inventing a user id would put a name in the fleet table that resolves to nothing
   - *note:* `list` and `show` are CLI verbs too, reading through [`internal/fleet`](../../internal/fleet/fleet.go), which the HTTP handlers now call as well — they had carried their own SQL while `nodary node list` was a stub, so the only way to see a fleet *from the machine hosting it* was curl with an administrator's token. Both name what an operator has to act on rather than only listing: a pending node with the approve line to run, a stale one with the unit to check, a node offering no GPU (an agent that could not find `nvidia-smi` — measured), and a ready deployment in no route, which serves nobody because LiteLLM routes by name
   - *note:* list, show, `approve` and `drain` are built. `revoke` and `verify-egress` act on a node that has enrolled and hold a certificate to withdraw or a namespace to probe, so their cores are [R4](R4-agent.md)'s — [R4-06](R4-agent.md) and [R4-29](R4-agent.md). Serving them now would mean serving something that cannot work
+  - *note:* both cores now exist ([R4-06](R4-agent.md), [R4-29](R4-agent.md)) and `nodary node revoke` is a CLI verb building the same `core.Change` approve and drain do. What R2-26 still lacks is the HTTP surface for `revoke` — the endpoint, not the act
+  - *found while building R4-06:* `drain` moved a node's state and nothing routed differently, because the gateway's rendering never read node state. A draining or departed node's deployments now leave their routes on the next `gateway sync`, which is what made drain mean anything from outside the database
   - *note:* `verify-egress` returns the stored result in R2; the probe itself lands in [R4](R4-agent.md)
 - [ ] **R2-27** Backends — list, show, create, delete, `build`, build status
 - [ ] **R2-28** Models — list, register, show, `enable`, `disable`, `restart`, `stage`, `unstage`, delete

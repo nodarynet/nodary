@@ -176,7 +176,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|enroll|approve|drain|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -232,6 +232,10 @@ Available in this release:
                          show           One node, with what is placed on it
                          install        Preflight, runtime, isolated network, enroll, start
                          enroll         Join a control plane with a join token
+                         approve        Let an enrolled node receive work
+                         drain          Take work off it without ending its membership
+                         revoke         Eject it: its certificate is refused from now on
+                         leave          Run on the node: stop everything, destroy its credentials
                          verify-egress  Assert a deployment has no way off-box
   agent                The node-side agent
                          plan    Show what this node would do, and do none of it
