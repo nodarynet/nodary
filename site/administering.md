@@ -257,12 +257,15 @@ sudo nodary doctor
 Driver, GPU enumeration, containerd, the isolated network, certificate expiry, and a live
 re-run of the egress assertion — in one pass.
 
-!!! warning "Agent certificates expire at 90 days and nothing renews them"
-    Every node enrolled in one window expires in one window, and the control plane loses the
-    fleet at once. Running deployments keep serving, so the failure is quiet: what is lost is
-    visibility and control. Recovery is re-enrollment with a fresh join token. `nodary
-    doctor` reports the expiry, so diarize it until
-    [R4-05](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R4-agent.md) lands.
+!!! note "Certificates renew themselves"
+    An agent certificate lasts 90 days and the agent replaces it two thirds of the way
+    through, over the mTLS channel it already has — so there is nothing to diarize. Issuing
+    supersedes the old certificate immediately, and the first attempt is thirty days before
+    expiry, so a control plane that is unreachable for a week costs nothing.
+
+    A node that is **offline past expiry** cannot renew and must re-enroll with a fresh join
+    token, which takes an administrator by design. It keeps its state and its approval.
+    `nodary doctor` reports the expiry on any host.
 
 ## Next
 

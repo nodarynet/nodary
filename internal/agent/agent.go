@@ -218,7 +218,7 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 
 	var out api.EnrollResponse
 	if resp.StatusCode != http.StatusOK {
-		return Result{}, serverError(resp)
+		return Result{}, serverError("enrollment", resp)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return Result{}, fmt.Errorf("reading the enrollment response: %w", err)
@@ -251,15 +251,19 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 
 // serverError turns a refusal into the message the server wrote, because
 // "enrollment failed: 401" tells an operator standing at a GPU host nothing.
-func serverError(resp *http.Response) error {
+//
+// what names the act, because this is reached from two of them and a renewal
+// that reports itself as a refused enrollment sends the operator to the wrong
+// half of docs/specs/02-enrollment.md.
+func serverError(what string, resp *http.Response) error {
 	var body struct {
 		Error struct{ Code, Message string } `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Error.Message != "" {
-		return fmt.Errorf("the control plane refused enrollment (%s): %s",
-			body.Error.Code, body.Error.Message)
+		return fmt.Errorf("the control plane refused %s (%s): %s",
+			what, body.Error.Code, body.Error.Message)
 	}
-	return fmt.Errorf("the control plane refused enrollment: %s", resp.Status)
+	return fmt.Errorf("the control plane refused %s: %s", what, resp.Status)
 }
 
 // unwrapPin surfaces a pin failure as itself. net/http buries

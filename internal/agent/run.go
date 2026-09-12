@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/api"
@@ -34,7 +35,13 @@ type Daemon struct {
 	Host   Host
 	Log    *slog.Logger
 
-	client    *http.Client
+	// client is swapped when the certificate is renewed, and read by the
+	// heartbeat goroutine on its own timer — so it is atomic where d.last and
+	// the rest are plain fields the poll goroutine owns outright.
+	client atomic.Pointer[http.Client]
+	// renewAt is two thirds through the current certificate's life
+	// (docs/specs/02-enrollment.md §3). Touched only from the poll goroutine.
+	renewAt   time.Time
 	health    *Health
 	rev       int64
 	backoff   time.Duration
@@ -62,10 +69,24 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Daemon{Config: conf, Node: node, Host: h, Log: log,
-		client: client, health: NewHealth(), backoff: backoffMin,
-		downloads: NewDownloader()}, nil
+	d := &Daemon{Config: conf, Node: node, Host: h, Log: log,
+		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader()}
+	d.client.Store(client)
+
+	// A certificate that cannot be parsed is not fatal here: the pair loaded,
+	// so this agent can still talk to the control plane. It simply never
+	// renews, which `nodary doctor` reports as an expiry nobody is moving.
+	if leaf, err := leafOf(&pair); err == nil {
+		d.renewAt = renewalAt(leaf)
+	} else {
+		log.Warn("agent", "detail", "cannot read this node's certificate expiry, so it will not renew: "+err.Error())
+	}
+	return d, nil
 }
+
+// http is the current client. Every request goes through it rather than a
+// stored field, so a renewal mid-flight is picked up by the next call.
+func (d *Daemon) http() *http.Client { return d.client.Load() }
 
 // Run reconciles until the context is cancelled.
 //
@@ -93,6 +114,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			continue
 		}
 		d.reset()
+		d.renewIfDue(ctx)
 
 		// Reconcile forward, never replaying. docs/specs/11-failure-modes.md
 		// §1: the document is a complete end state, so there is nothing in a
@@ -175,7 +197,7 @@ func (d *Daemon) poll(ctx context.Context) (api.Desired, error) {
 	if err != nil {
 		return doc, err
 	}
-	resp, err := d.client.Do(req)
+	resp, err := d.http().Do(req)
 	if err != nil {
 		return doc, err
 	}
@@ -283,7 +305,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := d.client.Do(req)
+	resp, err := d.http().Do(req)
 	if err != nil {
 		return err
 	}

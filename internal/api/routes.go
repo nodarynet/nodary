@@ -35,6 +35,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/enroll", s.enroll)
 	h("GET", "/agent/desired", s.agentDesired)
 	h("POST", "/agent/status", s.agentStatus)
+	h("POST", "/agent/renew", s.agentRenew)
 	h("GET", "/agent/dist/{name}", s.serveDist)
 
 	// The one address a person opens rather than a program calls, so it sits at

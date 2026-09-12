@@ -131,7 +131,6 @@ is not in force. So the list is here on the front page rather than only in a pla
 | Model origin allow/deny lists | parsed, validated and diffed; checked nowhere | [R4-32](docs/tasks/R4-agent.md) |
 | Retention windows | displayed; nothing prunes | [R2-14](docs/tasks/R2-control-plane.md), [R3-13](docs/tasks/R3-gateway.md) |
 | Node guardrails | `node.toml` is parsed and reported, and enforced nowhere | [R4-14 – R4-16](docs/tasks/R4-agent.md) |
-| Agent certificate renewal | certificates last 90 days and nothing renews them — a fleet goes dark at the cliff | [R4-05](docs/tasks/R4-agent.md) |
 
 | Not built | Lands in |
 | :--- | :--- |

@@ -39,7 +39,7 @@ behind the claim correction its §1 argues for.
 
 | # | Finding | Status | Where |
 | :--- | :--- | :--- | :--- |
-| 1.1 | Every node falls off the fleet 90 days after enrollment (§4.1, §5 item 5) | **Open** | R4-05 |
+| 1.1 | Every node falls off the fleet 90 days after enrollment (§4.1, §5 item 5) | **Fixed** | R4-05 |
 | 1.2 | One user can consume the entire fleet (§4.1, §3, §5 item 6) | **Open** | R3-08/09/10 |
 | 1.3 | No lockout or throttle on failed authentication; PBKDF2 runs inside the single write transaction (§4.2, §5 item 7) | **Open** | new |
 | 1.4 | No backup or restore (§4.1, §5 item 8) | **Open** | R2-37 |
