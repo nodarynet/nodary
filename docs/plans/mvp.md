@@ -187,6 +187,11 @@ product runs.
 Written down so it is not overstated in a room. Each row has a task number, which is the
 honest form of "it is on the roadmap".
 
+**This list is now the README's**, and the README's is the one that is maintained. An adoption
+review found this table incomplete against the tree and, more to the point, found it in the
+wrong place: a gap list a buyer never reads is not a disclosure. See
+[pilot.md §1](pilot.md#1-the-row-mvpmd-2-was-missing) for the rule this plan was missing.
+
 | Gap | Where it lands |
 | :--- | :--- |
 | No 800-171 practice mapping | R9-19, R9-20 |

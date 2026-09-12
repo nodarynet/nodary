@@ -44,9 +44,12 @@ CLI only.
 - **Enrolls nodes** with short-lived join tokens, issues them mTLS certificates, and holds them in `pending` until an administrator approves. A leaked token alone cannot place a machine into the serving fleet.
 - **Runs model servers** as systemd units against containerd, through declarative backend descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
-- **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits.
+- **Issues and revokes tokens**, and meters every request against the person who made it. Per-user rate and budget limits are configured, exported and diffed today; the gateway does not yet read them ([R3-08/09/10](docs/tasks/R3-gateway.md)).
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied.
-- **Enforces policy profiles** — origin allow/deny lists, mandatory re-authentication, deny-by-default egress, retention windows — as one reviewable object rather than behavior scattered through code.
+- **Carries policy as one reviewable object** rather than behavior scattered through code — mandatory
+  re-authentication, justification floors, credential lifetimes and deny-by-default egress are in force.
+  Origin allow/deny lists and retention windows are not: `nodary policy show` marks every setting nothing
+  acts on yet and names the task that will enforce it, because a profile gets read as a list of controls.
 - **Keeps prompts and completions out of its own records.** The metering schema is closed: no free-text body field exists to write into, a test fails if content reaches the database or a log, and LiteLLM's request logging is pinned off with the pinning asserted ([ADR 0006](docs/adr/0006-cui-boundary-and-fips.md)).
 
 ## Editions
@@ -60,8 +63,8 @@ every commercial verb and explains what it would produce, rather than hiding it
 | :--- | :---: | :---: |
 | Control plane, agent, gateway, backends | ✔ | |
 | The hash chain, `audit verify`, `audit export` | ✔ | |
-| Enrollment, staging, guardrails, egress isolation | ✔ | |
-| Both policy profiles, the FIPS build, OIDC, the SIEM sink | ✔ | |
+| Enrollment, staging, egress isolation | ✔ | |
+| Both policy profiles | ✔ | |
 | `nodary evidence export` — the signed bundle | | ✔ |
 | The control index and SSP narratives | | ✔ |
 | The signed advisory feed, and `nodary advisory check` against it | mechanism | content |
@@ -109,21 +112,40 @@ control plane and a GPU node install end to end, a node enrolls and is approved,
 staged and verified, a model is deployed onto an isolated network with no route off the box,
 and served through the gateway — metered, with one usage row recording counts and no prompt
 text anywhere in the database. `nodary doctor` diagnoses a host in one pass, including a live
-re-run of the egress assertion. What does not yet work, stated plainly: throttling is recorded
-and not enforced, there is no UI, the offline bundle/upgrade/uninstall are unbuilt, and only
-vLLM and SGLang have backend descriptors. The route is
-[docs/plans/mvp.md](docs/plans/mvp.md).
+re-run of the egress assertion. The route is [docs/plans/mvp.md](docs/plans/mvp.md).
+
+**What it cannot do yet.** The record-keeping is ahead of the enforcement, and the difference
+matters more here than in an ordinary roadmap gap: a capability described as enforced, which is
+really an object the system stores and displays, hands an SSP author language for a control that
+is not in force. So the list is here on the front page rather than only in a plan.
+
+| Not yet enforced | State | Lands in |
+| :--- | :--- | :--- |
+| Per-user rate and budget limits | configured, exported and diffed; the gateway never reads them | [R3-08/09/10](docs/tasks/R3-gateway.md) |
+| Model origin allow/deny lists | parsed, validated and diffed; checked nowhere | [R4-32](docs/tasks/R4-agent.md) |
+| Retention windows | displayed; nothing prunes | [R2-14](docs/tasks/R2-control-plane.md), [R3-13](docs/tasks/R3-gateway.md) |
+| Node guardrails | `node.toml` is parsed and reported, and enforced nowhere | [R4-14 – R4-16](docs/tasks/R4-agent.md) |
+| Agent certificate renewal | certificates last 90 days and nothing renews them — a fleet goes dark at the cliff | [R4-05](docs/tasks/R4-agent.md) |
+
+| Not built | Lands in |
+| :--- | :--- |
+| Backup, restore, upgrade, uninstall, the offline bundle | [R2-37](docs/tasks/R2-control-plane.md), [R5-13 – R5-17](docs/tasks/R5-install.md) |
+| A network audit sink — ship `audit.jsonl` to WORM storage yourself until then | [R2-41](docs/tasks/R2-control-plane.md) |
+| Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local` | [R2-21 – R2-32](docs/tasks/R2-control-plane.md) |
+| A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
+| A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
+| OIDC, and backends beyond vLLM and SGLang | — |
 
 | | | |
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
-| **R1** Core, audit, identity | 36 of 36 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 28 of 42 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
+| **R2** Control plane | 29 of 42 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, route allowlist, metering, LiteLLM kept in sync automatically |
-| **R4** Agent | 22 of 40 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
-| **R5** Install | 17 of 31 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor` |
+| **R4** Agent | 28 of 41 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails (parsed and reported, not enforced), local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
+| **R5** Install | 18 of 32 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor` |
 | **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM and SGLang |
-| **R9** Evidence | 14 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
+| **R9** Evidence | 14 of 21 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
 
 ```sh
 make check           # gofmt, vet, tests
