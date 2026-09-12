@@ -67,6 +67,54 @@ func TestOnlyDeploymentsThisHostCanReachAreServed(t *testing.T) {
 	}
 }
 
+// R4-06: a drained or revoked node stops being routed to. Until this,
+// `nodary node drain` moved a node's state and changed nothing an operator
+// could observe from the outside — the gateway kept proxying to it, and the
+// requests only started failing once the agent's next poll stopped the
+// containers underneath.
+func TestADrainedOrRevokedNodeLeavesItsRoutes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "agent.toml"),
+		agent.RenderConfig(agent.Config{Server: "https://127.0.0.1:8443", Name: "here"}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := &config.Snapshot{
+		Nodes: []config.Node{
+			{Name: "here", State: "ready"},
+			{Name: "draining-box", State: "draining"},
+			{Name: "gone-box", State: "departed"},
+		},
+		Deployments: []config.Deployment{
+			{ID: "d-here", NodeName: "here", Port: 8001},
+			{ID: "d-draining", NodeName: "draining-box", Port: 8002},
+			{ID: "d-gone", NodeName: "gone-box", Port: 8003},
+		},
+		Routes: []config.Route{
+			{Name: "llama", Members: []config.RouteMember{{DeploymentID: "d-here"}}},
+			{Name: "leaving", Members: []config.RouteMember{{DeploymentID: "d-draining"}}},
+			{Name: "departed", Members: []config.RouteMember{{DeploymentID: "d-gone"}}},
+		},
+	}
+
+	var out bytes.Buffer
+	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, dir)
+
+	if len(models) != 1 || models[0].Name != "llama" {
+		t.Fatalf("served %+v, want only the route on the serving node", models)
+	}
+	if skipped != 2 {
+		t.Errorf("skipped %d, want the draining and departed nodes' routes", skipped)
+	}
+	// Named, not merely dropped — the same contract the reachability filter
+	// beside this one holds to.
+	for _, want := range []string{"draining", "departed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the output does not say a node was %s: %s", want, out.String())
+		}
+	}
+}
+
 // TestAControlPlaneThatIsNotANodeServesEveryRoute keeps the filter from being a
 // refusal in disguise.
 //

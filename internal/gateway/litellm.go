@@ -1,12 +1,9 @@
 package gateway
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/nodarynet/nodary/internal/config"
 )
 
 // LiteLLMConfig is the file the gateway renders and LiteLLM reads.
@@ -146,40 +143,4 @@ func AssertLoggingOff(rendered []byte) error {
 		return fmt.Errorf("%w: %s", ErrLoggingNotPinned, strings.Join(missing, ", "))
 	}
 	return nil
-}
-
-// ConfigFor builds the proxy configuration from the control plane's own.
-//
-// One entry per route member, addressed on loopback: docs/specs/03-agent.md §5
-// publishes a deployment's port on 127.0.0.1 only, so this is the only address
-// that can reach one — and a route pointing anywhere else would mean the
-// isolation had failed.
-func ConfigFor(ctx context.Context, q config.Querier, masterKey string) (LiteLLMConfig, error) {
-	snap, err := config.Read(ctx, q)
-	if err != nil {
-		return LiteLLMConfig{}, err
-	}
-	byID := map[string]config.Deployment{}
-	for _, d := range snap.Deployments {
-		byID[d.ID] = d
-	}
-
-	c := LiteLLMConfig{MasterKey: masterKey}
-	for _, rt := range snap.Routes {
-		for _, m := range rt.Members {
-			d, ok := byID[m.DeploymentID]
-			if !ok || d.Port == 0 {
-				// A member whose deployment has no port is one nothing has
-				// started. Skipped rather than rendered as an address that
-				// refuses: LiteLLM would retry it on every request.
-				continue
-			}
-			c.Models = append(c.Models, LiteLLMModel{
-				Name:    rt.Name,
-				Model:   d.ModelID,
-				APIBase: fmt.Sprintf("http://127.0.0.1:%d/v1", d.Port),
-			})
-		}
-	}
-	return c, nil
 }

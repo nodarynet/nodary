@@ -51,6 +51,12 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 	}
 	defer s.Close()
 
+	// Revoke shares approval's permission rather than inventing one:
+	// docs/specs/07-identity-audit.md §1 gives admin "node approval" as the
+	// node-lifecycle authority and names no separate revoke, and ejecting a
+	// node is that same authority exercised in the other direction. Drain is
+	// an operator's to do — it takes work off a machine without ending its
+	// membership.
 	perm := identity.PermNodeApprove
 	if verb == "drain" {
 		perm = identity.PermNodeDrain
@@ -95,15 +101,28 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 			if by != nil {
 				at = s.now.UTC().Format(audit.TimeFormat)
 			}
-			if to == "approved" {
+			switch to {
+			case "approved":
 				if _, err := m.Tx().ExecContext(context.Background(),
 					`UPDATE node SET state = ?, approved_by = ?, approved_at = ? WHERE name = ?`,
 					to, by, at, name); err != nil {
 					return err
 				}
-			} else if _, err := m.Tx().ExecContext(context.Background(),
-				`UPDATE node SET state = ? WHERE name = ?`, to, name); err != nil {
-				return err
+			case "departed":
+				// 0006_fleet.sql pairs the two in a CHECK, for the reason it
+				// pairs `failed` with a last_error: a machine that left the
+				// fleet without a date is a record that cannot be read back
+				// as history, which is most of what keeping it is for.
+				if _, err := m.Tx().ExecContext(context.Background(),
+					`UPDATE node SET state = ?, departed_at = ? WHERE name = ?`,
+					to, s.now.UTC().Format(audit.TimeFormat), name); err != nil {
+					return err
+				}
+			default:
+				if _, err := m.Tx().ExecContext(context.Background(),
+					`UPDATE node SET state = ? WHERE name = ?`, to, name); err != nil {
+					return err
+				}
 			}
 			// `node.state` is in the configuration snapshot, so this is a
 			// configuration change and records a revision like any other.
@@ -120,6 +139,18 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 	}
 
 	fmt.Fprintf(e.stderr, "node %s: %s -> %s\n", name, from, to)
+	if verb == "revoke" {
+		// What actually happens now, because none of it is obvious and all of
+		// it is already built: docs/specs/02-enrollment.md §3 refuses the
+		// certificate on next contact (internal/api's agentNode), a node that
+		// is not approved receives an empty desired state and so stops
+		// everything within a poll, and the gateway stops routing to it
+		// (internal/gateway's ConfigFor).
+		fmt.Fprintf(e.stderr,
+			"  Its certificate is refused from now on, it stops serving within a poll,\n"+
+				"  and its deployments leave their routes on the next `nodary gateway sync`.\n"+
+				"  Its history is kept. Rejoining is a fresh enrollment.\n")
+	}
 	if to == "approved" {
 		fmt.Fprintf(e.stderr, "  It will receive its desired state on the agent's next poll.\n")
 		if s.who.User.ID == "" {

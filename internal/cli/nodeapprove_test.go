@@ -71,6 +71,39 @@ func TestApprovingANodeFromTheConsole(t *testing.T) {
 	}
 }
 
+// R4-06: `nodary node revoke` is the server-side ejection. The enforcement
+// was already built and unreachable — internal/api's agentNode has refused a
+// `departed` node's certificate since R4-01, and nothing could put a node in
+// that state.
+func TestRevokingANodeEjectsIt(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.enrolled("fractal")
+	if code, _, stderr := a.run("node", "approve", "fractal"); code != ExitOK {
+		t.Fatalf("approve: exit %d, %s", code, stderr)
+	}
+
+	code, _, stderr := a.run("node", "revoke", "fractal")
+	if code != ExitOK {
+		t.Fatalf("revoke: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "approved -> departed") {
+		t.Errorf("the transition is not reported: %s", stderr)
+	}
+	// What it means has to be said: none of "the certificate is refused", "it
+	// stops serving" or "its history is kept" is guessable from the word.
+	if !strings.Contains(stderr, "certificate is refused") {
+		t.Errorf("revoking does not say what it did: %s", stderr)
+	}
+
+	// And it is a configuration change like approval, so the fleet's own
+	// record moves with it.
+	if code, out, _ := a.run("config", "show"); code != ExitOK ||
+		!strings.Contains(out, `state = "departed"`) {
+		t.Errorf("the node is not departed in the configuration:\n%s", out)
+	}
+}
+
 // TestApprovingANodeThatDidNotEnrolIsRefused. A node joins by enrolling, so a
 // name nobody has seen is a typo, and it deserves better than a constraint.
 func TestApprovingANodeThatDidNotEnrolIsRefused(t *testing.T) {

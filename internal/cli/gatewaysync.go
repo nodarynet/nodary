@@ -182,6 +182,24 @@ func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMMod
 		byID[d.ID] = d
 	}
 	local := localNodeName(dir)
+	// A node that is draining or departed receives an empty desired state
+	// (internal/api's desiredFor) and stops everything within a poll, so a
+	// route to it is an address about to stop answering. Without this,
+	// `nodary node drain` and `node revoke` moved a node's state and the
+	// gateway kept sending it traffic — the state said one thing and the
+	// data plane did another.
+	//
+	// Only for a node the snapshot actually names: a fragment that carries
+	// deployments and no nodes should render, for the reason
+	// TestAControlPlaneThatIsNotANodeServesEveryRoute gives.
+	state := map[string]string{}
+	for _, n := range snap.Nodes {
+		state[n.Name] = n.State
+	}
+	serving := func(node string) bool {
+		s, known := state[node]
+		return !known || s == "approved" || s == "ready"
+	}
 
 	var models []gateway.LiteLLMModel
 	var skipped int
@@ -197,6 +215,12 @@ func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMMod
 				skipped++
 				fmt.Fprintf(e.stdout, "%s %-18s %s: %s has no port yet\n",
 					mark(preflight.LevelWarn), "route", r.Name, d.ID)
+				continue
+			}
+			if !serving(d.NodeName) {
+				skipped++
+				fmt.Fprintf(e.stdout, "%s %-18s %s: %s is on %q, which is %s and not serving\n",
+					mark(preflight.LevelWarn), "route", r.Name, d.ID, d.NodeName, state[d.NodeName])
 				continue
 			}
 			if local != "" && d.NodeName != local {
