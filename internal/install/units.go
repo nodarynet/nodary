@@ -128,6 +128,10 @@ WantedBy=multi-user.target
 // It holds prompts in memory and writes nothing but usage rows, so it gets the
 // same treatment and one line more: it has no business reading /etc/nodary's
 // PKI at all.
+//
+// The master key reaches it through EnvironmentFile= and never through
+// ExecStart=. Interpolating it into the command line published the one
+// credential LiteLLM accepts to every local account via /proc/<pid>/cmdline.
 const gatewayUnit = `# Written by nodary. Edits are overwritten.
 [Unit]
 Description=nodary inference gateway
@@ -136,7 +140,7 @@ Wants=nodary-server.service
 
 [Service]
 Type=exec
-ExecStart=%[1]s gateway start --master-key ${NODARY_MASTER_KEY}
+ExecStart=%[1]s gateway start
 EnvironmentFile=/etc/nodary/gateway.env
 Restart=always
 RestartSec=5s

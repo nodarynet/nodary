@@ -37,15 +37,31 @@ func cmdGatewayStart(e env, args []string) int {
 	dbPath := dbFlag(fs)
 	bind := fs.String("bind", "127.0.0.1:8086", "address to serve the inference API on")
 	upstream := fs.String("upstream", "http://127.0.0.1:4000", "the LiteLLM proxy")
-	masterKey := fs.String("master-key", "", "the key the gateway presents to LiteLLM")
+	// Read from the environment and never from an argument. The unit already
+	// loads /etc/nodary/gateway.env, and a credential interpolated into
+	// ExecStart= lands in the process's argv, where /proc/<pid>/cmdline hands it
+	// to any local account — for the one credential LiteLLM accepts, which
+	// grants its whole administrative API. /proc/<pid>/environ is readable only
+	// by the same user and root.
+	//
+	// The flag stays defined so that the old invocation is refused with the
+	// reason rather than parsed as an unknown argument.
+	legacyFlag := fs.String("master-key", "", "removed: set NODARY_MASTER_KEY instead")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
-	if *masterKey == "" {
+	if *legacyFlag != "" {
+		fmt.Fprintf(e.stderr, "nodary gateway start: --master-key is no longer accepted; a credential "+
+			"passed as an argument is readable by any local account through /proc/<pid>/cmdline. "+
+			"Set NODARY_MASTER_KEY in the environment (the unit loads /etc/nodary/gateway.env).\n")
+		return ExitUsage
+	}
+	masterKey := os.Getenv("NODARY_MASTER_KEY")
+	if masterKey == "" {
 		// Refused rather than defaulted. docs/specs/06-gateway.md §1 has LiteLLM
 		// stateless behind a single key; a built-in default would be the same
 		// key on every install, which is no key at all.
-		fmt.Fprintf(e.stderr, "nodary gateway start: --master-key is required; it is the credential "+
+		fmt.Fprintf(e.stderr, "nodary gateway start: NODARY_MASTER_KEY is required; it is the credential "+
 			"LiteLLM accepts and it must not be a default\n")
 		return ExitUsage
 	}
@@ -62,7 +78,7 @@ func cmdGatewayStart(e env, args []string) int {
 
 	log := slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	g, gerr := gateway.New(gateway.Options{DB: db, Upstream: *upstream,
-		MasterKey: *masterKey, Log: log})
+		MasterKey: masterKey, Log: log})
 	if err := gerr; err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway start: %v\n", err)
 		return exitFor(err)
