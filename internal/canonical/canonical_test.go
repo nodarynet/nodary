@@ -131,6 +131,71 @@ func TestRejections(t *testing.T) {
 	}
 }
 
+// TestTheEncoderAcceptsEverythingItEmits is the property FuzzEncodeJSON
+// asserts, written down as the cases that matter so the rule is readable
+// rather than a corpus blob.
+//
+// The encoder used to reject its own output: 100000000000001000.0 took the
+// float path and canonicalized to 100000000000001000, and handing that back
+// took the integer path, where an exactness test refused it. `audit verify`
+// and `config verify` re-hash stored records, so an encoder that cannot read
+// its own bytes reports tampering in history nobody touched.
+//
+// The refusal it must keep is the one that changes digits.
+func TestTheEncoderAcceptsEverythingItEmits(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		// Not exactly representable, and canonicalizing changes nothing:
+		// 100000000000001000 is the shortest decimal that round-trips
+		// through its double, which is what any conforming implementation
+		// emits for both spellings.
+		{"integral float past 2^53", "100000000000001000.0", "100000000000001000"},
+		{"the same value as an integer", "100000000000001000", "100000000000001000"},
+		{"exactly representable past 2^53", "1e17", "100000000000000000"},
+		{"negative, digits unchanged", "-100000000000001000", "-100000000000001000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			once, err := EncodeJSON([]byte(tc.in))
+			if err != nil {
+				t.Fatalf("EncodeJSON(%s): %v", tc.in, err)
+			}
+			if string(once) != tc.want {
+				t.Fatalf("EncodeJSON(%s) = %s, want %s", tc.in, once, tc.want)
+			}
+			twice, err := EncodeJSON(once)
+			if err != nil {
+				t.Fatalf("the encoder rejected its own output %s: %v", once, err)
+			}
+			if string(twice) != string(once) {
+				t.Errorf("not idempotent: %s -> %s -> %s", tc.in, once, twice)
+			}
+		})
+	}
+
+	// 2^53+1 comes back as ...992, so accepting it would hand back digits
+	// nobody wrote. That is the precision loss the refusal exists for and it
+	// survives the fix.
+	if got, err := EncodeJSON([]byte("9007199254740993")); !errors.Is(err, ErrIntegerTooLarge) {
+		t.Errorf("EncodeJSON(9007199254740993) = %s, %v; want ErrIntegerTooLarge", got, err)
+	}
+
+	// **The float spelling of the same value is accepted and rounds**:
+	// 9007199254740993.0 encodes to 9007199254740992. Pinned rather than
+	// fixed, because the two spellings are different claims — an integer
+	// literal asserts an exact integer, where a decimal literal asserts the
+	// real number nearest to it and rounding is JSON's defined semantics for
+	// it — and because narrowing what the encoder accepts is a change to the
+	// hash preimage's domain, which docs/plans/mvp.md §2 puts among the
+	// things that cannot be retrofitted. Idempotency, the property this test
+	// exists for, holds either way: the output re-encodes to itself.
+	once, err := EncodeJSON([]byte("9007199254740993.0"))
+	if err != nil || string(once) != "9007199254740992" {
+		t.Fatalf("EncodeJSON(9007199254740993.0) = %s, %v; want 9007199254740992", once, err)
+	}
+	if twice, err := EncodeJSON(once); err != nil || string(twice) != string(once) {
+		t.Errorf("rounded output is not stable: %s -> %s, %v", once, twice, err)
+	}
+}
+
 // A valid surrogate pair is not a lone surrogate, and rejecting it would break
 // every record containing an emoji.
 func TestValidSurrogatePairAccepted(t *testing.T) {

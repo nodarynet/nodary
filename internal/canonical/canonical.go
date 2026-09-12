@@ -38,16 +38,20 @@ var (
 	// ErrNotFinite is returned for NaN and ±Inf, which JSON cannot represent.
 	ErrNotFinite = errors.New("value is not a finite number")
 
-	// ErrIntegerTooLarge is returned for an integer no IEEE-754 double holds
-	// exactly.
+	// ErrIntegerTooLarge is returned for an integer whose canonical form is
+	// not the digits it was given.
 	//
-	// This is an exactness test rather than a magnitude one: 10^17 exceeds
-	// 2^53 and is still exact, and rejecting it would make the encoder refuse
-	// to read back its own output for the input 1e17. RFC 8785 §3.1 requires
-	// every number be expressible as a double, so a conforming implementation
-	// given 2^53+1 emits 9007199254740992 — it rounds. Refusing beats silently
-	// losing precision in a value someone will later be held to, which is what
-	// RFC 7493 §2.2 recommends for interoperable JSON.
+	// RFC 8785 §3.1 requires every number be expressible as a double, so a
+	// conforming implementation given 2^53+1 emits 9007199254740992 — it
+	// rounds. Refusing beats silently losing precision in a value someone
+	// will later be held to, which is what RFC 7493 §2.2 recommends for
+	// interoperable JSON.
+	//
+	// The test is a round trip rather than a magnitude or an exactness check,
+	// and both of the cheaper tests were wrong in the same way: each refused
+	// integers whose canonical form is unchanged, which made the encoder
+	// reject its own output and left history that nobody had touched
+	// unverifiable. formatBigInt carries the whole story.
 	ErrIntegerTooLarge = errors.New("integer is not exactly representable as a double")
 
 	// ErrLoneSurrogate is returned for an unpaired \uD800-\uDFFF escape.

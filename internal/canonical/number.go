@@ -112,33 +112,59 @@ func abs(n int) int {
 	return n
 }
 
-// formatInt renders an integer, refusing one a double cannot hold exactly.
+// formatBigInt renders an integer, refusing one whose canonical form would
+// not be the digits it was handed.
 //
 // RFC 8785 §3.1 requires every number be expressible as a double, so a
 // conforming implementation handed 2^53+1 emits 9007199254740992 — it rounds.
 // nodary refuses instead: silently losing precision in a value someone will
 // later be held to is the wrong failure for an audit record. On every input we
 // do accept, our bytes match any conforming implementation.
+//
+// **The test is whether canonicalizing changes the digits, not whether the
+// double holds the integer exactly, and the difference is a bug FuzzEncodeJSON
+// found after three nights red.** The two branches of formatJSONNumber
+// disagreed: 100000000000001000.0 went down the float path, which emitted
+// 100000000000001000 — the shortest decimal that round-trips through its
+// double, and what every conforming implementation emits — and feeding that
+// back in went down the integer path, where an exactness test refused it. The
+// encoder rejected its own output, so `audit verify` and `config verify`,
+// which re-hash stored records, could report an error on a chain nobody had
+// touched.
+//
+// Rounding to nearest and comparing the decimal back keeps the reason the
+// refusal exists while closing that gap. 2^53+1 still fails, because it comes
+// back as 9007199254740992 and those are different digits — which is exactly
+// the precision loss worth refusing. 100000000000001000 passes, because the
+// digits an operator reads and a hash covers are the ones they gave.
+func formatBigInt(i *big.Int) (string, error) {
+	f, exact := exactFloat64(i)
+	if exact {
+		return formatNumber(f)
+	}
+	// exactFloat64 hands back the nearest double either way, which is the
+	// value a conforming implementation would have used.
+	out, err := formatNumber(f)
+	if err != nil || out != i.String() {
+		// Also the overflow case: an integer past float64's range renders as
+		// ±Inf, which formatNumber refuses.
+		return "", errIntegerTooLarge
+	}
+	return out, nil
+}
+
 func formatInt(i int64) (string, error) {
 	if i <= smallEnoughForExactInt && i >= -smallEnoughForExactInt {
 		return formatNumber(float64(i))
 	}
-	f, ok := exactFloat64(big.NewInt(i))
-	if !ok {
-		return "", errIntegerTooLarge
-	}
-	return formatNumber(f)
+	return formatBigInt(big.NewInt(i))
 }
 
 func formatUint(u uint64) (string, error) {
 	if u <= smallEnoughForExactInt {
 		return formatNumber(float64(u))
 	}
-	f, ok := exactFloat64(new(big.Int).SetUint64(u))
-	if !ok {
-		return "", errIntegerTooLarge
-	}
-	return formatNumber(f)
+	return formatBigInt(new(big.Int).SetUint64(u))
 }
 
 // formatIntLiteral renders an integer taken verbatim from a JSON document,
@@ -148,9 +174,5 @@ func formatIntLiteral(lit string) (string, error) {
 	if !ok {
 		return "", errNotFinite
 	}
-	f, exact := exactFloat64(i)
-	if !exact {
-		return "", errIntegerTooLarge
-	}
-	return formatNumber(f)
+	return formatBigInt(i)
 }
