@@ -35,7 +35,7 @@ func cmdGateway(e env, args []string) int {
 func cmdGatewayStart(e env, args []string) int {
 	fs := newFlagSet(e, "gateway start")
 	dbPath := dbFlag(fs)
-	bind := fs.String("bind", "127.0.0.1:8080", "address to serve the inference API on")
+	bind := fs.String("bind", "127.0.0.1:8086", "address to serve the inference API on")
 	upstream := fs.String("upstream", "http://127.0.0.1:4000", "the LiteLLM proxy")
 	masterKey := fs.String("master-key", "", "the key the gateway presents to LiteLLM")
 	if code := parseFlags(e, fs, args); code >= 0 {

@@ -171,7 +171,7 @@ That prints the key once — `nodary_sk_…` — and states plainly which routes
 Use it against the gateway, which is already up and metering:
 
 ```sh
-curl http://127.0.0.1:8080/v1/chat/completions \
+curl http://127.0.0.1:8086/v1/chat/completions \
     -H "Authorization: Bearer nodary_sk_…" \
     -H "Content-Type: application/json" \
     -d '{"model": "qwen2.5-0.5b-instruct", "messages": [{"role": "user", "content": "hello"}]}'
