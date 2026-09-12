@@ -33,7 +33,7 @@ Re-checked at `af5553a` rather than taken from the review:
 | `token_max_ttl_days` never consulted when minting | `TokenMaxTTLDays` has no reference outside `internal/policy` |
 | LiteLLM master key in `argv` | [`units.go:139`](../../internal/install/units.go) |
 | Limits are stored and never read | `internal/gateway/` references no limit field |
-| 11 of 16 policy settings unenforced | Exactly 11. Enforced: `require_totp`, `require_justification`, `min_justification_length`, `allow_unattended_tokens`, `session_ttl_minutes` |
+| 11 of 16 policy settings unenforced | **8.** The grep is right and two of its hits are not gaps: `require_signed_artifacts` and `egress_default` are refused at parse if set to anything else and their mechanisms run unconditionally, so nothing reads the field because nothing needs to. A third, `token_max_ttl_days`, is now enforced |
 | 90-day agent certificates, no renewal | [`pki.go:203`](../../internal/api/pki.go) |
 | Egress drop rule is IPv4 only | [`network.go:184`](../../internal/agent/network.go) |
 | Usage rows carry no node or deployment | `internal/gateway/proxy.go` sets neither field |
@@ -163,12 +163,12 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
 
 ## Steps
 
-- [ ] Tier 0 — the claim correction
-  - [ ] 0.1 `policy show` marks unenforced settings
-  - [ ] 0.2 `token_max_ttl_days` enforced at mint
-  - [ ] 0.3 README corrected
-  - [ ] 0.4 master key off the command line
-  - [ ] 0.5 IPv6 egress drop
+- [x] Tier 0 — the claim correction
+  - [x] 0.1 `policy show` marks unenforced settings — R1-38. Three standings, not two: enforced, invariant, and not-enforced-plus-a-task-number. A test pins the counts, so a setting cannot change standing without the commit saying so
+  - [x] 0.2 `token_max_ttl_days` enforced at mint — R1-37. `token create` and `token join`; `never` refused under every profile
+  - [x] 0.3 README corrected — the editions table, the limits bullet, the policy bullet, and mvp.md §6 promoted onto the front page as two tables
+  - [x] 0.4 master key off the command line — R5-28. The test is an allowlist of what a unit may interpolate into `ExecStart=`, which found a second interpolation on its first run
+  - [x] 0.5 IPv6 egress drop — R4-39. `disable_ipv6` and `accept_ra=0` on the bridge, plus an `iifname` rule, because there is no v6 subnet to write a `saddr` rule against
 - [ ] Tier 1 — the clock and the fairness
   - [ ] 1.1 R4-05 certificate renewal
   - [ ] 1.2 R3-08/09/10 throttling and quota
