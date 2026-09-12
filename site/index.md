@@ -25,6 +25,7 @@ Running a homelab instead? Same binary, same install, nothing gated — you're t
 edition rather than the target audience.
 
 [Get started :material-arrow-right:](getting-started.md){ .md-button .md-button--primary }
+[Administering a fleet](administering.md){ .md-button }
 [View on GitHub](https://github.com/nodarynet/nodary){ .md-button }
 
 ## What it does
@@ -36,12 +37,15 @@ edition rather than the target audience.
   descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
 - **Stages weights** with verified transfers, including a fully offline path for air-gapped
   sites.
-- **Issues and revokes tokens**, meters every request against the person who made it, and
-  enforces per-user rate and budget limits.
+- **Issues and revokes tokens**, and meters every request against the person who made it.
+  Per-user rate and budget limits are configured, exported and diffed today; the gateway
+  does not yet read them.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with
   a required justification and a hash binding the approved preview to what was applied.
-- **Enforces policy profiles** — origin allow/deny lists, mandatory re-authentication,
-  deny-by-default egress, retention windows — as one reviewable object.
+- **Carries policy as one reviewable object** — mandatory re-authentication, justification
+  floors, credential lifetimes and deny-by-default egress are in force; origin allow/deny
+  lists and retention windows are not, and `nodary policy show` marks every setting nothing
+  acts on yet.
 - **Keeps prompts and completions out of its own records.** The metering schema is closed:
   no free-text body field exists to write into, and a test fails the build if request
   content ever reaches storage.
@@ -55,8 +59,8 @@ what turns records into a deliverable a human assessor reads.
 | :--- | :---: | :---: |
 | Control plane, agent, gateway, backends | ✔ | |
 | The hash chain, `audit verify`, `audit export` | ✔ | |
-| Enrollment, staging, guardrails, egress isolation | ✔ | |
-| Both policy profiles, the FIPS build, OIDC, the SIEM sink | ✔ | |
+| Enrollment, staging, egress isolation | ✔ | |
+| Both policy profiles | ✔ | |
 | `nodary evidence export` — the signed bundle | | ✔ |
 | The control index and SSP narratives | | ✔ |
 | The signed advisory feed | mechanism | content |
@@ -70,3 +74,9 @@ We do not sell security — we sell the paperwork.
 | [Specifications](https://github.com/nodarynet/nodary/tree/main/docs/specs) | What every component is required to do |
 | [Decision records](https://github.com/nodarynet/nodary/tree/main/docs/adr) | Why it's built this way, and what was rejected |
 | [Implementation tracker](https://github.com/nodarynet/nodary/tree/main/docs/tasks) | What's done, what's next |
+
+The [README](https://github.com/nodarynet/nodary#status) carries the full list of what is
+recorded but not yet enforced, and what is not built at all. It is on the front page rather
+than in a roadmap on purpose: a capability described as enforced, which is really an object
+the system stores and displays, hands the person writing an SSP language for a control that
+is not in force.

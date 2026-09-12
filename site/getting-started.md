@@ -1,174 +1,99 @@
 # Getting started
 
-This walks one GPU box from bare metal to a model answering `/v1/chat/completions`,
-metered, on an isolated network, with every step recorded. It's the single-machine
-path — control plane and GPU node together — which is the fastest way to see the whole
-shape of the product. [Below](#running-the-control-plane-and-the-gpu-node-separately)
-covers splitting them onto two machines.
-
-!!! tip "Prefer being asked, not remembering flags?"
-    After `install.sh` places the binary, `sudo nodary install` is the same walk as a
-    short conversation — a handful of plain questions, defaults you can just hit enter
-    on, and it runs the verbs below on your behalf. For step 3 it goes one step
-    further and asks only for a HuggingFace repo: it runs the group grant itself,
-    drops to your own account for the download (never as root), and registers what
-    it fetched — no separate script, no `newgrp`. The steps that follow are what's
-    happening underneath either way, and the ones you'll reach for once there's a
-    second node or a script instead of a person at the keyboard.
+One GPU box, from bare metal to a model answering `/v1/chat/completions` — metered, on a
+network with no route off the machine, with every step recorded. Two commands and a short
+conversation.
 
 !!! note "You'll need"
-    A Linux host (or Windows with an NVIDIA GPU, which joins [inside
+    A Linux host with an NVIDIA GPU and driver installed — or Windows with an NVIDIA GPU,
+    which joins [inside
     WSL2](https://github.com/nodarynet/nodary/blob/main/docs/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
-    as an ordinary Linux node) with an NVIDIA GPU and driver installed, and root for the
-    `nodary` commands below — administrative acts are gated on it deliberately. Downloading
-    a model in step 3 is not one of those and runs as yourself.
+    as an ordinary Linux node. Run the install through `sudo` rather than as root directly:
+    it drops back to your own account to download weights, and it needs to know which
+    account that is.
 
-## 1. Install, and bring up the control plane and this node together
+## 1. Place the binary
 
 ```sh
-curl -fsSL https://nodary.net/install.sh | sh -s -- server --with-node --host <this-host's-address>
+curl -fsSL https://nodary.net/install.sh | sh
 ```
 
-`install.sh` downloads the signed binary, verifies it against the [published
-fingerprint](#verifying-a-release), and installs it. `--with-node` then installs
-the control plane *and* enrolls this same machine as a GPU node in one step — the control
-plane, its TLS certificate, containerd, the isolated network, and the agent, all in one
-run. `--host` is whatever address other machines (or you, later) will reach this one at;
-for a single box you're sitting at, `--host 127.0.0.1` is fine.
+`install.sh` is deliberately small. It detects your OS and architecture, downloads the
+signed binary, **verifies the signature and then the SHA-256** — neither is optional and
+there is no skip flag — places it under `/opt/nodary/`, and stops. Nothing is configured
+and no service is started yet.
 
-The run ends by printing three things — keep the terminal output:
+## 2. Run the install
+
+```sh
+sudo nodary install
+```
+
+This asks a handful of plain questions and runs the verbs itself. Every default is the
+answer you want for a first single-machine install, so you can mostly press enter.
+
+```console
+nodary — accountable GPU inference
+
+Is this machine the control plane, a GPU node joining one, or both?
+  1) Both — single box (recommended to start)
+  2) Control plane only
+  3) GPU node, joining a control plane elsewhere
+> 1
+Address other machines will reach this one at [127.0.0.1]:
+```
+
+The address is what *other* machines will use to reach this one, so for a box you're
+sitting at, the default is right. It goes into the control plane's TLS certificate, which
+is why it's asked before anything is generated rather than patched afterwards.
+
+The control plane, its certificate, containerd, the isolated network and the agent all
+install here, and this machine enrolls itself as a node. Then:
+
+```console
+Approve fractal now? [Y/n]
+Stage and register a model now? [y/N] y
+Model (HuggingFace org/name): Qwen/Qwen2.5-0.5B-Instruct
+Weights for Qwen/Qwen2.5-0.5B-Instruct
+  1) Download and stage them now (recommended)
+  2) Already staged under the models directory on this node
+  3) I already have a manifest (from stage-model.sh, run elsewhere)
+> 1
+HuggingFace token (only for a gated repository — Gemma, Llama, Mistral — leave blank otherwise):
+GPU index [0]:
+Port [8001]:
+Create a user who can call it? [Y/n]
+  Name [you]:
+  Role [operator]:
+Mint you a service key now? [Y/n]
+```
+
+Note that **"stage and register a model" defaults to no.** It is the one step that reaches
+the network and downloads gigabytes, so it is the one answer you have to give deliberately.
+
+The download runs as *your* account, never as root — the install grants you write access to
+the models directory first, then drops privileges to fetch. A gated repository (every
+Gemma, Llama and Mistral release) needs a HuggingFace token at that prompt; the token goes
+into the environment of the download, not onto a command line where `ps` would show it.
+
+The run ends by printing, in order:
 
 - **A one-time setup link**, valid for fifteen minutes, that creates the first
-  administrator. Open it in a browser and set a password. Nobody, including this
-  install, ever knows it — there is no default password to forget to change.
-- **The CA fingerprint**, `sha256:…`, for enrolling additional nodes later.
-- **A join token**, for the same.
+  administrator. **Open it now** — see step 3.
+- **The CA fingerprint** and **a join token**, for adding a second GPU host later.
+- **A service key**, `nodary_sk_…`, shown exactly once. It is stored only as a hash, so
+  nobody — including nodary — can read it back. Copy it.
 
-## 2. Approve the node
+## 3. Set the administrator password
 
-A node that enrolls is held `pending` until an administrator says yes — a leaked join
-token alone can't place a machine into the serving fleet. Confirm it's there, then approve
-it:
+Open the setup link in a browser and choose a password. Nobody, including the install that
+just ran, ever knows it: there is no default password to forget to change, and none was
+typed into your terminal or written to a log.
 
-```sh
-sudo nodary node list
-sudo nodary node approve <node-name>
-```
+## 4. Call it
 
-`node list` names what an operator has to act on, not just what exists — a pending node,
-one that's gone quiet, one offering no GPU. `node show <name>` gives the detail on one:
-hardware, what it's offering, what's placed on it.
-
-## 3. Get a model's weights onto the node
-
-nodary doesn't download weights for you — the air-gapped path is first-class, not a
-fallback, so placing weights is always a deliberate, verifiable act, and no part of it
-touches the network as root.
-
-`nodary`'s models directory (`/var/lib/nodary/models` by default) is owned by the `nodary`
-service account, which is what actually needs to read it later — so the privileged part
-here is granting *yourself* write access to it, once. Two steps, not one: owning the
-directory's group is not the same as being *in* that group, and the second is what your
-shell actually checks.
-
-```sh
-sudo usermod -aG nodary "$USER"
-sudo install -d -o "$USER" -g nodary -m 2750 /var/lib/nodary/models
-newgrp nodary
-```
-
-`newgrp` starts a shell with that membership active right away — without it, `usermod`
-doesn't take effect until you log out and back in, and the next command would still refuse
-you with nothing having visibly changed. Run everything from here in that shell (or a new
-terminal, once you've logged out and back in once).
-
-That's a permission grant, not a download — nothing reaches the network. From here on,
-everything runs as yourself, and the quickest way to both download and stage a model is
-one line — no checkout, no separate download-then-run:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
-    | bash -s -- Qwen/Qwen2.5-0.5B-Instruct
-```
-
-A repository that requires accepting a license on huggingface.co first (every Gemma, Llama
-and Mistral release) needs a token, set for the script and not for `curl`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
-    | HF_TOKEN=hf_… bash -s -- google/gemma-3-1b-it
-```
-
-It downloads the files, writes `nodary-manifest.sha256` beside them, and prints the exact
-`nodary model register` command to run next — the step this guide covers on its own below,
-since it's the one that's audited.
-
-??? note "Placing weights another way"
-    Any tool works — `huggingface-cli download`, `git lfs clone`, or copying files in over
-    `scp`. The only requirement is the layout `nodary model register` (next step) expects:
-    every file **flat**, no `blobs/`, `refs/` or `snapshots/`, directly under
-    `/var/lib/nodary/models/hub/models--<org>--<name>/` — `config.json` has to sit at that
-    top level, because the agent points a backend's `--model` at the directory itself.
-
-??? tip "Or let the node fetch its own copy"
-    Everything above places weights on *this* box, which only matters if this box is also
-    the node — the common case for a single-machine install, not the only one. From any
-    other machine — an admin laptop with no `nodary` installed at all is fine — the same
-    script, pointed at a scratch directory instead of `/var/lib/nodary/models`, gets you a
-    manifest:
-
-    ```sh
-    curl -fsSL https://raw.githubusercontent.com/nodarynet/nodary/main/scripts/stage-model.sh \
-        | bash -s -- Qwen/Qwen2.5-0.5B-Instruct --models-dir /tmp/qwen
-    ```
-
-    The download still has to happen somewhere to hash it, but not permanently: keep only
-    `/tmp/qwen/hub/models--Qwen--Qwen2.5-0.5B-Instruct/nodary-manifest.sha256` and
-    `rm -rf /tmp/qwen` once it's copied out — a few kilobytes travels to the control plane,
-    not the weights. Register with `--source remote --manifest` and that path, and skip
-    straight to
-    [step 4](#4-register-it) — the agent on the node it's placed on downloads its own copy
-    directly from HuggingFace, verified against the same manifest, across as many reconcile
-    cycles as it takes, resumable if the agent restarts partway through:
-
-    ```sh
-    sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
-        --source remote --manifest /tmp/qwen/hub/models--Qwen--Qwen2.5-0.5B-Instruct/nodary-manifest.sha256 \
-        --node fractal --gpu 0 --port 8001 --grant alice --justify "first model"
-    ```
-
-    `nodary node show fractal` shows it moving `staging → staged` with the byte count
-    climbing, the same as any other progress this guide has you watch. If a transfer
-    lands corrupt (media, a flaky link), that state is terminal on purpose — nothing
-    silently retries — and `sudo nodary model restage Qwen/Qwen2.5-0.5B-Instruct --node
-    fractal` is the explicit unstick. `nodary model unstage` is the inverse of this whole
-    section: once nothing deploys a model on a node, it removes the weights and reclaims
-    the disk.
-
-## 4. Register it
-
-This is the step that turns files on disk into a model a client can call — it digests the
-weights, writes the manifest they're checked against, pins the exact container image this
-build was tested with, and grants a user access to the route it creates (routes are
-deny-by-default: nobody may call one until granted):
-
-```sh
-sudo nodary user add alice --role operator --justify "first user"
-sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
-    --node <node-name> --gpu 0 --port 8001 \
-    --grant alice --justify "first model"
-```
-
-`nodary node show <node-name>` follows the deployment from `starting` to `ready`.
-
-## 5. Create a key, and call it
-
-```sh
-sudo nodary token create --user alice --kind sk --justify "alice's client"
-```
-
-That prints the key once — `nodary_sk_…` — and states plainly which routes it may call.
-Use it against the gateway, which is already up and metering:
+`nodary node show <name>` follows the deployment from `starting` to `ready`. Once it's
+ready, the gateway is already up and metering:
 
 ```sh
 curl http://127.0.0.1:8086/v1/chat/completions \
@@ -177,43 +102,71 @@ curl http://127.0.0.1:8086/v1/chat/completions \
     -d '{"model": "qwen2.5-0.5b-instruct", "messages": [{"role": "user", "content": "hello"}]}'
 ```
 
+Then:
+
 ```sh
 sudo nodary usage show
 ```
 
-shows the request as counts — a user, a model, prompt and completion tokens — and nothing
-of what was said. No prompt or completion text ever reaches nodary's own storage.
+shows that request as counts — a user, a model, prompt and completion tokens — and nothing
+of what was said. There is no field in the metering schema that could hold prompt or
+completion text, and a test fails the build if a path from a request body to storage ever
+appears.
 
-## Running the control plane and the GPU node separately
+## Two machines instead of one
 
-Drop `--with-node` from step 1 to install only the control plane. On each GPU box:
+The same command, answered differently. On the control-plane host choose **2) Control plane
+only**; it prints a join token and a CA fingerprint. On each GPU host, run the same two
+commands and choose **3) GPU node**, and it asks for those three values:
 
-```sh
-curl -fsSL https://nodary.net/install.sh | sh -s -- node \
-    --server https://<control-plane-host>:8443 \
-    --token <join-token> \
-    --ca-fingerprint <sha256:…>
+```console
+Control plane URL (https://host:8443): https://10.0.0.5:8443
+Join token (from `nodary token join` on the control plane): …
+CA fingerprint (sha256:…, printed by `server install`): sha256:…
 ```
 
-using the token and fingerprint the control plane install printed. `nodary token join`
-mints additional join tokens; each one expires in an hour and can enroll one node.
-Everything from step 2 onward is the same.
+The node enrolls and waits, `pending`, until an administrator approves it — a leaked join
+token alone cannot put a machine into the serving fleet. The wizard offers to approve it
+for you if you're running on the control plane; from a GPU host you'll approve it with
+`nodary node approve` on the control plane, which is [the next
+guide](administering.md#approving-a-node).
+
+## When you outgrow the wizard
+
+`nodary install` is the on-ramp, not the only ramp. A fleet grows past what one interactive
+session can drive — a third node, a scripted deployment, a CI pipeline, a flag the wizard
+never asks about — and those need arguments rather than a conversation.
+
+Everything above is the same verbs you'd otherwise run yourself, in the same order.
+**[Administering a fleet →](administering.md)** covers them one at a time, plus the things
+the wizard deliberately leaves alone: staging weights by hand or from an air-gapped
+machine, changing what's deployed, routes and access grants, and reading the audit chain.
 
 ## Verifying a release
+
+The release public key fingerprint is published here so it can be checked against a source
+other than the one serving the download:
 
 ```text
 minisign  RWRYtHqer6FbV8fMD5CEK+XBDBiX++arPJsueLpwXAowfcYBj6bwEWJD
 openssl   SHA256:ec401b74444511fa2ee060cfbb39e1411e77884dfab2223576509e1396457900
 ```
 
-`install.sh` verifies the signature and digest before it will place anything, and has no
-override flag.
+To check the script itself before running it, rather than piping it to a shell:
+
+```sh
+curl -fsSLO https://nodary.net/install.sh
+curl -fsSLO https://nodary.net/install.sh.minisig
+minisign -Vm install.sh -P "$(cat nodary-release.pub)"
+sh install.sh
+```
 
 ## Next
 
 - [`nodary doctor`](https://github.com/nodarynet/nodary/blob/main/docs/specs/10-cli.md#3-nodary-doctor)
   diagnoses a host in one pass — driver, GPU enumeration, certificate expiry, and a live
   re-run of the egress assertion.
+- [Administering a fleet](administering.md) — the verbs, one at a time.
 - The [CLI reference](https://github.com/nodarynet/nodary/blob/main/docs/specs/10-cli.md)
   covers every verb.
 - The [specifications](https://github.com/nodarynet/nodary/tree/main/docs/specs) are what

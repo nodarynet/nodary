@@ -28,9 +28,15 @@ Terraform.
 curl -fsSL https://nodary.net/install.sh | sh -s -- server --with-node --host <this-host>
 ```
 
-installs the control plane and enrolls this GPU as its first node in one step. **[Full
-walkthrough →](https://nodarynet.github.io/nodary/getting-started/)** approving the node,
-staging and registering a model, and calling it.
+installs the control plane and enrolls this GPU as its first node in one step.
+
+Prefer being asked to remembering flags? `curl -fsSL https://nodary.net/install.sh | sh`
+places the binary and stops; `sudo nodary install` then walks the whole thing as a short
+conversation — install, enroll, approve, stage, register, grant and a key — running the same
+verbs on your behalf. **[Getting started
+→](https://nodarynet.github.io/nodary/getting-started/)** is that route;
+**[administering a fleet →](https://nodarynet.github.io/nodary/administering/)** is the
+verbs one at a time, for a third node, a script, or a flag the wizard never asks about.
 
 The same binary is also on PyPI, npm and Homebrew, and those are complete install paths rather
 than conveniences — `pip install nodary && nodary server install` reaches the same state
