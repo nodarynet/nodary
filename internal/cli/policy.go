@@ -97,11 +97,21 @@ func cmdPolicyShow(e env, args []string) int {
 	}
 
 	if *format == "json" {
-		return writeJSON(e, "policy show", p)
+		// The profile and what acts on it, side by side. A caveat carried only
+		// by the text renderer would be missing from the one form somebody
+		// pastes into a system security plan.
+		return writeJSON(e, "policy show", struct {
+			policy.Profile
+			Standing map[string]string `json:"standing"`
+		}{p, policy.Standing()})
 	}
 	fmt.Fprintf(e.stdout, "%s\n", p.Name)
 	for _, l := range policy.Describe(p) {
 		fmt.Fprintf(e.stdout, "  %s\n", l)
+	}
+	if n := len(policy.Unenforced()); n > 0 {
+		fmt.Fprintf(e.stderr,
+			"\n%d of these are not enforced yet; each names the task that will enforce it.\n", n)
 	}
 	return ExitOK
 }

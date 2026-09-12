@@ -86,6 +86,11 @@ front of the same core functions.
   - *note:* opened by the [2026-09-11 review](../review-2026-09-11.md), which minted a ten-year service key and a never-expiring one against a `regulated` profile capping both at 365 days. The ceiling was specified in R1d and displayed by `policy show` from the day profiles landed; nothing read it. The check sits beside `AllowUnattendedMint` in `internal/attest` because that is where a profile meets an act, and the CLI is where a lifetime can still vary — the API mints a fixed 90 days and never could
   - *deps:* R1-25
 
+- [x] **R1-38** `policy show` marks every setting nothing acts on, naming the task that will enforce it
+  - *done:* the setting table in `internal/policy/diff.go` carries a fourth column, and a test pins the three standings and their counts — so a setting cannot be added without saying whether anything reads it, and a setting cannot start or stop being enforced without the count changing in the same commit. Both renderings carry it: the text form annotates the line, `--format json` carries a `standing` object, because the JSON is what gets scripted and pasted into a system security plan
+  - *note:* the [2026-09-11 review](../review-2026-09-11.md) counted 11 of 16 settings with no enforcement site. Two of those are invariants rather than gaps — `require_signed_artifacts` and `egress_default` are refused at parse if set to anything else, and the mechanisms behind them run unconditionally, so nothing reads the field because nothing needs to. A third, `token_max_ttl_days`, is now enforced (R1-37). Eight remain, and they are marked rather than rushed: enforcing eight settings against a date is how docs/plans/mvp.md §5.2 says an approximately-right control gets written down
+  - *deps:* R1-25
+
 ## Identity
 
 - [x] **R1-18** `user` table, roles, and the states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
