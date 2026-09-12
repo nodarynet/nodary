@@ -56,7 +56,7 @@ A plan carries three things the tracker cannot:
 
 ## Not a slice
 
-Two files here are not slices of a milestone.
+Three files here are not slices of a milestone.
 
 [Pivot — SMB CMMC as the primary market](pivot-cmmc.md) re-aims the product at a buyer
 and records what the specifications owe as a result. It is the one plan that changes what
@@ -68,3 +68,9 @@ empty.
 milestone's worth of work, this orders eight of them and says which parts are stubs — its
 subject is the sequence, not the design. It changes nothing a specification says, and
 where it finds one wrong it waits for the correction like any other plan.
+
+[Pilot — from demonstrable to defensible](pilot.md) picks up where MVP's sequence ends. MVP
+reached every step it set and an adoption review still returned *do not cite this in an SSP*,
+because [§2](mvp.md#2-the-rule-that-decides-what-gets-built)'s rule — build what cannot be
+retrofitted — was missing a column: what the product *claims*. This plan reorders the
+remaining work behind that correction.
