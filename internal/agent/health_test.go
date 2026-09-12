@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // serveHealth runs a health endpoint on loopback and returns its port plus a
@@ -83,6 +84,47 @@ func TestAFailedProbeIsNeverReportedAsHealthy(t *testing.T) {
 	}
 	if got.Error == "" {
 		t.Error("a failed probe reported no reason")
+	}
+}
+
+// R4-21's ready_timeout_s is measured from Waiting, and the whole
+// distinction lives here: Waiting means "has not served yet", not "is unwell
+// now". A deployment that answered for a week and then stopped is
+// `unhealthy` (R4-20) and must never be failed for exceeding a startup
+// timeout it cleared long ago — which is what would happen if a later
+// outage restarted this clock.
+func TestWaitingMeasuresStartupAndIsClearedForGood(t *testing.T) {
+	port, down := serveHealth(t)
+	ctx := context.Background()
+	h := NewHealth()
+	units := []Unit{healthUnit(port)}
+
+	// Never answered yet: the clock runs, and it is the clock ready_timeout_s
+	// is compared against.
+	down.Store(true)
+	start := time.Now()
+	h.now = func() time.Time { return start }
+	if got := h.Poll(ctx, units)[0]; got.Waiting != 0 {
+		t.Errorf("waiting = %s on the first unanswered probe, want 0 — the clock starts here", got.Waiting)
+	}
+	h.now = func() time.Time { return start.Add(90 * time.Second) }
+	if got := h.Poll(ctx, units)[0]; got.Waiting != 90*time.Second {
+		t.Errorf("waiting = %s, want 90s since the first unanswered probe", got.Waiting)
+	}
+
+	// It serves once. Startup is over, permanently.
+	down.Store(false)
+	if got := h.Poll(ctx, units)[0]; got.Waiting != 0 {
+		t.Errorf("waiting = %s once it answered, want 0", got.Waiting)
+	}
+
+	// It falls over a week later. That is unhealthy, and the startup clock
+	// must start from now rather than reporting the week.
+	down.Store(true)
+	h.now = func() time.Time { return start.Add(7 * 24 * time.Hour) }
+	got := h.Poll(ctx, units)[0]
+	if got.Waiting != 0 {
+		t.Errorf("waiting = %s after a later outage, want 0: this is unhealthy, not a startup that never finished", got.Waiting)
 	}
 }
 

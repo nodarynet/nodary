@@ -201,8 +201,21 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 		return out, false
 	}
 
-	active := h.isActive(ctx, UnitName(u.Deployment))
+	state := h.activeState(ctx, UnitName(u.Deployment))
+	active := state == "active"
 	switch {
+	// R4-21: systemd has restarted this five times inside the start limit
+	// (unit.go) and given up. Reported and left alone — an agent that
+	// started it again every reconcile would be grinding against a failure
+	// on a sixty-second loop, which is what
+	// docs/specs/12-node-guardrails.md §1 rejects for refusals and is no
+	// better here. `nodary model restart` is the explicit unstick, below.
+	case state == "failed" && !forced:
+		out.State = "failed"
+		out.Error = "systemd stopped restarting it after repeated failures; " +
+			"`nodary model restart` tries again"
+		return out, false
+
 	case (changed || forced) && active:
 		// The env file moved under a running deployment, so it is running the
 		// wrong thing — or nothing moved and an operator asked for a cycle
@@ -218,6 +231,17 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 			return out, false
 		}
 	case !active:
+		// A failed unit only reaches here when an operator asked for it
+		// (forced). systemd refuses `start` on one that hit its start limit —
+		// "start request repeated too quickly" — until the failure is
+		// cleared, so clearing it is part of honoring the request rather
+		// than a separate act.
+		if state == "failed" {
+			if o, err := h.systemctl(ctx, "reset-failed", UnitName(u.Deployment)); err != nil {
+				out.State, out.Error = "failed", fmt.Sprintf("clearing the previous failure: %v: %s", err, tail(o))
+				return out, false
+			}
+		}
 		out.Action = "started"
 		if o, err := h.systemctl(ctx, "start", UnitName(u.Deployment)); err != nil {
 			out.State, out.Error = "failed", fmt.Sprintf("%v: %s", err, tail(o))
@@ -305,16 +329,30 @@ func writeEnvFile(u Unit) (changed bool, err error) {
 	return true, nil
 }
 
-// isActive asks systemd rather than remembering what it started.
+// activeState is systemd's own word for what this unit is doing: `active`,
+// `failed`, `inactive`, `activating`, and the rest of `systemctl is-active`'s
+// vocabulary.
 //
 // docs/specs/03-agent.md §3: the agent never assumes it caused the current
 // state. A unit that died between iterations, or that an operator stopped by
 // hand, has to be observed rather than inferred.
-func (h Host) isActive(ctx context.Context, unit string) bool {
+//
+// **`failed` and `inactive` are different facts and the difference is the
+// whole of R4-21.** A unit systemd stopped cleanly should be started again by
+// the next reconcile; one that burned its restart budget (the start limit in
+// unit.go) has already been restarted five times and starting it a sixth is
+// grinding against a failure rather than reporting it. This used to compare
+// the word against "active" and throw the rest away, so both arrived as
+// "stopped" and a crash-loop was indistinguishable from a clean stop.
+func (h Host) activeState(ctx context.Context, unit string) string {
 	// `is-active` exits non-zero for anything but active, so the output is what
 	// is read and the error is expected.
 	out, _ := h.systemctl(ctx, "is-active", unit)
-	return strings.TrimSpace(string(out)) == "active"
+	return strings.TrimSpace(string(out))
+}
+
+func (h Host) isActive(ctx context.Context, unit string) bool {
+	return h.activeState(ctx, unit) == "active"
 }
 
 // runningInstances lists the nodary-model@ units systemd currently knows about.

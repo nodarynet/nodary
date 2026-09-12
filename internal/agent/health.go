@@ -34,9 +34,17 @@ const probeTimeout = 5 * time.Second
 // failures, and asserting one it did not see would remove a serving deployment
 // from its route.
 type Health struct {
-	mu     sync.Mutex
+	mu sync.Mutex
+	// misses is consecutive failed probes, for `unhealthy`.
 	misses map[string]int
-	client *http.Client
+	// waiting is when this deployment was first seen not answering, for
+	// R4-21's `ready_timeout_s`. Cleared the moment it answers once, so it
+	// measures "has never been ready yet" and not "is unwell now" — a
+	// deployment that served and later fell over is unhealthy, which is
+	// R4-20's outcome and a different one.
+	waiting map[string]time.Time
+	now     func() time.Time
+	client  *http.Client
 }
 
 // NewHealth returns a tracker that probes over loopback.
@@ -45,7 +53,10 @@ type Health struct {
 // this is the only address that can reach it — and a probe that succeeded from
 // anywhere else would mean the isolation had failed.
 func NewHealth() *Health {
-	return &Health{misses: map[string]int{}, client: &http.Client{Timeout: probeTimeout}}
+	return &Health{
+		misses: map[string]int{}, waiting: map[string]time.Time{},
+		now: time.Now, client: &http.Client{Timeout: probeTimeout},
+	}
 }
 
 // Status is one deployment's health as this node sees it.
@@ -55,6 +66,10 @@ type Status struct {
 	Health string `json:"health"`
 	Misses int    `json:"misses"`
 	Error  string `json:"error,omitempty"`
+	// Waiting is how long this deployment has been up without ever answering
+	// its health endpoint, which is what `ready_timeout_s` is measured
+	// against (R4-21). Zero once it has answered even once.
+	Waiting time.Duration `json:"waiting,omitempty"`
 }
 
 // Poll probes every unit once and returns what it found.
@@ -80,6 +95,11 @@ func (h *Health) Poll(ctx context.Context, units []Unit) []Status {
 			delete(h.misses, id)
 		}
 	}
+	for id := range h.waiting {
+		if !live[id] {
+			delete(h.waiting, id)
+		}
+	}
 	h.mu.Unlock()
 	return out
 }
@@ -93,9 +113,17 @@ func (h *Health) probe(ctx context.Context, u Unit) Status {
 	defer h.mu.Unlock()
 	if err == nil {
 		delete(h.misses, u.Deployment)
+		// It has served once, so it is no longer starting up and
+		// ready_timeout_s has nothing left to say about it.
+		delete(h.waiting, u.Deployment)
 		s.Health = "healthy"
 		return s
 	}
+
+	if _, seen := h.waiting[u.Deployment]; !seen {
+		h.waiting[u.Deployment] = h.now()
+	}
+	s.Waiting = h.now().Sub(h.waiting[u.Deployment])
 
 	h.misses[u.Deployment]++
 	s.Misses = h.misses[u.Deployment]

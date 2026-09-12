@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeHost is a systemd that records what it was asked to do and answers from
@@ -20,10 +21,15 @@ type fakeHost struct {
 	calls  []string
 	active map[string]bool
 	fail   map[string]string
+	// failed is a unit systemd has given up restarting — R4-21's crash-loop,
+	// after the start limit in unit.go runs out.
+	failed map[string]bool
+	// journal is what journalctl returns for LogTail.
+	journal string
 }
 
 func newFakeHost(t *testing.T) (Host, *fakeHost) {
-	f := &fakeHost{active: map[string]bool{}, fail: map[string]string{}}
+	f := &fakeHost{active: map[string]bool{}, fail: map[string]string{}, failed: map[string]bool{}}
 	dir := t.TempDir()
 	// Asserted, like RealHost. Without it every test ran against a nil map,
 	// which is a configuration production never has — and a nil map answers
@@ -51,13 +57,28 @@ func (f *fakeHost) run(_ context.Context, name string, args ...string) ([]byte, 
 		}
 		return nil, fmt.Errorf("exit status 127")
 	}
+	if name == "journalctl" {
+		return []byte(f.journal), nil
+	}
 	switch args[0] {
 	case "is-active":
+		// systemd's own vocabulary: a unit it gave up on says `failed`, and
+		// one nobody started says `inactive`. Both exit non-zero.
+		if f.failed[args[1]] {
+			return []byte("failed\n"), fmt.Errorf("exit status 3")
+		}
 		if f.active[args[1]] {
 			return []byte("active\n"), nil
 		}
 		return []byte("inactive\n"), fmt.Errorf("exit status 3")
+	case "reset-failed":
+		delete(f.failed, args[1])
 	case "start", "restart":
+		// systemd refuses a unit that hit its start limit until the failure
+		// is cleared, which is why reconcileUnit resets it first.
+		if f.failed[args[1]] {
+			return []byte("start request repeated too quickly"), fmt.Errorf("exit status 1")
+		}
 		f.active[args[1]] = true
 	case "stop":
 		delete(f.active, args[1])
@@ -463,13 +484,13 @@ func TestReadyMeansServingNotMerelyActive(t *testing.T) {
 	}}
 	u := Unit{Deployment: "d1"}
 
-	if got := d.observedState(context.Background(), u, "unknown"); got != "starting" {
+	if got, _ := d.observedState(context.Background(), u, Status{Health: "unknown"}); got != "starting" {
 		t.Errorf("active with unknown health = %q, want starting", got)
 	}
-	if got := d.observedState(context.Background(), u, "unhealthy"); got != "starting" {
+	if got, _ := d.observedState(context.Background(), u, Status{Health: "unhealthy"}); got != "starting" {
 		t.Errorf("active but unhealthy = %q, want starting", got)
 	}
-	if got := d.observedState(context.Background(), u, "healthy"); got != "ready" {
+	if got, _ := d.observedState(context.Background(), u, Status{Health: "healthy"}); got != "ready" {
 		t.Errorf("active and healthy = %q, want ready", got)
 	}
 
@@ -479,12 +500,141 @@ func TestReadyMeansServingNotMerelyActive(t *testing.T) {
 			return nil, errNotActive
 		},
 	}}
-	if got := down.observedState(context.Background(), u, "healthy"); got != "stopped" {
+	if got, _ := down.observedState(context.Background(), u, Status{Health: "healthy"}); got != "stopped" {
 		t.Errorf("an inactive unit = %q, want stopped", got)
 	}
 }
 
 var errNotActive = errors.New("inactive")
+
+// R4-21, crash-loop half: docs/specs/11-failure-modes.md §2 wants a
+// crash-looping deployment "marked failed after N restarts in a window ...
+// last 100 log lines captured". systemd does the counting (unit.go's start
+// limit); this is the agent telling `failed` apart from `stopped`, which it
+// could not do while it compared is-active's output against "active" and
+// dropped the rest.
+func TestACrashLoopedUnitIsFailedWithItsLog(t *testing.T) {
+	h, f := newFakeHost(t)
+	f.failed["nodary-model@d1.service"] = true
+	f.journal = "RuntimeError: CUDA out of memory"
+	d := &Daemon{Host: h}
+
+	state, detail := d.observedState(context.Background(), Unit{Deployment: "d1"}, Status{Health: "unknown"})
+	if state != "failed" {
+		t.Errorf("state = %q, want failed: systemd stopped restarting it", state)
+	}
+	if !strings.Contains(detail, "CUDA out of memory") {
+		t.Errorf("detail = %q, want the tail of the unit's log", detail)
+	}
+}
+
+// 0006_fleet.sql: CHECK (state <> 'failed' OR last_error IS NOT NULL). A
+// failure reported with nothing beside it does not just lose the reason — it
+// fails the whole heartbeat transaction, taking every other deployment's
+// state on the node down with it. So the reason stands on its own when the
+// journal is empty, which is exactly the case on a host where journald has
+// nothing for the unit.
+func TestAFailureAlwaysCarriesAReasonEvenWithNoLog(t *testing.T) {
+	h, f := newFakeHost(t)
+	f.failed["nodary-model@d1.service"] = true
+	f.journal = ""
+	d := &Daemon{Host: h}
+
+	state, detail := d.observedState(context.Background(), Unit{Deployment: "d1"}, Status{Health: "unknown"})
+	if state != "failed" || detail == "" {
+		t.Errorf("state = %q, detail = %q; want failed with a non-empty reason", state, detail)
+	}
+}
+
+// R4-21, never-ready half: "Marked failed at the backend's
+// ready_timeout_s" (docs/specs/11-failure-modes.md §2). The value reached
+// Unit.Probe from the descriptor all along and nothing ever compared
+// anything to it.
+func TestADeploymentThatNeverBecomesReadyFailsAtItsTimeout(t *testing.T) {
+	h, f := newFakeHost(t)
+	f.active["nodary-model@d1.service"] = true
+	f.journal = "Loading safetensors checkpoint shards: 40%"
+	d := &Daemon{Host: h}
+	u := Unit{Deployment: "d1", Probe: Probe{Health: "/health", ReadyTimeoutS: 60}}
+
+	// Under the timeout it is starting, not failed: a model server loading
+	// weights legitimately answers nothing for minutes.
+	if state, _ := d.observedState(context.Background(), u,
+		Status{Health: "unknown", Waiting: 59 * time.Second}); state != "starting" {
+		t.Errorf("state = %q at 59s of a 60s timeout, want starting", state)
+	}
+
+	state, detail := d.observedState(context.Background(), u,
+		Status{Health: "unknown", Waiting: 61 * time.Second})
+	if state != "failed" {
+		t.Errorf("state = %q past the timeout, want failed", state)
+	}
+	if !strings.Contains(detail, "checkpoint shards") {
+		t.Errorf("detail = %q, want the log that shows where it got stuck", detail)
+	}
+
+	// A deployment that is answering is ready regardless of how long it took.
+	if state, _ := d.observedState(context.Background(), u,
+		Status{Health: "healthy", Waiting: 0}); state != "ready" {
+		t.Errorf("state = %q for a healthy deployment, want ready", state)
+	}
+}
+
+// A failed unit is reported, not restarted. An agent that started it again
+// every reconcile would replay the crash-loop on a sixty-second timer, which
+// is the grinding docs/specs/12-node-guardrails.md §1 rejects for refusals
+// and is no better here.
+func TestReconcileLeavesAFailedUnitAloneAndRestartUnsticksIt(t *testing.T) {
+	h, f := newFakeHost(t)
+	p := planFor(t, h)
+	f.failed["nodary-model@dep_one.service"] = true
+	f.reset()
+
+	r := Reconcile(context.Background(), p, h)
+	if f.did("start nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want no start: systemd already gave up on it", f.calls)
+	}
+	if r.Units[0].State != "failed" {
+		t.Errorf("state = %q, want failed", r.Units[0].State)
+	}
+	if !strings.Contains(r.Units[0].Error, "nodary model restart") {
+		t.Errorf("error = %q, want it to name the way out", r.Units[0].Error)
+	}
+
+	// `nodary model restart` is that way out: it clears the failure first,
+	// because systemd refuses to start a unit that hit its start limit.
+	f.reset()
+	p.Restart = []string{"dep_one"}
+	r = Reconcile(context.Background(), p, h)
+	if !f.did("reset-failed nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want the failure cleared before starting", f.calls)
+	}
+	if !f.did("start nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want it started", f.calls)
+	}
+	if len(r.RestartDone) != 1 {
+		t.Errorf("RestartDone = %v, want the request acknowledged", r.RestartDone)
+	}
+}
+
+// The start limit has to be explicit. systemd's default window is 10s, which
+// RestartSec=10s can never fit five restarts into — so with the defaults the
+// limit is unreachable and a crash-loop restarts forever, which is the state
+// this template was in before R4-21.
+func TestTheUnitTemplateSetsAReachableStartLimit(t *testing.T) {
+	rendered := RenderUnitTemplate("/etc/nodary")
+	for _, want := range []string{"StartLimitIntervalSec=300", "StartLimitBurst=5"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the template does not set %s:\n%s", want, rendered)
+		}
+	}
+	// In [Unit]: systemd moved these out of [Service] in 229, and a
+	// [Service] copy is silently ignored on anything current.
+	unit, _, found := strings.Cut(rendered, "[Service]")
+	if !found || !strings.Contains(unit, "StartLimitIntervalSec") {
+		t.Error("the start limit is not in [Unit], where systemd 229+ reads it")
+	}
+}
 
 // TestAnInconclusiveEgressAssertionIsRetried is the control that always
 // reported inconclusive.

@@ -33,6 +33,16 @@ Description=nodary model deployment %%i
 After=containerd.service
 Requires=containerd.service
 
+# docs/specs/11-failure-modes.md §2: a crash-looping deployment is "marked
+# failed after N restarts in a window". systemd implements exactly that, and
+# the window has to be set explicitly — its default is 10s, which RestartSec
+# below can never fit five restarts into, so the default limit is unreachable
+# and a crash-loop restarts forever without anything ever calling it failed.
+# Five in five minutes: a transient crash costs one and recovers, and a model
+# server that cannot start burns the budget and stops, visibly.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=exec
 EnvironmentFile=%[1]s/deployments/%%i.env

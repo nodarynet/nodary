@@ -239,11 +239,12 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	}
 	for _, u := range d.last.Units {
 		s := byID[u.Deployment]
+		state, detail := d.observedState(ctx, u, s)
 		body.Deployments = append(body.Deployments, api.StatusUnit{
 			ID:     u.Deployment,
-			State:  d.observedState(ctx, u, s.Health),
+			State:  state,
 			Health: orDefault(s.Health, "unknown"),
-			Error:  s.Error,
+			Error:  detail,
 		})
 	}
 	for _, st := range d.last.Stage {
@@ -316,9 +317,23 @@ func stagingStatus(st Stage) api.StatusStaging {
 
 // observedState asks systemd rather than reporting what the last reconcile
 // intended. docs/specs/03-agent.md §3: the agent observes, it does not assume.
-func (d *Daemon) observedState(ctx context.Context, u Unit, health string) string {
-	if !d.Host.isActive(ctx, UnitName(u.Deployment)) {
-		return "stopped"
+//
+// It returns the detail to report alongside: the health probe's own error
+// ordinarily, and for a failure the reason plus the tail of the unit's log,
+// which docs/specs/11-failure-modes.md §2 asks for and 0006_fleet.sql's
+// CHECK (state <> 'failed' OR last_error IS NOT NULL) requires.
+func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, detail string) {
+	switch d.Host.activeState(ctx, UnitName(u.Deployment)) {
+	case "active":
+	case "failed":
+		// R4-21: systemd restarted it until the start limit in unit.go ran
+		// out. Reported, never restarted from here — a crash-loop the agent
+		// kept kicking would be the system grinding against a failure
+		// instead of an operator seeing one. `nodary model restart` is the
+		// explicit unstick, the same shape `restage` is for corrupt weights.
+		return "failed", d.failureDetail(ctx, u, "systemd stopped restarting it after repeated failures")
+	default:
+		return "stopped", s.Error
 	}
 	// **Active is not ready.** docs/specs/03-agent.md §7 waits for `ready` and
 	// counts ready replicas before allowing a rolling restart to proceed, so
@@ -330,10 +345,38 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, health string) strin
 	// Reported as ready anyway, this told an operator a deployment was serving
 	// when no container existed at all, and would let a rolling restart count a
 	// still-pulling replica as the last live one.
-	if health == "healthy" {
-		return "ready"
+	if s.Health == "healthy" {
+		return "ready", ""
 	}
-	return "starting"
+
+	// R4-21, the other half: a deployment that never becomes ready is failed
+	// at the backend's own ready_timeout_s (docs/specs/11-failure-modes.md
+	// §2) rather than sitting in `starting` forever. Measured from the first
+	// probe that went unanswered and cleared by the first that is answered,
+	// so it means "has not served yet", not "is unwell now" — the latter is
+	// `unhealthy`, which R4-20 already decides and which does not expire.
+	if timeout := time.Duration(u.Probe.ReadyTimeoutS) * time.Second; timeout > 0 && s.Waiting > timeout {
+		return "failed", d.failureDetail(ctx, u,
+			fmt.Sprintf("never answered %s in the %s its backend allows", u.Probe.Health, timeout))
+	}
+	return "starting", s.Error
+}
+
+// failureDetail is why it failed plus the tail of the unit's log.
+//
+// docs/specs/11-failure-modes.md §2 asks for the last 100 lines, and
+// 0006_fleet.sql's CHECK (state <> 'failed' OR last_error IS NOT NULL) makes
+// a reason mandatory rather than merely nice: a `failed` reported with
+// nothing beside it would fail the heartbeat's whole transaction. So the
+// reason stands alone when the journal has nothing to add, and the log is
+// bounded by tail() — an error message is evidence, a megabyte of one is a
+// denial of service against the heartbeat.
+func (d *Daemon) failureDetail(ctx context.Context, u Unit, why string) string {
+	logs := d.Host.LogTail(ctx, UnitName(u.Deployment), 100)
+	if logs == "" {
+		return why
+	}
+	return why + "\n" + tail([]byte(logs))
 }
 
 // Backoff, with jitter. docs/specs/11-failure-modes.md §1 asks for both: the
