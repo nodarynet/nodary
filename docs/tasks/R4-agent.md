@@ -113,6 +113,12 @@ looks correct, reviews clean, and enforces nothing.
   - portmap also carried `externalSetMarkChain: KUBE-MARK-MASQ`, a chain only kube-proxy creates. On any host that is not a Kubernetes node the whole CNI attach failed and the container was torn down 300ms after its shim connected
 - [x] **R4-27** Publish deployment ports on `127.0.0.1` only
   - in the unit template's `-p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT}`, and asserted from the host: reachable on loopback, unreachable on the host's own address
+- [x] **R4-39** Egress isolation covers IPv6 as well as IPv4 · [03 §5](../specs/03-agent.md#staging-is-separate)
+  - *done:* `net.ipv6.conf.nodary0.disable_ipv6=1` and `accept_ra=0` beside the existing forwarding sysctl, and a second nftables rule matching `iifname nodary0` beside the one matching `ip saddr`
+  - *note:* the drop rule was `ip saddr 10.88.0.0/24 drop` — IPv4 only, and there is no v6 counterpart to write because nodary allocates no v6 subnet. On a dual-stack host whose router advertisements reach the bridge, a container could autoconfigure a global v6 address and a default route that met no rule at all. Refusing the address is the fix; matching the interface is what holds if it is somehow acquired anyway, and it covers a family nobody has thought of yet
+  - *note:* `nodary node verify-egress` still probes IPv4 only (`1.1.1.1:443`). A v6 target would report `inconclusive` on every v4-only site, because `Judge`'s host control would fail for the ordinary reason — so the probe's v6 coverage is a question for R4-29 rather than a line to add here. The DNS check does catch a container that has any resolver at all
+  - *note:* raised by the [2026-09-11 review](../review-2026-09-11.md)
+
 - [ ] **R4-28** `IPAddressDeny=any` retained on the unit as defense in depth, documented in place as constraining the launcher and not being the control
   - *done:* the comment gives **both** reasons it is not the control. The container is parented outside the unit's cgroup, so the filter attaches to the launcher — confirmed, the unit's cgroup holds only the client process. And a user-session manager is delegated `cpu memory pids` with no network controller at all, so in a user unit the filter has nothing to attach to · [spike §5](../spike-fips-and-manifest.md#the-cgroup-warning-in-03-5-is-correct-and-truer-than-written)
 - [x] **R4-29** `nodary node verify-egress` runs a probe inside a live deployment's namespace, asserting that a route off-box, a DNS lookup and a connection to a known-external address all fail

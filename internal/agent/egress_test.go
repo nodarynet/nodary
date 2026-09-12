@@ -254,6 +254,20 @@ func TestEnsureIsolatedNetworkIsIdempotent(t *testing.T) {
 	if !strings.Contains(joined, IsolatedSubnet+" drop") {
 		t.Errorf("nothing drops forwarded traffic from %s:\n%s", IsolatedSubnet, joined)
 	}
+	// The source-address rule is IPv4 only, and nodary allocates no v6 subnet
+	// to write a counterpart against. On a dual-stack host a container can
+	// autoconfigure a global v6 address off a router advertisement, so the
+	// isolation has to hold without knowing the address: refuse v6 on the
+	// bridge, and drop by interface for whatever still arrives.
+	for _, want := range []string{
+		"net.ipv6.conf.nodary0.disable_ipv6=1",
+		"net.ipv6.conf.nodary0.accept_ra=0",
+		"iifname nodary0 drop",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("egress isolation is IPv4-only: nothing does %q\n%s", want, joined)
+		}
+	}
 	if strings.Contains(joined, "nft add rule inet filter") {
 		t.Error("nodary appended to a chain it does not own")
 	}

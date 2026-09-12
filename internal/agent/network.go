@@ -144,12 +144,25 @@ func EnsureIsolatedNetwork(ctx context.Context, h Host, cniDir string) (changed 
 	// when the global switch is on, and a node that also runs docker has it on;
 	// this is the per-interface switch, so nodary turns off its own bridge
 	// without touching anybody else's.
-	if out, err := h.Run(ctx, "sysctl", "-w",
-		"net.ipv4.conf.nodary0.forwarding=0"); err != nil {
-		// Not fatal: the bridge does not exist until the first container
-		// attaches, and the sysctl node appears with it. The nftables rule
-		// below is the one that holds either way.
-		_ = out
+	//
+	// IPv6 is disabled on the same interface rather than filtered. The CNI
+	// configuration declares no v6 subnet, so nodary hands out no v6 address —
+	// but on a dual-stack host whose router advertisements reach the bridge, a
+	// container can autoconfigure a global address and a default route that has
+	// nothing to do with us. Refusing the address is cheaper than policing what
+	// is done with it, and a serving deployment needs no outbound path of either
+	// family.
+	for _, key := range []string{
+		"net.ipv4.conf.nodary0.forwarding=0",
+		"net.ipv6.conf.nodary0.disable_ipv6=1",
+		"net.ipv6.conf.nodary0.accept_ra=0",
+	} {
+		if out, err := h.Run(ctx, "sysctl", "-w", key); err != nil {
+			// Not fatal: the bridge does not exist until the first container
+			// attaches, and the sysctl nodes appear with it. The nftables rules
+			// below are what hold either way.
+			_ = out
+		}
 	}
 
 	// And the rule that drops forwarded traffic from the subnet, which holds
@@ -182,6 +195,19 @@ func ensureDropRule(ctx context.Context, h Host) error {
 		{"flush", "chain", "inet", nodaryTable, nodaryChain},
 		{"add", "rule", "inet", nodaryTable, nodaryChain,
 			"ip", "saddr", IsolatedSubnet, "drop"},
+		// By interface as well as by source, which is what covers IPv6.
+		//
+		// The rule above matches an IPv4 source address, and there is no v6
+		// counterpart to write because nodary allocates no v6 subnet — so a
+		// container that autoconfigured a global v6 address off a router
+		// advertisement was forwarded without ever meeting a rule. Matching the
+		// bridge catches every family, including one nobody has thought of.
+		//
+		// It does not cost the published port. portmap's DNAT arrives on
+		// another interface, and container-to-host traffic is delivered locally
+		// rather than forwarded, so neither passes this hook.
+		{"add", "rule", "inet", nodaryTable, nodaryChain,
+			"iifname", "nodary0", "drop"},
 	} {
 		if out, err := h.Run(ctx, "nft", args...); err != nil {
 			return fmt.Errorf("nft %v: %w: %s", args, err, tail(out))
