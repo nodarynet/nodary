@@ -54,7 +54,7 @@ func execStreaming(ctx context.Context, stdout, stderr io.Writer, env []string, 
 //
 // **It never runs the download as root.** `usermod`/`install -d` are the
 // only privileged steps, and neither touches the network; both are exactly
-// what getting-started.md's manual group-grant asks an operator to run by
+// what administering.md's manual group-grant asks an operator to run by
 // hand, automated rather than replaced. runuser then drops to the invoking
 // user for the fetch itself — a fresh process, so unlike a shell the operator
 // is already sitting in, it sees that new group membership immediately, with
@@ -64,7 +64,7 @@ func (w *wizard) fetchWeights(repo, dir string) bool {
 	if who == "" || who == "root" {
 		fmt.Fprintln(w.e.stderr,
 			"nodary install: no unprivileged account to download as (not run through sudo) — "+
-				"place weights yourself (see the getting-started guide) and choose "+
+				"place weights yourself (see "+ADMIN+"#placing-weights) and choose "+
 				"\"already staged\" instead.")
 		return false
 	}
@@ -94,7 +94,7 @@ func (w *wizard) fetchWeights(repo, dir string) bool {
 	_, writeErr := f.Write(scripts.StageModelSH)
 	closeErr := f.Close()
 	// World-readable and executable: it holds no secret (it is the public
-	// script getting-started.md already tells an operator to curl), and the
+	// script administering.md already tells an operator to curl), and the
 	// account runuser drops to next has to be able to read and run it.
 	chmodErr := os.Chmod(f.Name(), 0o755)
 	if writeErr != nil || closeErr != nil || chmodErr != nil {

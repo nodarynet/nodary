@@ -29,7 +29,7 @@
 #   ./stage-model.sh <repo> --models-dir /var/lib/nodary/models
 #
 # No sudo. It only downloads and writes into --models-dir, so it needs write
-# access to that directory and nothing else — see the getting-started guide
+# access to that directory and nothing else — see the administering guide
 # for granting your own user that once, rather than running a downloader as
 # root.
 set -u

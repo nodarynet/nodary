@@ -248,8 +248,11 @@ main() {
     if [ "$#" -eq 0 ]; then
         say ""
         say "nodary is installed. Next:"
-        say "  nodary server install     # control plane"
-        say "  nodary node install …     # GPU node"
+        say "  sudo nodary install       # interactive: asks, then runs the rest"
+        say ""
+        say "  or drive the verbs yourself:"
+        say "    nodary server install   # control plane"
+        say "    nodary node install …   # GPU node"
         exit 0
     fi
 

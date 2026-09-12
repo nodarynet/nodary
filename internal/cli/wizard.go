@@ -29,6 +29,10 @@ import (
 // terminal, echoed in a log, or sitting in a config file
 // (docs/specs/01-install.md §9) — a wizard that asked for one directly would
 // quietly undo that. It prints the same link `server install` always did.
+// ADMIN is where the flag-driven route is written down. Both messages below
+// point a reader who cannot use the wizard at the verbs it would have run.
+const ADMIN = "https://nodarynet.github.io/nodary/administering/"
+
 func cmdInstall(e env, args []string) int {
 	fs := newFlagSet(e, "install")
 	// Test-only, matching every install verb's own --root: stage into a
@@ -45,7 +49,7 @@ func cmdInstall(e env, args []string) int {
 	if !e.interactive() {
 		fmt.Fprintf(e.stderr, "nodary install: this is an interactive wizard; run it at a terminal.\n"+
 			"  A script uses `nodary server install` / `nodary node install` directly —\n"+
-			"  see docs/specs/10-cli.md or https://nodarynet.github.io/nodary/getting-started/.\n")
+			"  see docs/specs/10-cli.md or %s\n", ADMIN)
 		return ExitUsage
 	}
 
@@ -189,8 +193,8 @@ func (w *wizard) afterEnroll() int {
 
 	if !w.yesNo("Stage and register a model now?", false) {
 		fmt.Fprintf(w.e.stderr,
-			"\nWhen you're ready: download weights (see the getting-started guide), then\n"+
-				"  nodary model register <org/name> --node %s --gpu 0 --port 8001\n", name)
+			"\nWhen you're ready: place weights (%s#placing-weights), then\n"+
+				"  nodary model register <org/name> --node %s --gpu 0 --port 8001\n", ADMIN, name)
 		return ExitOK
 	}
 	return w.model(name)

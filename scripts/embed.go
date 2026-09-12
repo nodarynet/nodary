@@ -4,7 +4,7 @@
 // already-verified implementation rather than a second one written in Go.
 //
 // stage-model.sh stays a real file at this path, fetchable by `curl` the way
-// getting-started.md's manual path already does — embedding it does not
+// administering.md's manual path already does — embedding it does not
 // change that, it only gives a Go caller its bytes without needing the
 // network or a repository checkout to get them.
 package scripts
