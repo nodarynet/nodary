@@ -8,6 +8,9 @@ approve → stage → apply → reconcile → completion` runs on real hardware.
 adoption review at `cc77239` nevertheless returned *pilot on non-CUI workload, do not cite
 in the SSP*. Both are true, and the gap between them is what this plan is for.
 
+**Progress against the review is tracked in [review-response.md](../review-response.md)**,
+one row per finding.
+
 ## 1. The row mvp.md §2 was missing
 
 That plan decides what gets built by one rule — **what cannot be retrofitted** — and names
