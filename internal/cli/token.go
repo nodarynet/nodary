@@ -134,15 +134,21 @@ func cmdTokenCreate(e env, args []string) int {
 		return ExitUsage
 	}
 
-	// R1-17: the grant is refused at the mint rather than at every later use,
-	// because it is the whole route around re-authentication and a profile that
-	// closes it must close it once.
+	// The profile bounds two things about a credential, and both are decided
+	// here rather than at every later use: how long it may live, and whether it
+	// may act with nobody present. R1-17 is the second; the first was specified
+	// alongside it and went unread until an adoption review minted a ten-year
+	// service key under a profile capping them at one.
+	active, _, err := policy.Active(context.Background(), s.db.Read())
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
+		return ExitFailure
+	}
+	if err := attest.AllowTokenLifetime(active, s.now, expires); err != nil {
+		fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
+		return ExitPolicy
+	}
 	if *unattended {
-		active, _, err := policy.Active(context.Background(), s.db.Read())
-		if err != nil {
-			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
-			return ExitFailure
-		}
 		if err := attest.AllowUnattendedMint(active); err != nil {
 			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
 			return ExitPolicy
@@ -283,6 +289,18 @@ func cmdTokenJoin(e env, args []string) int {
 		fmt.Fprintf(e.stderr,
 			"nodary token join: a join token must expire; `never` enrolls anybody, forever\n")
 		return ExitUsage
+	}
+	// The same ceiling, because --expires takes days here too. It is a loose
+	// bound on a credential 02 §4 scopes to minutes and hours, but a loose
+	// bound applied is worth more than a tight one nobody reads.
+	active, _, err := policy.Active(context.Background(), s.db.Read())
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary token join: %v\n", err)
+		return ExitFailure
+	}
+	if err := attest.AllowTokenLifetime(active, s.now, expires); err != nil {
+		fmt.Fprintf(e.stderr, "nodary token join: %v\n", err)
+		return ExitPolicy
 	}
 
 	var (

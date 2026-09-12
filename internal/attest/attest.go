@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/canonical"
 	"github.com/nodarynet/nodary/internal/policy"
@@ -36,6 +37,7 @@ var (
 	ErrJustificationShort  = errors.New("justification is too short")
 	ErrTOTPRequired        = errors.New("policy requires a TOTP code for this act")
 	ErrUnattendedForbidden = errors.New("policy forbids unattended tokens")
+	ErrLifetimeTooLong     = errors.New("policy caps how long a credential may live")
 )
 
 // Hash is the intent_hash of a rendered change.
@@ -148,6 +150,30 @@ func Require(p policy.Profile, c Ceremony) error {
 func AllowUnattendedMint(p policy.Profile) error {
 	if !p.AllowUnattendedTokens {
 		return fmt.Errorf("%w: the %q profile sets allow_unattended_tokens = false", ErrUnattendedForbidden, p.Name)
+	}
+	return nil
+}
+
+// AllowTokenLifetime refuses a credential that would outlive the active
+// profile's token_max_ttl_days.
+//
+// Checked at the mint for the same reason AllowUnattendedMint is: a ceiling
+// applied at use would let the credential exist, and the thing an assessor
+// reads is the token table, not the request log.
+//
+// A credential that never expires is refused under every profile rather than
+// only under a short one. token_max_ttl_days is at least 1 by construction
+// (Profile.validate), so no finite ceiling admits an infinite lifetime, and
+// saying so by name beats reporting that forever exceeds 365 days.
+func AllowTokenLifetime(p policy.Profile, now, expires time.Time) error {
+	max := time.Duration(p.TokenMaxTTLDays) * 24 * time.Hour
+	if expires.IsZero() {
+		return fmt.Errorf("%w: the %q profile sets token_max_ttl_days = %d, and this would never expire",
+			ErrLifetimeTooLong, p.Name, p.TokenMaxTTLDays)
+	}
+	if d := expires.Sub(now); d > max {
+		return fmt.Errorf("%w: the %q profile sets token_max_ttl_days = %d, and this would live %d days",
+			ErrLifetimeTooLong, p.Name, p.TokenMaxTTLDays, int(d.Hours()/24))
 	}
 	return nil
 }

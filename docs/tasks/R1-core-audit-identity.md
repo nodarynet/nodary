@@ -81,6 +81,11 @@ front of the same core functions.
   - *done:* non-interactive mutation is possible under `default` and impossible under `regulated`, and the grant itself appears in the chain. The grant is refused at the mint rather than at every later use, because it is the whole route around re-authentication and a profile that closes it must close it once
   - *deps:* R1-21, R1-25
 
+- [x] **R1-37** `token_max_ttl_days` enforced at the mint, `never` refused under every profile · [07 §4](../specs/07-identity-audit.md#4-policy-profiles)
+  - *done:* `token create` and `token join` both refuse a lifetime over the active profile's ceiling, naming the profile and the number, and a credential that never expires is refused by name rather than reported as exceeding a day count
+  - *note:* opened by the [2026-09-11 review](../review-2026-09-11.md), which minted a ten-year service key and a never-expiring one against a `regulated` profile capping both at 365 days. The ceiling was specified in R1d and displayed by `policy show` from the day profiles landed; nothing read it. The check sits beside `AllowUnattendedMint` in `internal/attest` because that is where a profile meets an act, and the CLI is where a lifetime can still vary — the API mints a fixed 90 days and never could
+  - *deps:* R1-25
+
 ## Identity
 
 - [x] **R1-18** `user` table, roles, and the states `active → suspended → deleted` · [07 §1](../specs/07-identity-audit.md#1-users-and-roles)
