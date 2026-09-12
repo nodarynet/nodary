@@ -66,10 +66,14 @@ func resolveDBIn(e env, flagValue string) (path string, explicit bool) {
 
 // openForReading opens the database read-only. Inspecting a chain must not
 // change the file being inspected, so this never migrates and never creates.
+// verb is the whole verb, "node list" and not "list". This started life as
+// audit's own helper with "audit" printed in front of it, and then fifteen
+// other commands reused it — so `nodary node list` against a missing database
+// reported itself as `nodary audit node list`.
 func openForReading(e env, verb, path string) (*store.DB, bool) {
 	db, err := store.OpenReadOnly(context.Background(), path)
 	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary audit %s: %v\n", verb, err)
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		if errors.Is(err, store.ErrSchemaBehind) {
 			fmt.Fprintf(e.stderr,
 				"  a read-only command will not migrate a database underneath a reader.\n")
@@ -130,7 +134,7 @@ func cmdAuditVerify(e env, args []string) int {
 	}
 
 	if useDB {
-		db, ok := openForReading(e, "verify", path)
+		db, ok := openForReading(e, "audit verify", path)
 		if !ok {
 			return ExitFailure
 		}
@@ -369,7 +373,7 @@ func cmdAuditList(e env, args []string) int {
 	}
 
 	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "list", path)
+	db, ok := openForReading(e, "audit list", path)
 	if !ok {
 		return ExitFailure
 	}
@@ -503,7 +507,7 @@ func cmdAuditExport(e env, args []string) int {
 	filter.FromSeq = *fromSeq
 
 	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "export", path)
+	db, ok := openForReading(e, "audit export", path)
 	if !ok {
 		return ExitFailure
 	}
