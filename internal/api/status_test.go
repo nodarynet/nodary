@@ -26,6 +26,43 @@ func TestAPendingNodeCanStillHeartbeat(t *testing.T) {
 	}
 }
 
+// R4-15 end to end over the wire: a node refuses part of its document and
+// the reason reaches the control plane's own view of that node, where
+// `nodary node show` reads it. Every hop between Build and the database is a
+// field copied from one struct to the next, which is exactly the shape that
+// looks wired and turns out never to have carried anything.
+func TestARefusalReportedByANodeIsVisibleAgainstIt(t *testing.T) {
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	if status, body := f.do(http.MethodPost, "/nodes/gpu-01/approve", f.admin, nil,
+		map[string]string{api.HeaderJustify: "the node in the rack we ordered"}); status != http.StatusOK {
+		t.Fatalf("approve: %d %v", status, body)
+	}
+
+	if status, raw := n.call(t, f, http.MethodPost, "/agent/status", api.StatusReport{
+		Protocol: api.Protocol, AgentVersion: "0.0.0-test", Rev: 4,
+		Inventory: api.Inventory{Arch: "amd64", OS: "linux"},
+		Refused: []api.StatusRefusal{{
+			Deployment: "dep_one", Reason: "GPU 3 is not on this node's offer"}},
+	}); status != http.StatusOK {
+		t.Fatalf("status: %d %s", status, raw)
+	}
+
+	_, body := f.do(http.MethodGet, "/nodes/gpu-01", f.admin, nil, nil)
+	refusals, _ := body["refusals"].([]any)
+	if len(refusals) != 1 {
+		t.Fatalf("refusals = %v, want the one the node reported", body["refusals"])
+	}
+	got, _ := refusals[0].(map[string]any)
+	if got["reason"] != "GPU 3 is not on this node's offer" {
+		t.Errorf("reason = %v, want what the node said", got["reason"])
+	}
+	if got["rev"] != float64(4) {
+		t.Errorf("rev = %v, want the revision it was computed against", got["rev"])
+	}
+}
+
 func TestTheHeartbeatIsObservedStateAndNotAudited(t *testing.T) {
 	f := newFixture(t)
 	n := f.join("gpu-01")

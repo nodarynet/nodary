@@ -264,6 +264,14 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	}
 	body.ResetDone = d.last.ResetDone
 	body.RestartDone = d.lastRestartDone
+	// R4-15: what this node will not run, and why. Recomputed by Build every
+	// cycle and reported every heartbeat — until now it reached the node's
+	// own journal and stopped there, so the operator who could act on it saw
+	// a deployment stuck in `defined` and no reason anywhere.
+	for _, ref := range d.last.Refused {
+		body.Refused = append(body.Refused,
+			api.StatusRefusal{Deployment: ref.Deployment, Reason: ref.Reason})
+	}
 
 	raw, err := json.Marshal(body)
 	if err != nil {

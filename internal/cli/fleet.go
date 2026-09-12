@@ -204,6 +204,26 @@ func cmdNodeShow(e env, args []string) int {
 		}
 	}
 
+	// Refusals first among the follow-ups: a refused deployment is the one
+	// an operator is most likely to be staring at, because it sits in
+	// `defined` forever and every other column looks fine
+	// (docs/specs/12-node-guardrails.md §1).
+	if len(d.Refusals) > 0 {
+		fmt.Fprintln(e.stdout)
+		tw = tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "REFUSED\tREV\tREASON")
+		for _, r := range d.Refusals {
+			fmt.Fprintf(tw, "%s\t%d\t%s\n", r.DeploymentID, r.Rev, r.Reason)
+		}
+		if code := flush(e, "node show", tw); code != ExitOK {
+			return code
+		}
+		fmt.Fprintf(e.stderr,
+			"\n%s will not run the deployment(s) above and is not retrying them.\n"+
+				"Fix what the reason names — the node's own limits are in /etc/nodary/node.toml on that host —\n"+
+				"or remove the deployment with `nodary config apply --prune`.\n", d.Name)
+	}
+
 	if len(d.Staging) > 0 {
 		fmt.Fprintln(e.stdout)
 		tw = tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)

@@ -36,6 +36,15 @@ type StatusReport struct {
 	// Desired.Restart (`nodary model restart`) — the same shape ResetDone
 	// uses, for the same reason.
 	RestartDone []string `json:"restart_done,omitempty"`
+	// Refused is what this node will not run out of the document it was
+	// given, and why (R4-15). It is the node's complete current set, not a
+	// delta: a refusal that stops being reported has stopped applying.
+	Refused []StatusRefusal `json:"refused,omitempty"`
+}
+
+type StatusRefusal struct {
+	Deployment string `json:"deployment"`
+	Reason     string `json:"reason"`
 }
 
 type StatusUnit struct {
@@ -86,6 +95,11 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		TopologyJSON:  rawOrDefault(body.Inventory.Topology, "{}"),
 		ResetDone:     body.ResetDone,
 		RestartDone:   body.RestartDone,
+		Rev:           body.Rev,
+	}
+	for _, ref := range body.Refused {
+		report.Refusals = append(report.Refusals, observed.RefusalReport{
+			Deployment: ref.Deployment, Reason: ref.Reason})
 	}
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{

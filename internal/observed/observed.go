@@ -58,6 +58,19 @@ type NodeReport struct {
 	// `nodary model restart` request — the same shape ResetDone uses, for
 	// the same reason.
 	RestartDone []string
+	// Refusals is what this node will not run out of the document it was
+	// given (R4-15). An observation by this package's rule: the node
+	// reporting what it decided about itself, the same as a unit state.
+	Refusals []RefusalReport
+	// Rev is the desired-state revision the report was computed against,
+	// recorded with a refusal so an operator can tell a current refusal from
+	// one the configuration has already moved past.
+	Rev int64
+}
+
+type RefusalReport struct {
+	Deployment string
+	Reason     string
 }
 
 type DeploymentReport struct {
@@ -136,6 +149,29 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 				`DELETE FROM deployment_restart WHERE node_name = ? AND deployment_id = ?`,
 				name, deploymentID); err != nil {
 				return fmt.Errorf("clearing the restart request for %s on %s: %w", deploymentID, name, err)
+			}
+		}
+
+		// Replaced wholesale rather than upserted: the node reports the
+		// complete set it is currently refusing, so one that stops being
+		// named has stopped applying — the configuration moved, or the
+		// operator fixed the node. Upserting would leave a refusal on
+		// display forever after it stopped being true.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM refusal WHERE node_name = ?`, name); err != nil {
+			return fmt.Errorf("clearing refusals for %s: %w", name, err)
+		}
+		for _, ref := range r.Refusals {
+			// The EXISTS guard is the same rule the deployment and staging
+			// writes above follow: a node may report on what the
+			// configuration placed there and may not invent a row for
+			// something nobody registered.
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO refusal (node_name, deployment_id, rev, reason, updated_at)
+				 SELECT ?, ?, ?, ?, ?
+				 WHERE EXISTS (SELECT 1 FROM deployment WHERE id = ? AND node_name = ?)`,
+				name, ref.Deployment, r.Rev, ref.Reason, stamp, ref.Deployment, name); err != nil {
+				return fmt.Errorf("recording %s's refusal of %s: %w", name, ref.Deployment, err)
 			}
 		}
 		return nil

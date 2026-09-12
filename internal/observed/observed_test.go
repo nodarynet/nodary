@@ -138,6 +138,104 @@ func TestHeartbeatConsumesAnAckedRestartRequest(t *testing.T) {
 	}
 }
 
+// R4-15 / R2-02: a node reports the complete set of what it is refusing on
+// every heartbeat, so the stored set is replaced rather than added to — a
+// refusal that stops being reported has stopped applying, and one left on
+// display after the configuration was fixed is worse than none.
+func TestHeartbeatReplacesTheRefusalSet(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Format(audit.TimeFormat)
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO node (name, state, created_at) VALUES (?, 'approved', ?)`, "gpu-01", now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO model (id, backend, source, artifact, created_at) VALUES (?, 'vllm', 'local', 'hf-cache', ?)`,
+			"acme/tiny", now); err != nil {
+			return err
+		}
+		for _, id := range []string{"dep_one", "dep_two"} {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO deployment (id, model_id, node_name, backend, params_json, extra_args_json,
+				                         env_json, disabled, state, created_at, updated_at)
+				 VALUES (?, 'acme/tiny', 'gpu-01', 'vllm', '{}', '[]', '{}', 0, 'defined', ?, ?)`,
+				id, now, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	report := NodeReport{Rev: 7, Refusals: []RefusalReport{
+		{Deployment: "dep_one", Reason: "GPU 3 is not on this node's offer"},
+		{Deployment: "dep_two", Reason: "backend \"sglang\" is not one this build has"},
+		// A deployment the configuration does not have: refused by the
+		// EXISTS guard, the same way an unknown model's staging row is.
+		{Deployment: "dep_ghost", Reason: "invented by a node"},
+	}}
+	if err := Heartbeat(ctx, db, "gpu-01", report, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	got := refusalsOf(t, db, "gpu-01")
+	if len(got) != 2 || got["dep_one"] == "" || got["dep_two"] == "" {
+		t.Fatalf("refusals = %v, want exactly dep_one and dep_two", got)
+	}
+	if _, invented := got["dep_ghost"]; invented {
+		t.Error("a node created a refusal row for a deployment nobody registered")
+	}
+
+	// The operator fixes one. The next heartbeat names only the other, and
+	// the fixed one must disappear rather than linger.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Rev: 8, Refusals: []RefusalReport{
+		{Deployment: "dep_two", Reason: "backend \"sglang\" is not one this build has"},
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := refusalsOf(t, db, "gpu-01"); len(got) != 1 || got["dep_two"] == "" {
+		t.Errorf("refusals = %v, want only dep_two: dep_one stopped being refused", got)
+	}
+
+	// And a heartbeat refusing nothing clears the node.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Rev: 9}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := refusalsOf(t, db, "gpu-01"); len(got) != 0 {
+		t.Errorf("refusals = %v, want none", got)
+	}
+}
+
+func refusalsOf(t *testing.T, db *store.DB, node string) map[string]string {
+	t.Helper()
+	rows, err := db.Read().QueryContext(context.Background(),
+		`SELECT deployment_id, reason FROM refusal WHERE node_name = ?`, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, reason string
+		if err := rows.Scan(&id, &reason); err != nil {
+			t.Fatal(err)
+		}
+		out[id] = reason
+	}
+	return out
+}
+
 // R4-37: staging progress is reported as bytes against a total, and this is
 // the one hop that actually writes it — everywhere else along the way is a
 // field carried from one struct to the next, and this is where it lands in

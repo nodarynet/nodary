@@ -110,6 +110,19 @@ type Detail struct {
 	Node
 	Deployments []Deployment `json:"deployments"`
 	Staging     []Staging    `json:"staging"`
+	// Refusals is what this node will not run and why (R4-15). Empty for a
+	// healthy node, and the first thing to read when a deployment sits in
+	// `defined` and never starts.
+	Refusals []Refusal `json:"refusals"`
+}
+
+// Refusal is one deployment this node declined, against the revision it was
+// computed from.
+type Refusal struct {
+	DeploymentID string `json:"deployment_id"`
+	Rev          int64  `json:"rev"`
+	Reason       string `json:"reason"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 const nodeColumns = `name, state, coalesce(last_seen, ''), coalesce(agent_version, ''),
@@ -203,8 +216,30 @@ func Show(ctx context.Context, q config.Querier, name string, now time.Time) (De
 			d.ReadyCount++
 		}
 	}
-	d.Staging, err = staging(ctx, q, name)
+	if d.Staging, err = staging(ctx, q, name); err != nil {
+		return d, err
+	}
+	d.Refusals, err = refusals(ctx, q, name)
 	return d, err
+}
+
+func refusals(ctx context.Context, q config.Querier, node string) ([]Refusal, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT deployment_id, rev, reason, updated_at
+		 FROM refusal WHERE node_name = ? ORDER BY deployment_id`, node)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Refusal{}
+	for rows.Next() {
+		var r Refusal
+		if err := rows.Scan(&r.DeploymentID, &r.Rev, &r.Reason, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func deployments(ctx context.Context, q config.Querier, node string) ([]Deployment, error) {
