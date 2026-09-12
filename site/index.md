@@ -37,9 +37,9 @@ edition rather than the target audience.
   descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
 - **Stages weights** with verified transfers, including a fully offline path for air-gapped
   sites.
-- **Issues and revokes tokens**, and meters every request against the person who made it.
-  Per-user rate and budget limits are configured, exported and diffed today; the gateway
-  does not yet read them.
+- **Issues and revokes tokens**, meters every request against the person who made it, and
+  enforces per-user rate and budget limits — per user, per role and globally, with a `429`
+  that names which limit was hit and when it clears.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with
   a required justification and a hash binding the approved preview to what was applied.
 - **Carries policy as one reviewable object** — mandatory re-authentication, justification

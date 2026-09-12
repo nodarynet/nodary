@@ -196,12 +196,22 @@ sudo nodary route set <route> --add <deployment-id>,<deployment-id> --remove <de
 sudo nodary limits set --kind user --subject alice --rpm 60 --daily-tokens 1000000
 ```
 
-!!! warning "Limits are recorded, not enforced"
-    `limits set` writes them, `config export` carries them and `policy diff` reasons about
-    whether a change loosens them — and the gateway does not read them. `--kind` also takes
-    `role` and `global`. There is no token
-    bucket, no concurrency cap and no `429` path yet
-    ([R3-08/09/10](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R3-gateway.md)).
+`--kind` takes `user`, `role` or `global`. **Every applicable limit binds and the most
+restrictive wins** — a user is subject to their own limit, their role's and the global one at
+once, so a generous per-user limit does not raise anybody above a tight global ceiling. That
+is what makes a global cap a cap; the cost is that per-user limits can only tighten.
+
+Exceeding one returns `429` with `Retry-After` and a body naming which limit was hit, whose it
+is, what is already spent and when it clears. A refused request is recorded in `usage` with
+status 429 — throttling is telemetry about the system, not an administrative act, so it never
+reaches the audit chain.
+
+!!! note "Two edges worth knowing"
+    `tpm` is charged **after** a response, because a request's token count does not exist
+    until then — so one very large response can leave the bucket empty for a while. And a
+    daily budget is checked against what is already spent, so it can be exceeded by at most
+    one request. Both are inherent rather than shortcuts: there is no way to charge for
+    tokens before they are produced.
 
 ## Policy
 

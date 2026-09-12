@@ -42,6 +42,7 @@ type Server struct {
 	// client: docs/specs/06-gateway.md §1 has LiteLLM stateless behind a single
 	// key, which is what lets it hold no database and no identities.
 	masterKey string
+	throttle  *throttle
 }
 
 // Options configure a gateway.
@@ -66,7 +67,8 @@ func New(o Options) (*Server, error) {
 		return nil, fmt.Errorf("%w: upstream %q is not a URL", ErrBadConfig, o.Upstream)
 	}
 
-	s := &Server{db: o.DB, log: o.Log, now: o.Now, up: up, masterKey: o.MasterKey}
+	s := &Server{db: o.DB, log: o.Log, now: o.Now, up: up, masterKey: o.MasterKey,
+		throttle: newThrottle()}
 	s.prox = &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(up)

@@ -25,6 +25,11 @@ type Error struct {
 
 var errBadRequest = errors.New("malformed request")
 
+// errThrottled is docs/specs/06-gateway.md §4's 429. Its own value rather than
+// a denial, because a 403 tells a client to stop and a 429 tells it to wait,
+// and a client that cannot tell them apart either gives up or hammers.
+var errThrottled = errors.New("a limit was reached")
+
 func badRequest(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", errBadRequest, fmt.Sprintf(format, a...))
 }
@@ -43,6 +48,8 @@ func statusFor(err error) (int, string) {
 		return http.StatusForbidden, "forbidden"
 	case errors.Is(err, errBadRequest):
 		return http.StatusBadRequest, "bad_request"
+	case errors.Is(err, errThrottled):
+		return http.StatusTooManyRequests, "rate_limited"
 	}
 	return http.StatusInternalServerError, "internal"
 }
@@ -56,6 +63,13 @@ func statusFor(err error) (int, string) {
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	status, code := statusFor(err)
 	body := Error{Code: code, Message: err.Error(), RequestID: requestID(r)}
+	// A throttle carries which limit was hit, whose it is, and when it clears.
+	// 06 §4: a bare 429 tells a user nothing actionable.
+	var thr *refusal
+	if errors.As(err, &thr) {
+		body.Detail = thr.detail()
+		w.Header().Set("Retry-After", thr.retryAfter())
+	}
 	if status == http.StatusInternalServerError {
 		s.log.Error("gateway", "detail", err.Error(), "request_id", requestID(r))
 		body.Message = "the gateway failed to handle this request"

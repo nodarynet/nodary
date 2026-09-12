@@ -50,7 +50,7 @@ func cmdLimitsShow(e env, args []string) int {
 	}
 	if *format == "json" {
 		return writeJSON(e, "limits show", map[string]any{
-			"limits": snap.Limits, "enforced": false})
+			"limits": snap.Limits, "enforced": true})
 	}
 	if len(snap.Limits) == 0 {
 		fmt.Fprintln(e.stdout, "no limits set")
@@ -60,7 +60,7 @@ func cmdLimitsShow(e env, args []string) int {
 			l.SubjectKind, l.SubjectID, dashIfUnset(l.RPM), dashIfUnset(l.TPM),
 			dashIfUnset(l.DailyTokens), dashIfUnset(l.MaxConcurrent))
 	}
-	warnLimitsNotEnforced(e)
+	noteLimitsAreEnforced(e)
 	return ExitOK
 }
 
@@ -125,7 +125,7 @@ func cmdLimitsSet(e env, args []string) int {
 			}
 			edit(next)
 			return map[string]any{"changes": config.Changes(have, next),
-				"enforced": false}, nil
+				"enforced": true}, nil
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
@@ -146,21 +146,22 @@ func cmdLimitsSet(e env, args []string) int {
 	if !applied {
 		return code
 	}
-	warnLimitsNotEnforced(e)
+	noteLimitsAreEnforced(e)
 	return ExitOK
 }
 
-// warnLimitsNotEnforced says the thing a stub must say.
+// noteLimitsAreEnforced replaces the warning this verb carried while nothing
+// read what it wrote (R3-08 – R3-10).
 //
-// docs/plans/mvp.md §3's first rule: a stub is honest in its data. Throttling
-// is R3-08 – R3-10 and is deferred, so a verb that stored a quota and returned
-// success — on a system that will happily blow straight through it — would
-// leave an operator believing a budget is in force. That is the dishonest kind
-// of stub, and one line prevents it.
-func warnLimitsNotEnforced(e env) {
+// It still says something, because what changed is not only that limits work:
+// every applicable limit now binds and the most restrictive one wins, so
+// setting a generous per-user limit under a tight global one does not raise
+// anybody. An operator who writes 600 and observes 100 should be able to find
+// out why without reading the gateway.
+func noteLimitsAreEnforced(e env) {
 	fmt.Fprintf(e.stderr,
-		"\nNote: limits are recorded and are NOT yet enforced. Throttling is R3-08 in\n"+
-			"docs/tasks/R3-gateway.md; until it lands, nothing rejects a request for exceeding one.\n")
+		"\nLimits are enforced by the gateway. A user is subject to their own limit, their\n"+
+			"role's and the global one at once, and the most restrictive of the three binds.\n")
 }
 
 // dashIfUnset renders an unset limit as a dash rather than 0, because 0 would

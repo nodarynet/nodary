@@ -70,6 +70,25 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// docs/specs/06-gateway.md §4. After the allowlist, because being refused
+	// a route is a permanent answer and being throttled is a temporary one:
+	// telling somebody to wait for access they will never have is worse than
+	// telling them no.
+	release, ref, err := s.admit(r.Context(), p)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if ref != nil {
+		// A throttle is a usage record, never an audit record. 06 §4: one is
+		// telemetry about system behavior, the other an administrative act with
+		// an accountable author, and writing this to the chain would fill it
+		// with events nobody performed.
+		s.recordThrottled(r, p, want.Model, started)
+		s.fail(w, r, ref)
+		return
+	}
+
 	// docs/specs/06-gateway.md §3: OpenAI-compatible streams omit usage unless
 	// stream_options.include_usage is set, so the gateway injects it. A client
 	// cannot opt out — opting out of usage reporting would be opting out of
@@ -90,6 +109,10 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		},
 		streaming: want.Stream,
 	}
+	// Always, on every exit below: it frees the concurrency slot and charges
+	// tpm what the response actually cost, which is the only moment that number
+	// exists.
+	defer func() { release(int(rec.usage.PromptTokens + rec.usage.CompletionTokens)) }()
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))

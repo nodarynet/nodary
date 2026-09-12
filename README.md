@@ -50,7 +50,7 @@ CLI only.
 - **Enrolls nodes** with short-lived join tokens, issues them mTLS certificates, and holds them in `pending` until an administrator approves. A leaked token alone cannot place a machine into the serving fleet.
 - **Runs model servers** as systemd units against containerd, through declarative backend descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
-- **Issues and revokes tokens**, and meters every request against the person who made it. Per-user rate and budget limits are configured, exported and diffed today; the gateway does not yet read them ([R3-08/09/10](docs/tasks/R3-gateway.md)).
+- **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits — `rpm`, `tpm`, `daily_tokens` and `max_concurrent`, per user, per role and globally, with a `429` that names which limit was hit and when it clears.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied.
 - **Carries policy as one reviewable object** rather than behavior scattered through code — mandatory
   re-authentication, justification floors, credential lifetimes and deny-by-default egress are in force.
@@ -127,7 +127,6 @@ is not in force. So the list is here on the front page rather than only in a pla
 
 | Not yet enforced | State | Lands in |
 | :--- | :--- | :--- |
-| Per-user rate and budget limits | configured, exported and diffed; the gateway never reads them | [R3-08/09/10](docs/tasks/R3-gateway.md) |
 | Model origin allow/deny lists | parsed, validated and diffed; checked nowhere | [R4-32](docs/tasks/R4-agent.md) |
 | Retention windows | displayed; nothing prunes | [R2-14](docs/tasks/R2-control-plane.md), [R3-13](docs/tasks/R3-gateway.md) |
 | Node guardrails | `node.toml` is parsed and reported, and enforced nowhere | [R4-14 – R4-16](docs/tasks/R4-agent.md) |
@@ -146,7 +145,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 29 of 42 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
-| **R3** Gateway | 9 of 16 | the OpenAI surface, service keys, route allowlist, metering, LiteLLM kept in sync automatically |
+| **R3** Gateway | 12 of 16 | the OpenAI surface, service keys, route allowlist, metering, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 28 of 41 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails (parsed and reported, not enforced), local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 18 of 32 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor` |
 | **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM and SGLang |
