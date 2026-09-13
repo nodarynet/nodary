@@ -208,6 +208,42 @@ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
 
 `nodary node show <node-name>` follows the deployment from `starting` to `ready`.
 
+### Serving a GGUF with llama.cpp
+
+`--backend llama-cpp` changes where the weights go and what to put there. vLLM and SGLang take
+a HuggingFace cache; llama.cpp takes **one** GGUF file, so the model's directory is the
+flattened id rather than `hub/models--…`:
+
+```sh
+sudo install -d -o "$USER" -g nodary -m 2750 /var/lib/nodary/models/Qwen--Qwen2.5-0.5B-Instruct
+cp qwen2.5-0.5b-instruct-q4_k_m.gguf /var/lib/nodary/models/Qwen--Qwen2.5-0.5B-Instruct/
+
+sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
+    --backend llama-cpp --node <node-name> --gpu 0 --port 8001 \
+    --grant alice --justify "a GGUF from the shelf"
+```
+
+You do not say which layout — the backend declares it, and `model register` follows. Point it
+at the wrong directory and it says where it looked.
+
+**One file, and it must be one.** A GGUF split into shards is refused rather than guessed at:
+llama.cpp takes the first shard, and a build that picked one for you would serve the wrong
+weights in silence the day the naming differs. Merge the shards with `llama-gguf-split --merge`
+and register the result.
+
+Two options are worth knowing. `--gpu-memory` does not apply — llama.cpp does not reserve a
+fraction of VRAM, it places a number of layers — so use `gpu_layers` through the deployment's
+params, which the descriptor names. And llama.cpp will serve with **no GPU at all**, slowly,
+which no other backend here does.
+
+!!! note "The image is NVIDIA's build"
+    The pinned image is `server-cuda` from the project's own publication at
+    `ghcr.io/ggml-org/llama.cpp`. That repository also ships `server-vulkan`, `server-intel`
+    and a CPU-only `server`, which are the route to hosts that are not NVIDIA — but preflight,
+    GPU enumeration, CDI device naming and the `--gpus` flag all resolve through `nvidia-smi`
+    and `nvidia-ctk`, so a non-NVIDIA node cannot install yet regardless of the image. That
+    seam is not built.
+
 ## Changing what is deployed
 
 ```sh

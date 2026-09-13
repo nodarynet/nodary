@@ -34,7 +34,8 @@ edition rather than the target audience.
   in `pending` until an administrator approves. A leaked token alone cannot place a machine
   into the serving fleet.
 - **Runs model servers** as systemd units against containerd, through declarative backend
-  descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
+  descriptors — vLLM, SGLang and llama.cpp today; adding another is a TOML file, not a code
+  change. llama.cpp serves GGUF, and can serve where VRAM is short.
 - **Stages weights** with verified transfers, including a fully offline path for air-gapped
   sites.
 - **Issues and revokes tokens**, meters every request against the person who made it, and

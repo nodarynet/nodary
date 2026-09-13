@@ -48,7 +48,7 @@ CLI only.
 ## What it does
 
 - **Enrolls nodes** with short-lived join tokens, issues them mTLS certificates, and holds them in `pending` until an administrator approves. A leaked token alone cannot place a machine into the serving fleet.
-- **Runs model servers** as systemd units against containerd, through declarative backend descriptors — vLLM and SGLang today; adding another is a TOML file, not a code change.
+- **Runs model servers** as systemd units against containerd, through declarative backend descriptors — vLLM, SGLang and llama.cpp today; adding another is a TOML file, not a code change. llama.cpp serves GGUF, and can serve where VRAM is short.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
 - **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits — `rpm`, `tpm`, `daily_tokens` and `max_concurrent`, per user, per role and globally, with a `429` that names which limit was hit and when it clears.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied.
@@ -139,7 +139,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local` | [R2-21 – R2-32](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
 | A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
-| OIDC, and backends beyond vLLM and SGLang | — |
+| OIDC, and backends beyond vLLM, SGLang and llama.cpp — TensorRT-LLM needs the `prepare` phase | [R6-06](docs/tasks/R6-backends.md) |
 
 | | | |
 | :--- | :--- | :--- |
@@ -149,7 +149,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | **R3** Gateway | 12 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 31 of 42 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
-| **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM and SGLang |
+| **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM, SGLang and llama.cpp |
 | **R9** Evidence | 15 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
 
 ```sh
