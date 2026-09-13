@@ -110,8 +110,8 @@ func TestUsagePastTheWindowIsRolledUpAndNotMerelyDeleted(t *testing.T) {
 
 	r := prune(t, db, Window{AuditDays: 1095, UsageDays: 90})
 
-	if r.UsageRows != 3 || r.UsageDays != 2 {
-		t.Errorf("removed %d rows over %d days, want 3 over 2", r.UsageRows, r.UsageDays)
+	if r.UsageRows != 3 || r.UsageGroups != 2 {
+		t.Errorf("removed %d rows over %d days, want 3 over 2", r.UsageRows, r.UsageGroups)
 	}
 	if n := count(t, db, `SELECT count(*) FROM usage`); n != 1 {
 		t.Errorf("%d raw rows survived, want the one inside the window", n)
@@ -259,5 +259,51 @@ func TestJoinTokensArePurgedADayAfterExpiry(t *testing.T) {
 	}
 	if n := count(t, db, `SELECT count(*) FROM join_token WHERE id = 'jt_stale'`); n != 0 {
 		t.Error("a token a day past expiry survived")
+	}
+}
+
+// The ceremony shows an operator what Plan found and then applies what Prune
+// does. If those disagree, the attestation is describing something other than
+// what happened — which is the one failure the ceremony exists to prevent.
+func TestThePreviewMatchesWhatIsRemoved(t *testing.T) {
+	db := openDB(t)
+	for _, d := range []int{400, 399, 398, 20, 1} {
+		record(t, db, daysAgo(d))
+	}
+	for _, d := range []int{200, 200, 150, 3} {
+		usageRow(t, db, daysAgo(d), "usr_a", "m", 2, 1)
+	}
+	exec(t, db, `INSERT INTO join_token (id, hash, prefix, uses_left, expires_at, created_by, created_at)
+	             VALUES ('jt_old', ?, 'nodary_jt_a', 1, ?, 'root', ?)`,
+		fmt.Sprintf("%064d", 1), stamp(now.Add(-48*time.Hour)), stamp(daysAgo(9)))
+
+	var planned, done Removed
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		var err error
+		if planned, err = Plan(context.Background(), tx, Window{AuditDays: 90, UsageDays: 90}, now); err != nil {
+			return err
+		}
+		done, err = Prune(context.Background(), tx, Window{AuditDays: 90, UsageDays: 90}, now)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if planned != done {
+		t.Errorf("the preview and the act disagree:\n plan  %+v\n prune %+v", planned, done)
+	}
+	if !planned.Any() || planned.UsageRows != 3 || planned.JoinTokens != 1 || planned.AuditThrough != 3 {
+		t.Errorf("plan = %+v, want 3 usage rows, 1 token and the chain cut at 3", planned)
+	}
+}
+
+// A pass with nothing to do still reports cleanly, and still writes its record
+// when the CLI wraps it: that it ran and found nothing is the fact that makes a
+// gap in the chain's prune history mean something.
+func TestAnEmptyDatabasePrunesToNothing(t *testing.T) {
+	db := openDB(t)
+	r := prune(t, db, Window{AuditDays: 1095, UsageDays: 90})
+	if r.Any() {
+		t.Errorf("removed %+v from an empty database", r)
 	}
 }
