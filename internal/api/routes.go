@@ -99,6 +99,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/nodes/{name}", s.showNode)
 	h("POST", "/nodes/{name}/approve", s.nodeTransition("approve", "approved"))
 	h("POST", "/nodes/{name}/drain", s.nodeTransition("drain", "draining"))
+	h("POST", "/nodes/{name}/revoke", s.nodeTransition("revoke", "departed"))
 
 	// Models, deployments and routes — R2-28, R2-29, R2-30. Reads now; their
 	// mutations are declarative and go through config apply, which is one
@@ -626,37 +627,14 @@ func (s *Server) nodeTransition(verb, to string) http.HandlerFunc {
 			// terms are inside the hash the approver signed off, not in prose
 			// beside it.
 			Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-				var from, offer, constraints string
-				err := tx.QueryRowContext(ctx,
-					`SELECT state, offer_json, constraints_json FROM node WHERE name = ?`, name).
-					Scan(&from, &offer, &constraints)
-				if err == sql.ErrNoRows {
-					return nil, badRequest("no node named %q", name)
-				}
-				if err != nil {
-					return nil, err
-				}
-				return map[string]any{"node": name, "from": from, "to": to,
-					"offer": decodedJSON(offer), "constraints": decodedJSON(constraints)}, nil
+				return fleet.TransitionPreview(ctx, tx, name, to)
 			},
 			Apply: func(m audit.Mutation, _ any) error {
 				p, _ := s.principalOf(r)
-				perm := identity.PermNodeApprove
-				if verb == "drain" {
-					perm = identity.PermNodeDrain
-				}
-				if err := identity.Authorize(p.Role, perm); err != nil {
+				if err := identity.Authorize(p.Role, fleet.Permission(to)); err != nil {
 					return err
 				}
-				stamped := s.now().UTC().Format(audit.TimeFormat)
-				if to == "approved" {
-					if _, err := m.Tx().ExecContext(r.Context(),
-						`UPDATE node SET state = ?, approved_by = ?, approved_at = ? WHERE name = ?`,
-						to, nullOrID(p), stamped, name); err != nil {
-						return err
-					}
-				} else if _, err := m.Tx().ExecContext(r.Context(),
-					`UPDATE node SET state = ? WHERE name = ?`, to, name); err != nil {
+				if err := fleet.Transition(r.Context(), m, s.now(), name, to, p.User.ID); err != nil {
 					return err
 				}
 				// `node.state` is in the configuration snapshot, so approving or
@@ -726,13 +704,6 @@ func decodedJSON(raw string) any {
 		return raw
 	}
 	return v
-}
-
-func nullOrID(p identity.Principal) any {
-	if p.User.ID == "" {
-		return nil
-	}
-	return p.User.ID
 }
 
 func orDefault(s, d string) string {

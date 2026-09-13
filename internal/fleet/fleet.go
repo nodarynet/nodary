@@ -8,7 +8,11 @@
 // list` was a stub, so the only way to see a fleet *from the machine hosting
 // it* was curl with an administrator's token.
 //
-// Reads only. Nothing here writes, so nothing here needs the audit seam.
+// Reads, and the node lifecycle. transition.go moves a node between the
+// administrative states an operator decides, inside a caller-supplied
+// audit.Mutation — so the writes are still inside the seam, and the rules about
+// which columns move with a state live in one place rather than once per front
+// end.
 //
 // GPUs, the offer and the constraints stay json.RawMessage rather than becoming
 // the structs in internal/agent. Decoding them here would make this package
