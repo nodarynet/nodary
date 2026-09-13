@@ -56,3 +56,10 @@ closes. · [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugin
 - [ ] **R6-11** `require_pinned_derives` under a regulated profile: `index_url` set and every install step naming an exact version · [04 §5](../specs/04-backends.md#policy)
 - [ ] **R6-12** `api` dialect governs routing: `openai` proxies unchanged, `triton` is refused on an OpenAI route without an adapter, `custom` is reachable only through a configured one · [04 §8](../specs/04-backends.md#8-routing-implications)
   - *done:* mixing backends behind one route is supported — a vLLM and an SGLang deployment of the same model round-robin together
+- [ ] **R6-13** `components.json` artifacts carry an optional `vendors` map, and `model register` resolves an image against the **node's** vendor · [R6a §3](../plans/R6a-a-second-gpu-vendor.md)
+  - *rejected:* a compound platform key, `linux/amd64+vulkan`. It needs no schema change, and it smuggles a second dimension into a string `resolvePlatform`, `ForPlatform` and `ArtifactName` all split on `/`
+  - a component with no `vendors` map is NVIDIA-or-nothing, which is every component today and stays true without editing one of them
+  - the cost is in `model register`, which resolves against `buildinfo.Platform()` — the *control plane's* — because until now every node's was the same
+- [ ] **R6-14** `gpuFlag` renders the flag the node's vendor names, and `[backend.gpu] mechanism` is deleted · [R6a §2](../plans/R6a-a-second-gpu-vendor.md)
+  - the mechanism is not a property of the backend. `server-cuda` reaches a card by `--gpus device=0` through CDI and `server-vulkan` by `--device /dev/dri/renderD128`: same descriptor, different flag, decided by the vendor
+  - `mechanism` has **never been read** by anything, like `image_default` beside it. A field with no readers is the cheapest thing in the tree to delete, and wiring it up would put the answer in the wrong place permanently
