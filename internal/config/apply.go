@@ -506,3 +506,28 @@ func originOf(m Model) string {
 		return "undeclared"
 	}
 }
+
+// SetDisabled flips the deployments of a model, optionally narrowed to one
+// node, and reports how many it matched.
+//
+// Shared by `nodary model enable|disable` and POST /models/{id}/enable|disable
+// so the two front ends cannot disagree about which deployments a verb touches
+// — the constraint docs/tasks/README.md makes non-negotiable.
+//
+// **Every matching deployment, not one row.** deployment.id is the only primary
+// key, so nothing stops two deployments of one model on one node; treating
+// (model, node) as naming a single row would silently leave a replica running
+// that an operator believed they had stopped.
+func SetDisabled(snap *Snapshot, modelID, node string, disabled bool) (matched int) {
+	for i := range snap.Deployments {
+		if snap.Deployments[i].ModelID != modelID {
+			continue
+		}
+		if node != "" && snap.Deployments[i].NodeName != node {
+			continue
+		}
+		snap.Deployments[i].Disabled = disabled
+		matched++
+	}
+	return matched
+}

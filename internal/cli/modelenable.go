@@ -51,21 +51,12 @@ func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 		perm = identity.PermModelDisable
 	}
 
-	// Read once here, applied identically inside render (for the preview) and
-	// apply (for the bound mutation) — the same double-read shape
-	// cmdLimitsSet uses, since attest.Render runs twice by contract.
-	edit := func(snap *config.Snapshot) (matched int) {
-		for i := range snap.Deployments {
-			if snap.Deployments[i].ModelID != id {
-				continue
-			}
-			if *node != "" && snap.Deployments[i].NodeName != *node {
-				continue
-			}
-			snap.Deployments[i].Disabled = disabled
-			matched++
-		}
-		return matched
+	// Applied identically inside render (for the preview) and apply (for the
+	// bound mutation) — the same double-read shape cmdLimitsSet uses, since
+	// attest.Render runs twice by contract. The edit itself is
+	// config.SetDisabled so the HTTP endpoint touches exactly the same rows.
+	edit := func(snap *config.Snapshot) int {
+		return config.SetDisabled(snap, id, *node, disabled)
 	}
 
 	rec, applied, code := s.attested(e, "model "+verb, change{

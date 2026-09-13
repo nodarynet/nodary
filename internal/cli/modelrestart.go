@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
@@ -58,7 +59,7 @@ func cmdModelRestart(e env, args []string) int {
 		action: "model.restart",
 		target: &audit.Target{Kind: "model", ID: id},
 		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			targets, skipped, err := restartTargets(ctx, tx, id, *node)
+			targets, skipped, err := fleet.RestartTargets(ctx, tx, id, *node)
 			if err != nil {
 				return nil, err
 			}
@@ -79,20 +80,12 @@ func cmdModelRestart(e env, args []string) int {
 			// same discipline cmdModelToggle's edit closure follows: apply
 			// runs inside its own transaction and must not depend on a value
 			// that only round-tripped through the preview shown on screen.
-			targets, skipped, err := restartTargets(context.Background(), m.Tx(), id, *node)
+			targets, skipped, err := fleet.RestartTargets(context.Background(), m.Tx(), id, *node)
 			if err != nil {
 				return err
 			}
 			skippedDisabled = skipped
-			for _, depID := range targets {
-				if _, err := m.Tx().ExecContext(context.Background(),
-					`INSERT INTO deployment_restart (node_name, deployment_id, requested_at) VALUES (?, ?, ?)
-					 ON CONFLICT (node_name, deployment_id) DO UPDATE SET requested_at = excluded.requested_at`,
-					*node, depID, s.now.UTC().Format(audit.TimeFormat)); err != nil {
-					return err
-				}
-			}
-			return nil
+			return fleet.RequestRestart(context.Background(), m, s.now, *node, targets)
 		},
 	}, cer, *format)
 	if !applied {
@@ -106,31 +99,4 @@ func cmdModelRestart(e env, args []string) int {
 	}
 	reportRecord(e, rec)
 	return ExitOK
-}
-
-// restartTargets is every deployment of model on node, split into what
-// restart actually names and what it skips because it is disabled — used
-// identically by render (to show and refuse on nothing matching) and apply
-// (to write the actual rows), so the two can never disagree about what
-// matched.
-func restartTargets(ctx context.Context, tx *sql.Tx, model, node string) (targets, skipped []string, err error) {
-	rows, err := tx.QueryContext(ctx,
-		`SELECT id, disabled FROM deployment WHERE model_id = ? AND node_name = ?`, model, node)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var disabled bool
-		if err := rows.Scan(&id, &disabled); err != nil {
-			return nil, nil, err
-		}
-		if disabled {
-			skipped = append(skipped, id)
-			continue
-		}
-		targets = append(targets, id)
-	}
-	return targets, skipped, rows.Err()
 }

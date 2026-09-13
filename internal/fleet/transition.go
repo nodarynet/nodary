@@ -118,3 +118,54 @@ func decoded(raw string) any {
 	}
 	return v
 }
+
+// RestartTargets is every deployment of a model on a node, split into what a
+// restart names and what it skips because it is disabled.
+//
+// Used identically by the render (to show, and to refuse when nothing matched)
+// and the apply (to write the rows), so the preview an operator approves and
+// the act cannot disagree about what matched — and shared by `nodary model
+// restart` and POST /models/{id}/restart for the same reason one node
+// transition now serves both.
+//
+// A disabled deployment is **skipped rather than failing the request**: an
+// operator restarting a model with several replicas should not have the whole
+// thing refused because one of them is off. The caller reports what it skipped.
+func RestartTargets(ctx context.Context, q config.Querier, model, node string) (targets, skipped []string, err error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, disabled FROM deployment WHERE model_id = ? AND node_name = ? ORDER BY id`, model, node)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var disabled bool
+		if err := rows.Scan(&id, &disabled); err != nil {
+			return nil, nil, err
+		}
+		if disabled {
+			skipped = append(skipped, id)
+			continue
+		}
+		targets = append(targets, id)
+	}
+	return targets, skipped, rows.Err()
+}
+
+// RequestRestart records that these deployments should be cycled on their next
+// reconcile. Edge-triggered, so it writes its own table rather than the
+// configuration: a restart has no declarative change behind it, and the params
+// before and after can be identical.
+func RequestRestart(ctx context.Context, m audit.Mutation, now time.Time, node string, ids []string) error {
+	stamp := now.UTC().Format(audit.TimeFormat)
+	for _, id := range ids {
+		if _, err := m.Tx().ExecContext(ctx,
+			`INSERT INTO deployment_restart (node_name, deployment_id, requested_at) VALUES (?, ?, ?)
+			 ON CONFLICT (node_name, deployment_id) DO UPDATE SET requested_at = excluded.requested_at`,
+			node, id, stamp); err != nil {
+			return fmt.Errorf("requesting a restart of %s: %w", id, err)
+		}
+	}
+	return nil
+}

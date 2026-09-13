@@ -111,6 +111,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/routes", s.listFleet("routes"))
 	h("GET", "/routes/{name}", s.showFleet("routes"))
 	h("PUT", "/routes/{name}", s.putRoute)
+	h("POST", "/models/{id}/enable", s.modelToggle(false))
+	h("POST", "/models/{id}/disable", s.modelToggle(true))
+	h("POST", "/models/{id}/restart", s.modelRestart)
 	h("GET", "/limits", s.listFleet("limits"))
 	h("PUT", "/limits/{kind}/{id}", s.putLimit)
 	h("POST", "/tokens/join", s.createJoinToken)
@@ -926,3 +929,127 @@ func (s *Server) createJoinToken(w http.ResponseWriter, r *http.Request) {
 // NotIdempotentForTest exposes the exemption list so a test can hold each entry
 // to having a stated reason. Not part of the served surface.
 func NotIdempotentForTest() map[string]string { return notIdempotent }
+
+// modelToggle is R2-28's enable and disable: POST /models/{id}/enable and
+// /disable, optionally narrowed with ?node=.
+//
+// The edit is config.SetDisabled, which `nodary model enable|disable` also
+// calls, so the two front ends cannot disagree about which deployments a verb
+// touches. What differs here is only what a front end knows: how the credential
+// arrived and how to render the outcome.
+//
+// **Not applyOne**, which the route and limit PUTs use: those are declarative
+// writes under config.apply's authority, and these are their own actions with
+// their own permissions (docs/specs/07-identity-audit.md §1 names
+// model.enable and model.disable). Recording a disable as `config.apply` would
+// make the chain answer "who stopped this model" with the wrong verb.
+func (s *Server) modelToggle(disabled bool) http.HandlerFunc {
+	verb, perm := "enable", identity.PermModelEnable
+	if disabled {
+		verb, perm = "disable", identity.PermModelDisable
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		node := r.URL.Query().Get("node")
+		edit := func(snap *config.Snapshot) int { return config.SetDisabled(snap, id, node, disabled) }
+
+		s.mutate(w, r, core.Change{
+			Action: "model." + verb,
+			Target: &audit.Target{Kind: "model", ID: id},
+			Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+				have, err := config.Read(ctx, tx)
+				if err != nil {
+					return nil, err
+				}
+				want, err := config.Read(ctx, tx)
+				if err != nil {
+					return nil, err
+				}
+				if edit(want) == 0 {
+					return nil, notFound("%q has no deployment%s; GET /nodes names them", id, onNode(node))
+				}
+				return map[string]any{"changes": config.Changes(have, want), "node": node}, nil
+			},
+			Apply: func(m audit.Mutation, _ any) error {
+				p, _ := s.principalOf(r)
+				if err := identity.Authorize(p.Role, perm); err != nil {
+					return err
+				}
+				if err := checkIfMatch(r.Context(), r, m.Tx()); err != nil {
+					return err
+				}
+				want, err := config.Read(r.Context(), m.Tx())
+				if err != nil {
+					return err
+				}
+				edit(want)
+				if _, err := config.Apply(r.Context(), m, s.now(), want, config.Options{}); err != nil {
+					return err
+				}
+				_, err = config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
+				return err
+			},
+		}, nil)
+	}
+}
+
+func onNode(node string) string {
+	if node == "" {
+		return ""
+	}
+	return " on " + node
+}
+
+// modelRestart is R2-28's restart: POST /models/{id}/restart?node=NAME.
+//
+// **node is required, unlike enable and disable.** A restart is inherently a
+// single node's act — cycling a systemd unit — where enable and disable are a
+// fleet-wide declarative toggle. It is also edge-triggered rather than
+// declarative: the params before and after a restart can be identical, so it
+// writes its own table for the agent to consume and acknowledge, exactly as
+// `nodary model restart` does through the same two fleet functions.
+func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	node := r.URL.Query().Get("node")
+	if node == "" {
+		s.fail(w, r, badRequest("restart needs ?node=NAME; GET /nodes names them"))
+		return
+	}
+	var skipped []string
+	s.mutate(w, r, core.Change{
+		Action: "model.restart",
+		Target: &audit.Target{Kind: "model", ID: id},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			targets, disabled, err := fleet.RestartTargets(ctx, tx, id, node)
+			if err != nil {
+				return nil, err
+			}
+			if len(targets) == 0 && len(disabled) == 0 {
+				return nil, notFound("%q has no deployment on %s", id, node)
+			}
+			return map[string]any{"restart": targets, "skipped_disabled": disabled, "node": node}, nil
+		},
+		Apply: func(m audit.Mutation, _ any) error {
+			p, _ := s.principalOf(r)
+			if err := identity.Authorize(p.Role, identity.PermModelRestart); err != nil {
+				return err
+			}
+			// Re-derived rather than trusting the preview that round-tripped
+			// through the response: apply runs in its own transaction and must
+			// not depend on a value that only travelled through the screen.
+			targets, disabled, err := fleet.RestartTargets(r.Context(), m.Tx(), id, node)
+			if err != nil {
+				return err
+			}
+			skipped = disabled
+			return fleet.RequestRestart(r.Context(), m, s.now(), node, targets)
+		},
+	}, func(core.Outcome) any {
+		if len(skipped) == 0 {
+			return nil
+		}
+		// Named rather than silent: an operator who asked for a restart and got
+		// one fewer than they have replicas needs to know which, and why.
+		return map[string]any{"skipped_disabled": skipped}
+	})
+}
