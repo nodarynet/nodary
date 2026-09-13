@@ -70,6 +70,47 @@ from the CLI on the box and not over the API.
 
 ---
 
+## §5's "before it appears in an SSP" — the months bucket
+
+The review's own ordering ends with five items it puts beyond the pilot. They are answered
+here so the list is not left half-addressed.
+
+| # | Item | Status | Where |
+| :--- | :--- | :--- | :--- |
+| 11 | Close the policy enforcement gaps **or** mark unenforced fields as declarative | **Fixed** | R1-38 — the review offered either, and `policy show` marks them with a task number |
+| 12 | Node guardrail enforcement so 00 §5's trust-boundary table is true | **Disclosed** | R4-14 – R4-16 |
+| 13 | A remote administration path, so administrators are not root on the control plane | **Disclosed** | R2-21 – R2-32 |
+| 14 | Separate the gateway's database handle from the audit chain's | **Disclosed**, with a correction below | R4-09 · `191367b` |
+| 15 | Network audit sink, retiring the shipper | **Disclosed** | R2-41 |
+
+### On item 14
+
+The finding is accurate: `nodary gateway start` opens the one database read-write, because the
+gateway records usage and updates `token.last_used_at`. What the suggested fix buys is less
+than it looks.
+
+SQLite has no per-table grants, so the only lever is file permissions, and they are
+all-or-nothing on one file. The gateway and the control plane run as the **same** service
+account — so a second handle is no barrier to a compromised gateway process, which can open
+its own connection to the same path. Handle separation here defends against our own code, not
+against an attacker.
+
+What does defend against our own code is the seam, and that half is now enforced.
+`TestNothingBypassesTheSeam` already forced every write through `audit.Log.Act` outside three
+directories; `internal/observed` is one of them, and its package comment carried the rule it
+exists under — *"it writes only what a machine reported about itself"* — as prose, to be
+checked by whoever remembered to check it. It is now an allowlist of tables with a reason
+each, a list of columns that are decisions even on an allowed table, and the `audit` table
+excluded by name. Verified by injecting each of the three violations it is meant to catch.
+
+Real separation means a second database file for metering, and [08](specs/08-data-model.md)
+defines one database. That is a format decision rather than a code change, and
+[mvp.md §2](plans/mvp.md#2-the-rule-that-decides-what-gets-built) is explicit about which of
+those may be made against a date. The property an assessor actually needs — that the chain is
+not merely trusted by the host holding it — is the off-box anchor, which is item 15.
+
+---
+
 ## Disclosed rather than fixed
 
 Real, known, scheduled, and now stated where a reader meets the claim rather than only in a
