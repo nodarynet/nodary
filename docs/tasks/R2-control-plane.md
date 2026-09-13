@@ -133,8 +133,15 @@ R2-34 rather than reimplementing behavior.
 - [x] **R2-35** `/etc/nodary/server.toml` — bind address, TLS certificate paths, data directory · [01 §12](../specs/01-install.md#12-filesystem-layout)
 - [x] **R2-36** `nodary server install|start|stop|status` · [10 §1](../specs/10-cli.md#1-verbs)
   - *note:* R2 covers the lifecycle verbs against an already-provisioned host; the full interactive install with preflight and component resolution is [R5](R5-install.md)
-- [ ] **R2-37** `nodary backup create|restore` · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
+- [x] **R2-37** `nodary backup create|restore` · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
   - *done:* `secret.key` is captured by default, the command refuses a world-readable destination, and the output states plainly that a database backup without the key is useless. The inverse is the real risk — an operator who backs up only the database discovers at restore time that every agent must re-enroll
+  - **`VACUUM INTO`, not a file copy.** In WAL mode the database is three files that disagree between checkpoints, so `cp nodary.db elsewhere` on a running control plane silently omits every record since the last one — and it is discovered at restore. `store.Snapshot` reads the whole database in one transaction and writes a consistent single file while the control plane keeps serving
+  - **the whole configuration directory, with no exclusion list.** A list of what matters is a list somebody has to remember to extend, and the cost of forgetting lands on somebody already having a bad day. `/etc/nodary` is small and all of it is configuration or a secret
+  - **the agent CA is why "database plus key" is not enough.** Its certificate and sealed key live beside `secret.key` rather than in the database, so a backup of the two the specification names would still make every node re-enroll. Capturing the directory covers it
+  - restore **starts nothing**, and refuses an existing database or sealing key without `--force`: a database from one moment beside a sealing key from another does not announce itself, it fails weeks later at a TOTP prompt or a node's next request
+  - restore also refuses an archive holding a database and no `config/secret.key` — caught before anything is written rather than at that TOTP prompt. A member path that is not local is refused too; an archive is untrusted input even when we wrote it
+  - modes are recorded and reapplied explicitly, because `O_CREATE` applies the process umask and a sealing key restored 0644 instead of 0400 is a silent total compromise
+  - *note:* raised as the review's fourth blocker — "that sentence describes nothing that runs" · [2026-09-11 review](../review-2026-09-11.md)
   - *deps:* R1-04
 - [ ] **R2-38** `nodary status` and `nodary restart` · [10 §1](../specs/10-cli.md#1-verbs)
 - [x] **R2-39** Self-signed certificate generation with the fingerprint printed · [01 §5](../specs/01-install.md#self-signed-control-planes)

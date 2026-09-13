@@ -280,6 +280,42 @@ same map and would re-hash clean.
     `nodary audit verify --mirror` validates the copy on a machine that has never seen the
     database.
 
+## Backups
+
+The database is one file, and it is **useless on its own** — every TOTP seed, the LiteLLM
+master key and the agent CA private key inside it are sealed under `/etc/nodary/secret.key`,
+and the agent CA's own certificate lives beside that rather than in the database at all. So
+one command takes all of it:
+
+```sh
+sudo install -d -m 0700 /var/backups/nodary
+sudo nodary backup create --out /var/backups/nodary/$(date -u +%Y-%m-%d).tar.gz
+```
+
+It refuses a world-readable destination, writes the archive 0600, and prints what it captured.
+The database is snapshotted with `VACUUM INTO` rather than copied, so it is consistent as of
+that instant with the control plane still serving — `cp nodary.db` on a live host silently
+omits everything since the last checkpoint.
+
+!!! warning "The archive is as sensitive as the sealing key, because it contains it"
+    Anyone holding it can read every TOTP seed, the LiteLLM master key and the agent CA
+    private key. Store it where you would store `/etc/nodary/secret.key` itself.
+
+To put one back:
+
+```sh
+sudo systemctl stop nodary-server
+sudo nodary backup restore --from /var/backups/nodary/2026-09-13.tar.gz
+sudo nodary audit verify
+sudo systemctl start nodary-server
+```
+
+Restore writes files and **starts nothing**. It refuses an existing database or sealing key
+unless you pass `--force`: a database from one moment beside a sealing key from another does
+not announce itself, it fails weeks later at a TOTP prompt or a node's next request. It also
+refuses an archive that holds a database but no sealing key, rather than restoring a control
+plane that starts and cannot read its own secrets.
+
 ## Checking a host
 
 ```sh

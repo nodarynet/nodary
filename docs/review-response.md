@@ -42,9 +42,12 @@ behind the claim correction its §1 argues for.
 | 1.1 | Every node falls off the fleet 90 days after enrollment (§4.1, §5 item 5) | **Fixed** | R4-05 |
 | 1.2 | One user can consume the entire fleet (§4.1, §3, §5 item 6) | **Fixed** | R3-08/09/10 |
 | 1.3 | No lockout or throttle on failed authentication; PBKDF2 runs inside the single write transaction (§4.2, §5 item 7) | **Fixed** | R2-43 |
-| 1.4 | No backup or restore (§4.1, §5 item 8) | **Open** | R2-37 |
+| 1.4 | No backup or restore (§4.1, §5 item 8) | **Fixed** | R2-37 |
 
 ---
+
+**Tier 1 is complete.** The review's recommendation was to re-evaluate when R3 and R5 close;
+R3's blockers are closed and R5's remaining rows are the upgrade path and the offline bundle.
 
 ## Tier 2 — operability
 

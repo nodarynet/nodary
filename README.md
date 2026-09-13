@@ -133,7 +133,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 
 | Not built | Lands in |
 | :--- | :--- |
-| Backup, restore, upgrade, uninstall, the offline bundle | [R2-37](docs/tasks/R2-control-plane.md), [R5-13 – R5-17](docs/tasks/R5-install.md) |
+| Upgrade, uninstall, the offline bundle | [R5-13 – R5-17](docs/tasks/R5-install.md) |
 | A network audit sink — ship `audit.jsonl` to WORM storage yourself until then | [R2-41](docs/tasks/R2-control-plane.md) |
 | Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local` | [R2-21 – R2-32](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
@@ -144,7 +144,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 30 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 31 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 12 of 16 | the OpenAI surface, service keys, route allowlist, metering, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 28 of 41 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails (parsed and reported, not enforced), local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 18 of 32 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor` |

@@ -98,7 +98,6 @@ func isTerminal(r io.Reader) bool {
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
 	"backend":   "backend descriptor registration",
-	"backup":    "backup and restore",
 	"bundle":    "offline bundle creation",
 	"upgrade":   "in-place upgrade",
 	"uninstall": "uninstall",
@@ -153,6 +152,8 @@ func dispatch(e env, args []string) int {
 		return cmdConfig(e, args[1:])
 	case "server":
 		return cmdServer(e, args[1:])
+	case "backup":
+		return cmdBackup(e, args[1:])
 	case "install":
 		return cmdInstall(e, args[1:])
 	case "node":
@@ -176,7 +177,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -218,6 +219,9 @@ Available in this release:
                          show | list | diff | export | apply | rollback | verify
   server               Control plane lifecycle
                          install | start | status
+  backup               The database and the key that unseals it, together
+                         create  One archive; refuses a world-readable destination
+                         restore Put one back, starting nothing
   model                The catalog
                          register       Weights already on disk (or a manifest) -> a served route
                          enable         Turn a disabled deployment back on
@@ -244,7 +248,7 @@ Available in this release:
   gateway              The inference API
                          start   Serve the OpenAI surface, metered
                          sync    Re-render the data plane from current routes
-  limits               Rate and budget limits (recorded; not yet enforced)
+  limits               Rate and budget limits, enforced by the gateway
                          show | set
   usage                Metered requests — counts, never content
                          show [--user] [--model] [--node] [--group_by]

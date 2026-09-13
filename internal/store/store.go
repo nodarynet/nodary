@@ -393,6 +393,32 @@ func (db *DB) Read() *sql.DB { return db.read }
 // Path is the database file this handle was opened from.
 func (db *DB) Path() string { return db.path }
 
+// Snapshot writes a consistent copy of the database to dest.
+//
+// VACUUM INTO rather than copying the file. In WAL mode the database is three
+// files that disagree between checkpoints, so `cp nodary.db somewhere` on a
+// running control plane produces a copy missing every record written since the
+// last one — silently, and discovered at restore. VACUUM INTO reads the whole
+// database inside one transaction and writes a single defragmented file that is
+// consistent as of that instant, with the control plane still serving.
+//
+// On the write pool because Read() is opened _query_only and SQLite refuses the
+// statement there, even though everything it writes goes to another file.
+func (db *DB) Snapshot(ctx context.Context, dest string) error {
+	// Refused rather than overwritten, by SQLite and again here so the message
+	// names the file. A backup that silently replaced last night's is worse
+	// than one that did not run.
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("%s already exists", dest)
+	}
+	if _, err := db.write.ExecContext(ctx, `VACUUM INTO ?`, dest); err != nil {
+		return fmt.Errorf("snapshotting the database into %s: %w", dest, err)
+	}
+	// The copy holds every sealed secret the original does, so it gets the
+	// original's mode and not the process umask's opinion.
+	return os.Chmod(dest, paths.ModeDatabase)
+}
+
 // Close checkpoints the WAL and closes both pools.
 //
 // Readers are closed first, and the checkpoint's *result* is read rather than
