@@ -129,7 +129,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | :--- | :--- | :--- |
 | Model origin allow/deny lists | parsed, validated and diffed; checked nowhere | [R4-32](docs/tasks/R4-agent.md) |
 | Retention windows | displayed; nothing prunes | [R2-14](docs/tasks/R2-control-plane.md), [R3-13](docs/tasks/R3-gateway.md) |
-| Node guardrails | `node.toml` is parsed and reported, and enforced nowhere | [R4-14 – R4-16](docs/tasks/R4-agent.md) |
+| The `node.toml` maintenance window | the other guardrails are enforced; `window.maintenance` is displayed and confines nothing | [R4-40](docs/tasks/R4-agent.md) |
 
 | Not built | Lands in |
 | :--- | :--- |
@@ -147,7 +147,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 31 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 12 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
-| **R4** Agent | 29 of 41 | enrollment, pinning, mTLS, desired state, heartbeat, guardrails (parsed and reported, not enforced), local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
+| **R4** Agent | 31 of 42 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
 | **R6** Backends | 4 of 14 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM and SGLang |
 | **R9** Evidence | 15 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |

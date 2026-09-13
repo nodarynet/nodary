@@ -78,7 +78,7 @@ here so the list is not left half-addressed.
 | # | Item | Status | Where |
 | :--- | :--- | :--- | :--- |
 | 11 | Close the policy enforcement gaps **or** mark unenforced fields as declarative | **Fixed** | R1-38 — the review offered either, and `policy show` marks them with a task number |
-| 12 | Node guardrail enforcement so 00 §5's trust-boundary table is true | **Disclosed** | R4-14 – R4-16 |
+| 12 | Node guardrail enforcement so 00 §5's trust-boundary table is true | **Fixed** | R4-14/R4-16 · `5b8ae33` |
 | 13 | A remote administration path, so administrators are not root on the control plane | **Disclosed** | R2-21 – R2-32 |
 | 14 | Separate the gateway's database handle from the audit chain's | **Disclosed**, with a correction below | R4-09 · `191367b` |
 | 15 | Network audit sink, retiring the shipper | **Disclosed** | R2-41 |
@@ -121,7 +121,7 @@ in `policy show`.
 | :--- | :--- | :--- |
 | Model origin allow/deny lists are stored only (§3, §4.3) | README; marked in `policy show`. The review's deeper question — attestation or enforced control — is answered: it is an operator's declared provenance, recorded and attributable, and the mark says so | R4-32 |
 | Retention windows are stored only (§3) | README; marked in `policy show` | R2-14, R3-13 |
-| Node guardrails are reported, not enforced (§3) | README, and the editions table no longer lists guardrails as a shipped capability | R4-14 – R4-16 |
+| The `node.toml` maintenance window is displayed and confines nothing (§3) | README; the other guardrails are enforced as of `5b8ae33` | R4-40 |
 | The SIEM sink is not built (§3, §4.2) | README; the administering guide documents the log-shipper-into-WORM workaround and what it does and does not prove | R2-41 |
 | OIDC is not built (§3) | Struck from the editions table | — |
 | The FIPS build is overstated (§3) | Struck from the editions table; README says CI proves the tree builds and passes under `GODEBUG=fips140=on` and ships no artifact | R5-25/26 |

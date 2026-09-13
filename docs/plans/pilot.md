@@ -101,7 +101,7 @@ Not deferred quietly. Each is a sentence the README owes a reader.
 | Deferred | Consequence to state |
 | :--- | :--- |
 | Remote administration — `--server`, the remaining API surface, a client | Every administrator needs root on the control plane, and privileged actions attribute to `root`/`local` |
-| R4-14 – R4-16 node guardrail enforcement | `node.toml` is reported and not enforced — 0.1 marks it |
+| R4-40, the `node.toml` maintenance window | R4-14/R4-16 landed after the pilot tiers closed, so the other guardrails are enforced; the window confines nothing and 0.1 marks it |
 | R2-14, R3-13 retention pruning | Windows are displayed and nothing prunes — 0.1 marks it |
 | R4-32 origin allow/deny | An operator's declared provenance, recorded and attributable, not a verified one — 0.1 marks it |
 | R2-41 network audit sink | The chain's off-box anchor is a customer log shipper into WORM, verified with `audit verify --mirror` |

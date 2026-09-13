@@ -75,6 +75,43 @@ bridge refuses IPv6 outright, because a container on a dual-stack network can pi
 address and a default route from a router advertisement without anything asking it to. The
 route check reads both of the kernel's tables, so that namespace is reported as what it is.
 
+## What a node will and will not take
+
+A GPU host is rarely *only* a nodary node. It drives a display, it hosts something else at 3pm
+on a Tuesday, and one of its cards is not on offer. `/etc/nodary/node.toml` is where the
+machine's owner says so, and it is read on the node rather than sent from the control plane.
+
+```toml
+[limits]
+gpu_indices       = [1, 2, 3]   # of 4 present — GPU 0 drives the display
+max_vram_fraction = 0.90
+max_deployments   = 2
+
+[allow]
+backends = ["vllm"]
+```
+
+These are not a consent boundary — you own both ends. They are rails against your own
+mistakes, and against a control plane that is misconfigured or being driven by somebody who
+has forgotten what else that machine does.
+
+`gpu_indices` narrows what the node *advertises*, so the control plane is never told the
+fourth card exists. The rest are checked against the desired state on every reconcile, and
+anything outside them is refused and reported — `nodary node show <name>` prints the reason
+against the node. Nothing is retried: a limit being hit repeatedly is something you should
+see, not something the fleet should grind against.
+
+!!! warning "Editing this file never stops a running model"
+    Narrow a limit under a deployment that is already serving and it keeps serving, reported
+    as `out_of_policy` rather than refused. That is deliberate — a guardrail that could
+    terminate a model mid-request is one nobody would dare edit, which makes it no guardrail
+    at all. Closing the gap is yours to do: widen the limit again, or stop the deployment
+    with `nodary model disable`.
+
+`window.maintenance` is **not** enforced yet. It parses, it is validated, and it confines
+nothing — see [R4-40](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R4-agent.md)
+for why it was split out rather than shipped with the rest.
+
 ## Placing weights
 
 nodary does not download weights for you by default. The air-gapped path is first-class
