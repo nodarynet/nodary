@@ -280,6 +280,12 @@ func cmdServerInstall(e env, args []string) int {
 		return code
 	}
 
+	// The modes on the two files that hold the master key in the clear, before
+	// ownership rather than after: EnsureOwnership hands gateway.env to the
+	// service account, and a 0640 file whose group is that account is readable
+	// by every member of it.
+	restrictConfigSecrets(e, dir)
+
 	// Last: hand everything just written to the account the units run as. The
 	// install is root and the service is not, so this is what makes the
 	// difference between a system that is installed and one that starts.
@@ -715,6 +721,7 @@ func ensureGatewayKey(e env, dir string) (string, int) {
 	path := filepath.Join(dir, "gateway.env")
 	if body, err := os.ReadFile(path); err == nil {
 		key := trimEnvValue(string(body), "NODARY_MASTER_KEY")
+		_ = os.Chmod(path, paths.ModeMasterKey)
 		if key == "" {
 			fmt.Fprintf(e.stderr, "nodary server install: %s holds no NODARY_MASTER_KEY\n", path)
 			return "", ExitFailure
@@ -727,7 +734,7 @@ func ensureGatewayKey(e env, dir string) (string, int) {
 	}
 
 	key := "sk-nodary-" + randomToken()
-	if err := os.WriteFile(path, []byte("NODARY_MASTER_KEY="+key+"\n"), 0o640); err != nil {
+	if err := os.WriteFile(path, []byte("NODARY_MASTER_KEY="+key+"\n"), paths.ModeMasterKey); err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return "", ExitFailure
 	}
@@ -749,18 +756,12 @@ func writeLiteLLM(e env, dir, master string) int {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
 	}
-	// 0640: it holds the master key in clear, which is the one credential
-	// LiteLLM accepts.
-	conf := filepath.Join(dir, "litellm.yaml")
-	existing, _ := os.ReadFile(conf)
-	if !bytes.Equal(existing, body) {
-		if err := os.WriteFile(conf, body, 0o640); err != nil {
-			fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
-			return ExitFailure
-		}
+	step, err := writeLiteLLMConfig(dir, body)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return ExitFailure
 	}
-	report(e, []install.Step{{Name: "litellm config",
-		Changed: !bytes.Equal(existing, body), Detail: conf}})
+	report(e, []install.Step{step})
 
 	m, ok := loadManifest(e)
 	if !ok {
@@ -774,13 +775,66 @@ func writeLiteLLM(e env, dir, master string) int {
 		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "litellm image", err)
 		return ExitOK
 	}
-	step, err := writeLiteLLMImage(dir, image)
+	step, err = writeLiteLLMImage(dir, image)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
 	}
 	report(e, []install.Step{step})
 	return ExitOK
+}
+
+// writeLiteLLMConfig writes litellm.yaml.
+//
+// One writer, shared with `gateway sync`, because the file holds the master key
+// in the clear and two writers is two chances to give it the wrong mode — which
+// is how it sat at 0640 through every release so far.
+func writeLiteLLMConfig(dir string, body []byte) (install.Step, error) {
+	path := filepath.Join(dir, "litellm.yaml")
+	existing, _ := os.ReadFile(path)
+	changed := !bytes.Equal(existing, body)
+	if changed {
+		if err := os.WriteFile(path, body, paths.ModeMasterKey); err != nil {
+			return install.Step{}, err
+		}
+	}
+	// Whether or not it changed: see restrictConfigSecrets.
+	if err := os.Chmod(path, paths.ModeMasterKey); err != nil {
+		return install.Step{}, err
+	}
+	return install.Step{Name: "litellm config", Changed: changed, Detail: path}, nil
+}
+
+// restrictConfigSecrets puts the mode back on the two files that hold the
+// LiteLLM master key in the clear.
+//
+// Unconditional, and separate from writing them. os.WriteFile does not chmod a
+// file that already exists, and both writers skip the write when the content
+// has not moved — so a file created by a release that used 0640 would keep 0640
+// for the life of the install. This is what carries the tightening onto a host
+// that is already running, through `server install` and `nodary upgrade`.
+//
+// Named files rather than a sweep of the directory: litellm.env is a public
+// image digest and pki/*.crt are certificates, and an install that quietly
+// narrowed everything it found would be deciding for the operator about files
+// it does not own.
+func restrictConfigSecrets(e env, dir string) {
+	for _, name := range []string{"gateway.env", "litellm.yaml"} {
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		if info.Mode().Perm() == paths.ModeMasterKey {
+			continue
+		}
+		if err := os.Chmod(path, paths.ModeMasterKey); err != nil {
+			fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "secrets", err)
+			continue
+		}
+		report(e, []install.Step{{Name: "restrict", Changed: true,
+			Detail: fmt.Sprintf("%s %04o -> %04o", path, info.Mode().Perm(), paths.ModeMasterKey)}})
+	}
 }
 
 // writeLiteLLMImage pins the data plane's image in litellm.env.

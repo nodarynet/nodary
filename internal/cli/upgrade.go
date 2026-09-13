@@ -237,6 +237,11 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 		}
 	}
 
+	// A mode a newer release tightened is a pin this host has not moved yet:
+	// nothing rewrites these files on an upgrade that changes no routes, so
+	// without this an install created before the change keeps its old mode.
+	restrictConfigSecrets(e, confDir)
+
 	owned, err := install.EnsureOwnership(o)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary upgrade: %v\n", err)

@@ -107,14 +107,13 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 		return ExitOK
 	}
 
-	if changed {
-		if err := os.WriteFile(conf, body, 0o640); err != nil {
-			fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
-			return ExitFailure
-		}
+	step, err := writeLiteLLMConfig(dir, body)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
+		return ExitFailure
 	}
-	report(e, []install.Step{{Name: "litellm config", Changed: changed,
-		Detail: fmt.Sprintf("%s, %d route(s)", conf, len(models))}})
+	step.Detail = fmt.Sprintf("%s, %d route(s)", conf, len(models))
+	report(e, []install.Step{step})
 
 	// **Not "only when the file changed".** LiteLLM reads its configuration at
 	// startup, so what matters is whether the *running process* has this one —
@@ -136,7 +135,7 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 			return ExitOK
 		}
 	}
-	step, err := install.Restart(ctx, "nodary-litellm.service", install.Options{Root: root})
+	step, err = install.Restart(ctx, "nodary-litellm.service", install.Options{Root: root})
 	if err != nil {
 		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "restart", err)
 		fmt.Fprintf(e.stderr, "\nThe configuration is written. `systemctl restart nodary-litellm` applies it.\n")

@@ -52,4 +52,5 @@ prefix per kind makes them greppable in logs and recognizable to secret scanners
 | Agent host compromised | Attacker holds one node's certificate. Scope is that node's deployments; it cannot mint tokens, approve nodes, or read the audit chain |
 | Control plane compromised | Total. This is the trust root — treat `/etc/nodary/secret.key` and the agent CA key accordingly |
 | Server certificate spoofed | Agent refuses any CA certificate whose fingerprint does not match the one supplied out of band. Defeating this means compromising the channel the operator read the fingerprint from, not the network |
-| Stolen backup of `nodary.db` | Secrets at rest are encrypted with `/etc/nodary/secret.key`, which is not in the backup ([08](08-data-model.md#4-secrets-at-rest)) |
+| Stolen copy of `nodary.db` | Sealed secrets are encrypted with `/etc/nodary/secret.key`, which is not in the database file ([08](08-data-model.md#4-secrets-at-rest)) |
+| Stolen `nodary backup create` archive | **Total, by design.** The archive carries the sealing key and the configuration deliberately, because a database without them restores a control plane that cannot read its own secrets. Store it where you store `/etc/nodary/secret.key` |

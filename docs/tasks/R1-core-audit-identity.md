@@ -29,6 +29,10 @@ front of the same core functions.
   - *done:* a checksum mismatch aborts startup rather than proceeding against an unexpected schema; downgrade is refused
   - *deps:* R1-02
 - [x] **R1-04** `/etc/nodary/secret.key` generation (0400 root) and the at-rest encryption helper · [08 §4](../specs/08-data-model.md#4-secrets-at-rest)
+  - **08 §4 named three things as sealed and two of them are.** TOTP seeds and the agent CA private key are; the LiteLLM master key is not in the database at all, and cannot be — LiteLLM reads a plain YAML file and has no way to consume a sealed value, so the key exists in cleartext on disk or the data plane does not start. Sealing it would have moved one copy and left the one that matters. The specification now says so, which is the [pilot plan](../plans/pilot.md)'s Tier 0 rule applied to a sentence nobody had re-read
+  - so the **file mode is the whole control**, and it was 0640 on both `gateway.env` and `litellm.yaml` — with `gateway.env` chowned to the service account, making its group exactly the account the data plane runs as. Presenting that key to `127.0.0.1:4000` reaches LiteLLM past nodary's route allowlist, quota and metering, so that was a bypass with a group membership as its only prerequisite. Both are 0600
+  - **tightening is unconditional, because neither writer rewrites a file whose content has not moved.** A host installed by an older release would otherwise keep that release's mode for the life of the install; `server install` and `nodary upgrade` both restore it
+  - the test is an allowlist of what may be group-readable under `/etc/nodary` and why, the shape [`internal/install/secrets_test.go`](../../internal/install/secrets_test.go) already uses — "does this file hold a credential" is a judgment the next person should have to make deliberately
   - *done:* TOTP seeds round-trip through encrypt/decrypt; a database copied without the key yields no plaintext secret
   - *deps:* R1-02
 

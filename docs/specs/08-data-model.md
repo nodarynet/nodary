@@ -127,16 +127,31 @@ retention job that silently deletes evidence is indistinguishable from tampering
 
 ## 4. Secrets at rest
 
-TOTP seeds, the LiteLLM master key, and the agent CA private key are encrypted with a key at
-`/etc/nodary/secret.key` (0400, root).
+**Sealed.** TOTP seeds and the agent CA private key are encrypted with a key at
+`/etc/nodary/secret.key` (0400, root). Nothing else in the database is a credential.
 
-**A backup of `nodary.db` alone is useless without that file, and this must be stated loudly
-wherever backup is documented.** The inverse is the real risk: an operator who backs up only
-the database discovers at restore time that every agent must re-enroll and every TOTP
+**Not sealed, and it cannot be: the LiteLLM master key.** It is in the clear in
+`/etc/nodary/gateway.env` and `/etc/nodary/litellm.yaml`, both 0600. LiteLLM reads a plain YAML
+file and has no way to consume a sealed value, so the key has to exist in cleartext on disk for
+the data plane to start at all — sealing it in the database would move one copy and leave the
+one that matters. **The file mode is therefore the whole control**, and the mode is not
+incidental: presenting that key to `127.0.0.1:4000` reaches LiteLLM directly, past nodary's
+route allowlist, quota and metering. 0640 with the file chowned to the service account would
+make that a bypass whose only prerequisite is membership of a group.
+
+An install and an upgrade both put the mode back rather than assuming it, because neither
+writer rewrites a file whose content has not moved, and a host installed by an earlier release
+would otherwise keep that release's mode forever.
+
+**A backup of `nodary.db` alone is useless without the sealing key, and this must be stated
+loudly wherever backup is documented.** The inverse is the real risk: an operator who backs up
+only the database discovers at restore time that every agent must re-enroll and every TOTP
 enrollment must be redone.
 
 `nodary backup create` captures both by default and refuses to write to a world-readable
-destination.
+destination. The consequence is the other half of the same sentence and is stated with it:
+**the archive is as sensitive as the sealing key, because it contains it**, along with the
+master key in the configuration it captures.
 
 ## 5. Migrations
 

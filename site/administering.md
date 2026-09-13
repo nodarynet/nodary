@@ -310,10 +310,12 @@ same map and would re-hash clean.
 
 ## Backups
 
-The database is one file, and it is **useless on its own** — every TOTP seed, the LiteLLM
-master key and the agent CA private key inside it are sealed under `/etc/nodary/secret.key`,
-and the agent CA's own certificate lives beside that rather than in the database at all. So
-one command takes all of it:
+The database is one file, and it is **useless on its own** — the TOTP seeds and the agent CA
+private key inside it are sealed under `/etc/nodary/secret.key`, and the CA's own certificate
+lives beside that rather than in the database at all. The LiteLLM master key is not in the
+database either: it sits in the clear in `/etc/nodary/gateway.env` and `/etc/nodary/litellm.yaml`,
+both 0600, because LiteLLM reads a plain YAML file and has no way to consume a sealed value.
+So one command takes all of it:
 
 ```sh
 sudo install -d -m 0700 /var/backups/nodary
@@ -328,6 +330,14 @@ omits everything since the last checkpoint.
 !!! warning "The archive is as sensitive as the sealing key, because it contains it"
     Anyone holding it can read every TOTP seed, the LiteLLM master key and the agent CA
     private key. Store it where you would store `/etc/nodary/secret.key` itself.
+
+!!! note "The master key is a mode, not a seal"
+    Anyone who can read `/etc/nodary/gateway.env` can present that key to `127.0.0.1:4000` and
+    reach LiteLLM directly — past the route allowlist, the quota and the metering. That is why
+    both files are 0600 rather than 0640: the service account's *group* is not a set of people
+    who should be able to bypass accounting. `server install` and `nodary upgrade` both put the
+    mode back rather than assuming it, so a host installed by an older release is tightened by
+    the next run of either.
 
 To put one back:
 

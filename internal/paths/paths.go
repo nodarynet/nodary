@@ -48,6 +48,19 @@ const (
 	ModeSecretKey   os.FileMode = 0o400
 	ModeAuditLog    os.FileMode = 0o600
 	ModeCredentials os.FileMode = 0o600
+	// ModeMasterKey covers gateway.env and litellm.yaml, the two files that
+	// hold the LiteLLM master key in the clear.
+	//
+	// It cannot be sealed under secret.key the way TOTP seeds and the agent CA
+	// are: LiteLLM reads a plain YAML file and has no way to consume a sealed
+	// value, so the key has to exist in cleartext on disk for the data plane to
+	// start at all (docs/specs/08-data-model.md §4 says so rather than implying
+	// otherwise). The file mode is therefore the whole control, which is why it
+	// is 0600 and not 0640: presenting that key to 127.0.0.1:4000 reaches
+	// LiteLLM directly, past nodary's allowlist, quota and metering, so
+	// "readable by the service account's group" is a bypass with a group
+	// membership as its only prerequisite.
+	ModeMasterKey os.FileMode = 0o600
 )
 
 // Database is the SQLite database. One file, WAL mode.
