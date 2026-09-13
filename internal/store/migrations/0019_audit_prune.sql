@@ -1,0 +1,31 @@
+-- Where this database's chain now starts, once retention has removed a prefix.
+--
+-- docs/specs/08-data-model.md §3 governs `audit` by `audit_retention_days`, so
+-- pruning it is specified behavior. But internal/audit/verify.go verifies a
+-- *database* with requireGenesis, on the reasoning that "a database holds the
+-- whole chain, so a partial one there means records were deleted" -- which is
+-- exactly right, and which would make the product's own retention job report
+-- itself as tampering. R2-14's `done:` names that failure: a retention job that
+-- silently deletes evidence is indistinguishable from tampering.
+--
+-- So a prune says where it cut, and verification checks the surviving chain
+-- against that instead of against genesis. The mechanism already exists and is
+-- already exercised by a rotated sink file and by `export --from-seq`: an
+-- anchored fragment proves as much as a whole chain from the anchor onwards
+-- (audit.Anchor, audit.Result.Anchored).
+--
+-- On `installation` rather than a table of its own because there is one answer,
+-- not a history: a prune only ever removes a prefix, so the latest cut is the
+-- only one verification can ask about. The history of prunes is in the chain
+-- itself -- each prune writes a record naming the range it removed.
+--
+-- Nullable and set on the first prune, the same shape and for the same reason
+-- as secret_key_id above it: a database that has never been pruned must verify
+-- against genesis exactly as it does today, not against an anchor of zero.
+--
+-- What this does not claim: an anchor is written by whoever can write the
+-- database, so it does not defend the pruned range against someone who holds
+-- the file -- nothing can, once the records are gone. That is what the off-box
+-- mirror is for (audit verify --mirror), and it is why the floor exists.
+ALTER TABLE installation ADD COLUMN pruned_through_seq INTEGER;
+ALTER TABLE installation ADD COLUMN pruned_through_hash TEXT;

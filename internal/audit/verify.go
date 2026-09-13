@@ -347,12 +347,28 @@ func lowest(pending map[int64]Record) int64 {
 }
 
 // VerifyDB walks the chain in the database.
+//
+// Against genesis, unless retention has removed a prefix -- then against the
+// cut it recorded (docs/specs/08-data-model.md §3, migration 0019). A database
+// that has never been pruned is verified exactly as it always was.
 func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
+	anchor, err := pruneAnchor(ctx, db)
+	if err != nil {
+		return Result{}, err
+	}
+
 	rows, err := db.Read().QueryContext(ctx, `SELECT `+columns+` FROM audit ORDER BY seq`)
 	if err != nil {
 		return Result{}, fmt.Errorf("reading the chain: %w", err)
 	}
 	defer rows.Close()
+
+	// requireGenesis and anchor answer the same question -- what must come
+	// before the first surviving record -- so exactly one of them applies.
+	opts := verifyOpts{requireGenesis: true}
+	if anchor != nil {
+		opts = verifyOpts{anchor: anchor}
+	}
 
 	res := verify(func(yield func(Record, error) bool) {
 		for rows.Next() {
@@ -363,7 +379,7 @@ func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
 		if err := rows.Err(); err != nil {
 			yield(Record{}, err)
 		}
-	}, verifyOpts{requireGenesis: true})
+	}, opts)
 	if res.Break == nil && res.Records == 0 {
 		if err := emptyChainIsGenuine(ctx, db, &res); err != nil {
 			return Result{}, err
@@ -396,6 +412,32 @@ func emptyChainIsGenuine(ctx context.Context, db *store.DB, res *Result) error {
 		"the chain is empty, but this installation was recorded at %s, which only the first record does: every record has been deleted",
 		minted)}
 	return nil
+}
+
+// pruneAnchor reports where retention cut this chain, or nil if it never has.
+//
+// Both columns are set by the same statement or neither is, so one without the
+// other is a database somebody edited by hand rather than a state the product
+// produces -- and an anchor that named a sequence without the hash to check it
+// against would verify nothing while looking like it did.
+func pruneAnchor(ctx context.Context, db *store.DB) (*Anchor, error) {
+	var (
+		seq  sql.NullInt64
+		hash sql.NullString
+	)
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT pruned_through_seq, pruned_through_hash FROM installation WHERE singleton = 1`).Scan(&seq, &hash)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("reading the prune anchor: %w", err)
+	case !seq.Valid && !hash.Valid:
+		return nil, nil
+	case !seq.Valid || !hash.Valid:
+		return nil, fmt.Errorf("the prune anchor is half written: seq set %t, hash set %t", seq.Valid, hash.Valid)
+	}
+	return &Anchor{Seq: seq.Int64, Hash: hash.String}, nil
 }
 
 // VerifyFile walks a JSONL file — a sink's output, or a copy retrieved from a
