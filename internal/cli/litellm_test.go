@@ -176,6 +176,20 @@ func TestEveryUnitTheInstallWritesIsAlsoStarted(t *testing.T) {
 		written := install.Units(role)
 		started := startedUnits(role)
 		for name := range written {
+			// A oneshot triggered by a timer is started — by the timer. The
+			// invariant is that nothing written is left inert, not that
+			// everything is enabled directly: `systemctl enable --now` on a
+			// Type=oneshot runs it once now and never again, which is the
+			// opposite of a periodic task.
+			if triggered, ok := strings.CutSuffix(name, ".service"); ok {
+				if _, isTimed := written[triggered+".timer"]; isTimed {
+					if !slices.Contains(started, triggered+".timer") {
+						t.Errorf("%s install writes %s and the timer that triggers it is never started",
+							role, name)
+					}
+					continue
+				}
+			}
 			if !slices.Contains(started, name) {
 				t.Errorf("%s install writes %s and never starts it; it would be installed "+
 					"and listening nowhere", role, name)

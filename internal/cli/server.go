@@ -906,7 +906,11 @@ func startedUnits(role string) []string {
 	switch role {
 	case "server":
 		return []string{"containerd.service", "nodary-litellm.service",
-			"nodary-server.service", "nodary-gateway.service"}
+			"nodary-server.service", "nodary-gateway.service",
+			// The timer, not the oneshot it triggers: enabling a Type=oneshot
+			// directly runs it now and never again, which is the opposite of
+			// what it is for.
+			"nodary-prune.timer"}
 	case "node":
 		return []string{"containerd.service", "nodary-agent.service"}
 	}

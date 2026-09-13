@@ -258,6 +258,58 @@ RestartSec=10s
 WantedBy=multi-user.target
 `
 
+// pruneUnit applies docs/specs/08-data-model.md §3's retention windows once.
+//
+// Type=oneshot and triggered by pruneTimer, never enabled on its own: the work
+// finishes, so a Restart= policy would run it in a loop.
+//
+// `--yes` skips the confirmation prompt and nothing else. Justification still
+// applies and is supplied here; TOTP re-authentication does not, because
+// attest.NeedsTOTP exempts a local act and this one runs on the appliance as
+// the service account. That exemption is recorded in the record itself as
+// `totp_exempt: local` rather than assumed, which is core.go's rule.
+//
+// Same confinement as the server, and for the same reason: it holds the
+// database open and has no business writing anywhere else.
+const pruneUnit = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=nodary retention pass
+After=nodary-server.service
+
+[Service]
+Type=oneshot
+ExecStart=%[1]s prune --yes --justify "scheduled retention pass"
+%[2]s
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/nodary
+ReadOnlyPaths=/etc/nodary
+`
+
+// pruneTimer is the "periodic task" in docs/specs/08-data-model.md §3.
+//
+// A timer rather than a goroutine inside nodary-server, because a prune writes
+// an audit record and a record needs an actor, a justification and an intent to
+// bind. See cmdPrune, where that argument is made in full.
+//
+// Persistent=true: an appliance that was powered off over a weekend runs the
+// pass it missed on the next boot. Without it, retention silently depends on
+// uptime, and the tables that grow fastest are the ones on machines that get
+// turned off.
+const pruneTimer = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=nodary retention pass
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`
+
 // Units are what an install writes, by role.
 func Units(role string) map[string]string {
 	switch role {
@@ -271,6 +323,8 @@ func Units(role string) map[string]string {
 			"nodary-server.service":  serverUnit,
 			"nodary-gateway.service": gatewayUnit,
 			"nodary-litellm.service": litellmUnit,
+			"nodary-prune.service":   pruneUnit,
+			"nodary-prune.timer":     pruneTimer,
 		}
 	case "node":
 		return map[string]string{
