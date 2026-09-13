@@ -138,17 +138,15 @@ func TestHeartbeatConsumesAnAckedRestartRequest(t *testing.T) {
 	}
 }
 
-// R4-15 / R2-02: a node reports the complete set of what it is refusing on
-// every heartbeat, so the stored set is replaced rather than added to — a
-// refusal that stops being reported has stopped applying, and one left on
-// display after the configuration was fixed is worse than none.
-func TestHeartbeatReplacesTheRefusalSet(t *testing.T) {
+// nodeWithTwoDeployments is an approved node carrying dep_one and dep_two.
+func nodeWithTwoDeployments(t *testing.T) *store.DB {
+	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -177,6 +175,17 @@ func TestHeartbeatReplacesTheRefusalSet(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+
+	return db
+}
+
+// R4-15 / R2-02: a node reports the complete set of what it is refusing on
+// every heartbeat, so the stored set is replaced rather than added to — a
+// refusal that stops being reported has stopped applying, and one left on
+// display after the configuration was fixed is worse than none.
+func TestHeartbeatReplacesTheRefusalSet(t *testing.T) {
+	ctx := context.Background()
+	db := nodeWithTwoDeployments(t)
 
 	report := NodeReport{Rev: 7, Refusals: []RefusalReport{
 		{Deployment: "dep_one", Reason: "GPU 3 is not on this node's offer"},
@@ -281,5 +290,61 @@ func TestHeartbeatWritesStagingBytesAgainstTotal(t *testing.T) {
 	}
 	if done != 40 || total != 100 {
 		t.Errorf("bytes_done, bytes_total = %d, %d, want 40, 100", done, total)
+	}
+}
+
+// kindsOf is refusalsOf with the verdict rather than the reason.
+func kindsOf(t *testing.T, db *store.DB, node string) map[string]string {
+	t.Helper()
+	rows, err := db.Read().QueryContext(context.Background(),
+		`SELECT deployment_id, kind FROM refusal WHERE node_name = ?`, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, kind string
+		if err := rows.Scan(&id, &kind); err != nil {
+			t.Fatal(err)
+		}
+		out[id] = kind
+	}
+	return out
+}
+
+// R4-16. The two verdicts share a table and a replace, and they must not share
+// a meaning: one says nothing is running, the other says something is. A
+// placement that moves between them — the operator widens the limit, or
+// narrows it under a model that is already up — must end with one row, not two.
+func TestHeartbeatKeepsRefusedAndOutOfPolicyApart(t *testing.T) {
+	ctx := context.Background()
+	db := nodeWithTwoDeployments(t)
+
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Rev: 7,
+		Refusals:    []RefusalReport{{Deployment: "dep_one", Reason: "GPU 3 is not on this node's offer"}},
+		OutOfPolicy: []RefusalReport{{Deployment: "dep_two", Reason: "node.toml caps max_vram_fraction at 0.5"}},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got := kindsOf(t, db, "gpu-01")
+	if got["dep_one"] != KindRefused {
+		t.Errorf("dep_one is %q, want %q", got["dep_one"], KindRefused)
+	}
+	if got["dep_two"] != KindOutOfPolicy {
+		t.Errorf("dep_two is %q, want %q", got["dep_two"], KindOutOfPolicy)
+	}
+
+	// The deployment stops and the same guardrail now refuses it instead. One
+	// row, with the new verdict: the replace is what makes that true, and an
+	// upsert keyed on (node, deployment) would have left the old kind behind.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Rev: 8,
+		Refusals: []RefusalReport{{Deployment: "dep_two", Reason: "node.toml caps max_vram_fraction at 0.5"}},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got = kindsOf(t, db, "gpu-01")
+	if len(got) != 1 || got["dep_two"] != KindRefused {
+		t.Errorf("kinds = %v, want dep_two refused and nothing else", got)
 	}
 }

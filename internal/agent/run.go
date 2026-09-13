@@ -54,6 +54,14 @@ type Daemon struct {
 	// not kept anywhere else, so this is the only way report() (a different
 	// goroutine, on its own 15s timer) can learn about it.
 	lastRestartDone []string
+	// lastRefused and lastOutOfPolicy are Reconcile's verdicts rather than
+	// Build's. Build states which placements node.toml narrows out; only
+	// Reconcile can tell an out-of-policy placement that is serving — left
+	// alone per 12 §3 — from one that never started, which is an ordinary
+	// refusal. d.last carries the plan, so these carry the part of the
+	// Report that the plan alone cannot answer.
+	lastRefused     []Refusal
+	lastOutOfPolicy []Refusal
 }
 
 // NewDaemon prepares the loop. It does not start it.
@@ -135,6 +143,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		ModelsDir:  orDefault(d.Config.ModelsDir, DefaultModelsDir()),
 		ConfigDir:  d.Host.ConfigDir,
 		Present:    offer.GPUs,
+		Node:       d.Node,
 		WSL2:       IsWSL2(),
 		CDIDevices: CDIDevices(ctx),
 		Verify:     true,
@@ -152,6 +161,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	// and discarded right here, so RestartDone has nowhere to reach the next
 	// heartbeat from unless it rides along on the same handoff.
 	d.lastRestartDone = r.RestartDone
+	d.lastRefused, d.lastOutOfPolicy = r.Refused, r.OutOfPolicy
 	for _, u := range r.Units {
 		if u.Action != "" || u.Error != "" {
 			d.Log.Info("agent", "deployment", u.Deployment, "state", u.State,
@@ -178,6 +188,13 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		// (docs/specs/12-node-guardrails.md §1), so it is logged every
 		// iteration at a level an operator sees.
 		d.Log.Warn("agent", "refused", ref.Deployment, "reason", ref.Reason)
+	}
+	for _, v := range r.OutOfPolicy {
+		// Louder than a refusal, not quieter: this one is **still serving**,
+		// and the gap between what node.toml now allows and what is actually
+		// running is the thing an operator has to close by hand.
+		d.Log.Warn("agent", "out_of_policy", v.Deployment, "reason", v.Reason,
+			"detail", "still running; node.toml narrowed under it and stopping it is yours to do")
 	}
 	for _, e := range r.Errors {
 		d.Log.Error("agent", "detail", e)
@@ -290,9 +307,16 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	// cycle and reported every heartbeat — until now it reached the node's
 	// own journal and stopped there, so the operator who could act on it saw
 	// a deployment stuck in `defined` and no reason anywhere.
-	for _, ref := range d.last.Refused {
+	// Reconcile's set, not Build's: an out-of-policy placement that never
+	// started is a refusal and one that is serving is not, and d.last.Refused
+	// predates that distinction being made.
+	for _, ref := range d.lastRefused {
 		body.Refused = append(body.Refused,
 			api.StatusRefusal{Deployment: ref.Deployment, Reason: ref.Reason})
+	}
+	for _, v := range d.lastOutOfPolicy {
+		body.OutOfPolicy = append(body.OutOfPolicy,
+			api.StatusRefusal{Deployment: v.Deployment, Reason: v.Reason})
 	}
 
 	raw, err := json.Marshal(body)

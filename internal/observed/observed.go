@@ -62,6 +62,11 @@ type NodeReport struct {
 	// given (R4-15). An observation by this package's rule: the node
 	// reporting what it decided about itself, the same as a unit state.
 	Refusals []RefusalReport
+	// OutOfPolicy is what this node is running *anyway*, outside what
+	// node.toml now allows (R4-16, docs/specs/12-node-guardrails.md §3). Same
+	// table, different verdict: a refusal names something that is not running,
+	// and this names something that is.
+	OutOfPolicy []RefusalReport
 	// Rev is the desired-state revision the report was computed against,
 	// recorded with a refusal so an operator can tell a current refusal from
 	// one the configuration has already moved past.
@@ -72,6 +77,18 @@ type RefusalReport struct {
 	Deployment string
 	Reason     string
 }
+
+// The two verdicts a node reports about a placement it is not running as asked.
+//
+// KindRefused is "this is not running and here is why". KindOutOfPolicy is
+// "this **is** running, and node.toml no longer allows it" — 12 §3's rule that
+// a guardrail narrowed under a serving model does not kill it. An operator
+// acts differently on each, so the column says which rather than leaving it in
+// the prose of a reason.
+const (
+	KindRefused     = "refused"
+	KindOutOfPolicy = "out_of_policy"
+)
 
 type DeploymentReport struct {
 	ID     string
@@ -161,17 +178,27 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 			`DELETE FROM refusal WHERE node_name = ?`, name); err != nil {
 			return fmt.Errorf("clearing refusals for %s: %w", name, err)
 		}
-		for _, ref := range r.Refusals {
-			// The EXISTS guard is the same rule the deployment and staging
-			// writes above follow: a node may report on what the
-			// configuration placed there and may not invent a row for
-			// something nobody registered.
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO refusal (node_name, deployment_id, rev, reason, updated_at)
-				 SELECT ?, ?, ?, ?, ?
-				 WHERE EXISTS (SELECT 1 FROM deployment WHERE id = ? AND node_name = ?)`,
-				name, ref.Deployment, r.Rev, ref.Reason, stamp, ref.Deployment, name); err != nil {
-				return fmt.Errorf("recording %s's refusal of %s: %w", name, ref.Deployment, err)
+		// Both verdicts, in one pass, because they share the replace above:
+		// a placement that moves from refused to out-of-policy — or back —
+		// must not leave the old row behind beside the new one.
+		for _, set := range []struct {
+			kind string
+			of   []RefusalReport
+		}{{KindRefused, r.Refusals}, {KindOutOfPolicy, r.OutOfPolicy}} {
+			for _, ref := range set.of {
+				// The EXISTS guard is the same rule the deployment and staging
+				// writes above follow: a node may report on what the
+				// configuration placed there and may not invent a row for
+				// something nobody registered.
+				if _, err := tx.ExecContext(ctx,
+					`INSERT INTO refusal (node_name, deployment_id, rev, reason, kind, updated_at)
+					 SELECT ?, ?, ?, ?, ?, ?
+					 WHERE EXISTS (SELECT 1 FROM deployment WHERE id = ? AND node_name = ?)`,
+					name, ref.Deployment, r.Rev, ref.Reason, set.kind, stamp,
+					ref.Deployment, name); err != nil {
+					return fmt.Errorf("recording %s's %s of %s: %w",
+						name, set.kind, ref.Deployment, err)
+				}
 			}
 		}
 		return nil

@@ -45,6 +45,17 @@ type Plan struct {
 	// (internal/agent/reconcile.go) is what actually stops it, since it is
 	// simply absent from Units.
 	Disabled []string `json:"disabled,omitempty"`
+	// OutOfPolicy is a deployment the control plane placed that node.toml
+	// narrows out (docs/specs/12-node-guardrails.md §1).
+	//
+	// Separate from Refused because the outcome turns on something Build
+	// cannot see. 12 §3 requires that a guardrail narrowed under a *running*
+	// deployment reports `out_of_policy` and does **not** kill it — editing a
+	// config file must never terminate a serving model, or it is a guardrail
+	// nobody dares touch. Only Reconcile knows what is running, so Build states
+	// the verdict and Reconcile decides between refusing a placement that never
+	// started and leaving alone one that did.
+	OutOfPolicy []Refusal `json:"out_of_policy,omitempty"`
 	// Restart is deployment ids `nodary model restart` (R4-36) asked to be
 	// cycled now — the request, not the outcome. Unlike Reset (filesystem
 	// only, so Build can perform it directly) this needs `systemctl`, which
@@ -121,6 +132,10 @@ type PlanOptions struct {
 	ConfigDir string
 	// Present is what the driver reported, already narrowed to the offer.
 	Present []GPU
+	// Node is /etc/nodary/node.toml, evaluated against the document before
+	// anything is reconciled (docs/specs/12-node-guardrails.md §1). The zero
+	// value offers the whole machine, which is what an absent file means.
+	Node NodeConfig
 	// Verify runs the manifest check. It is a parameter because reading every
 	// byte of a large model is minutes of disk, and `nodary agent plan` should
 	// be able to answer without doing it.
@@ -144,18 +159,20 @@ type PlanOptions struct {
 
 // Build turns one desired-state document into a plan.
 //
-// Refusals here are about what this node *cannot* do — an unknown backend, a
-// GPU that is not on offer, a deployment with no image. They are not the
-// guardrail evaluation of docs/specs/12-node-guardrails.md, which is R4-14 and
-// is not in the MVP: a limit in node.toml narrows what is *offered* (R4-13) and
-// this build does not additionally refuse work the control plane placed within
-// that offer.
+// Two kinds of verdict come out of it, and they are not the same thing.
+// Refused is what this node *cannot* do — an unknown backend, a GPU that is not
+// on offer, a deployment with no image. OutOfPolicy is what node.toml says it
+// *will* not do (R4-14, docs/specs/12-node-guardrails.md §1), which is a
+// decision an operator made on this machine and can unmake by editing a file.
+// Keeping them apart is what lets 12 §3 hold: a placement that is out of policy
+// and already serving is left alone, and one that is merely impossible never
+// was serving.
 func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	if opt.ConfigDir == "" {
 		opt.ConfigDir = paths.ConfigDir
 	}
-	p := Plan{Rev: doc.Rev, Node: doc.Node,
-		Units: []Unit{}, Stage: []Stage{}, Refused: []Refusal{}, Disabled: []string{}}
+	p := Plan{Rev: doc.Rev, Node: doc.Node, Units: []Unit{}, Stage: []Stage{},
+		Refused: []Refusal{}, OutOfPolicy: []Refusal{}, Disabled: []string{}}
 
 	descriptors, err := backend.Builtins()
 	if err != nil {
@@ -242,6 +259,14 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	for _, d := range doc.Deployments {
 		if d.State == "disabled" {
 			p.Disabled = append(p.Disabled, d.ID)
+			continue
+		}
+		// Before unitFor, so a placement node.toml will not have is not first
+		// reported as an impossibility. `len(p.Units)` rather than the loop
+		// index is what max_deployments counts: something refused for another
+		// reason occupies no slot.
+		if reason := opt.Node.outsideLimits(d, len(p.Units)); reason != "" {
+			p.OutOfPolicy = append(p.OutOfPolicy, Refusal{Deployment: d.ID, Reason: reason})
 			continue
 		}
 		u, err := unitFor(d, descriptors, offered, byModel, opt)

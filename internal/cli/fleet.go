@@ -14,6 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/fleet"
+	"github.com/nodarynet/nodary/internal/observed"
 )
 
 // `node list` and `node show`: what the control plane knows about the fleet.
@@ -208,11 +209,20 @@ func cmdNodeShow(e env, args []string) int {
 	// an operator is most likely to be staring at, because it sits in
 	// `defined` forever and every other column looks fine
 	// (docs/specs/12-node-guardrails.md §1).
-	if len(d.Refusals) > 0 {
+	var refused, outOfPolicy []fleet.Refusal
+	for _, r := range d.Refusals {
+		if r.Kind == observed.KindOutOfPolicy {
+			outOfPolicy = append(outOfPolicy, r)
+			continue
+		}
+		refused = append(refused, r)
+	}
+
+	if len(refused) > 0 {
 		fmt.Fprintln(e.stdout)
 		tw = tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "REFUSED\tREV\tREASON")
-		for _, r := range d.Refusals {
+		for _, r := range refused {
 			fmt.Fprintf(tw, "%s\t%d\t%s\n", r.DeploymentID, r.Rev, r.Reason)
 		}
 		if code := flush(e, "node show", tw); code != ExitOK {
@@ -222,6 +232,27 @@ func cmdNodeShow(e env, args []string) int {
 			"\n%s will not run the deployment(s) above and is not retrying them.\n"+
 				"Fix what the reason names — the node's own limits are in /etc/nodary/node.toml on that host —\n"+
 				"or remove the deployment with `nodary config apply --prune`.\n", d.Name)
+	}
+
+	// Its own table, and not folded into the one above, because the operative
+	// word is different: these are **running**. docs/specs/12-node-guardrails.md
+	// §3 forbids killing a deployment a guardrail narrowed under, so nothing
+	// here is stuck — something is serving outside the limits its own host now
+	// declares, and closing that gap is a decision rather than a fix.
+	if len(outOfPolicy) > 0 {
+		fmt.Fprintln(e.stdout)
+		tw = tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "OUT OF POLICY\tREV\tREASON")
+		for _, r := range outOfPolicy {
+			fmt.Fprintf(tw, "%s\t%d\t%s\n", r.DeploymentID, r.Rev, r.Reason)
+		}
+		if code := flush(e, "node show", tw); code != ExitOK {
+			return code
+		}
+		fmt.Fprintf(e.stderr,
+			"\nThe deployment(s) above are **still serving**. /etc/nodary/node.toml on %s was\n"+
+				"narrowed under them, and nodary does not stop a running model because a file changed.\n"+
+				"Either widen the limit again, or stop them deliberately with `nodary model disable`.\n", d.Name)
 	}
 
 	if len(d.Staging) > 0 {

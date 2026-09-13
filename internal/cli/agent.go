@@ -99,6 +99,7 @@ func cmdAgentPlan(e env, args []string) int {
 	p, err := agent.Build(doc, agent.PlanOptions{
 		ModelsDir:  orElse(conf.ModelsDir, agent.DefaultModelsDir()),
 		Present:    offer.GPUs,
+		Node:       guardrails,
 		WSL2:       agent.IsWSL2(),
 		CDIDevices: agent.CDIDevices(context.Background()),
 		Verify:     !*noVerify,
@@ -149,6 +150,20 @@ func renderPlan(e env, p agent.Plan) {
 		for _, r := range p.Refused {
 			fmt.Fprintf(e.stdout, "  %-16s %s\n", r.Deployment, r.Reason)
 		}
+	}
+
+	// Named `outside node.toml` rather than `out_of_policy`, because this is a
+	// preview: `agent plan` does not touch systemd, so it cannot know whether
+	// any of these is currently serving — and that is the only thing that makes
+	// one of them out of policy rather than refused (12 §3). Saying the verdict
+	// here would be saying more than this command looked at.
+	if len(p.OutOfPolicy) > 0 {
+		fmt.Fprintf(e.stdout, "\noutside node.toml\n")
+		for _, r := range p.OutOfPolicy {
+			fmt.Fprintf(e.stdout, "  %-16s %s\n", r.Deployment, r.Reason)
+		}
+		fmt.Fprintf(e.stderr, "\nOne already running is left alone and reported `out_of_policy`; "+
+			"one that is not is refused.\n")
 	}
 }
 

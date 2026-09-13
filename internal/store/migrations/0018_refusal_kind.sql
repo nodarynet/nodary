@@ -1,0 +1,19 @@
+-- An out-of-policy placement is a different verdict from a refusal, not a
+-- differently-worded one.
+--
+-- docs/specs/12-node-guardrails.md §3: a guardrail narrowed under a *running*
+-- deployment reports `out_of_policy` and does not kill it. So the row describes
+-- something that is **serving right now**, outside the limits its own host
+-- declares -- where a refusal names something that is not running at all. The
+-- action an operator takes differs: one is a configuration to change, the other
+-- is a decision about a model that is already answering requests.
+--
+-- Collapsing them into the reason text would put that distinction somewhere
+-- only a human reading prose can find it, which is no use to `nodary node show`
+-- and no use to a query.
+--
+-- No CHECK: none of the six existing ALTER TABLE ADD COLUMN migrations add one,
+-- and the vocabulary is validated in Go, where a refusal can name its caller.
+-- The default is 'refused' so rows written before this migration -- every one
+-- of them a refusal, since nothing else could be written -- keep their meaning.
+ALTER TABLE refusal ADD COLUMN kind TEXT NOT NULL DEFAULT 'refused';

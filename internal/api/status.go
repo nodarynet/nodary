@@ -40,6 +40,12 @@ type StatusReport struct {
 	// given, and why (R4-15). It is the node's complete current set, not a
 	// delta: a refusal that stops being reported has stopped applying.
 	Refused []StatusRefusal `json:"refused,omitempty"`
+	// OutOfPolicy is what this node is running anyway, outside what node.toml
+	// now allows (R4-16). Reported apart from Refused because it describes
+	// something that is serving: 12 §3 forbids killing a deployment a
+	// guardrail narrowed under, so the control plane is being told about a gap
+	// to close rather than about work that did not happen.
+	OutOfPolicy []StatusRefusal `json:"out_of_policy,omitempty"`
 }
 
 type StatusRefusal struct {
@@ -100,6 +106,10 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	for _, ref := range body.Refused {
 		report.Refusals = append(report.Refusals, observed.RefusalReport{
 			Deployment: ref.Deployment, Reason: ref.Reason})
+	}
+	for _, v := range body.OutOfPolicy {
+		report.OutOfPolicy = append(report.OutOfPolicy, observed.RefusalReport{
+			Deployment: v.Deployment, Reason: v.Reason})
 	}
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{

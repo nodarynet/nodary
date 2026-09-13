@@ -122,7 +122,12 @@ type Refusal struct {
 	DeploymentID string `json:"deployment_id"`
 	Rev          int64  `json:"rev"`
 	Reason       string `json:"reason"`
-	UpdatedAt    string `json:"updated_at"`
+	// Kind is `refused` or `out_of_policy` (internal/observed). They read
+	// alike and mean opposite things about whether anything is serving, so a
+	// reader that ignores this column gets the more alarming answer for the
+	// less alarming case and vice versa.
+	Kind      string `json:"kind"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 const nodeColumns = `name, state, coalesce(last_seen, ''), coalesce(agent_version, ''),
@@ -225,8 +230,8 @@ func Show(ctx context.Context, q config.Querier, name string, now time.Time) (De
 
 func refusals(ctx context.Context, q config.Querier, node string) ([]Refusal, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT deployment_id, rev, reason, updated_at
-		 FROM refusal WHERE node_name = ? ORDER BY deployment_id`, node)
+		`SELECT deployment_id, rev, reason, kind, updated_at
+		 FROM refusal WHERE node_name = ? ORDER BY kind, deployment_id`, node)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +239,7 @@ func refusals(ctx context.Context, q config.Querier, node string) ([]Refusal, er
 	out := []Refusal{}
 	for rows.Next() {
 		var r Refusal
-		if err := rows.Scan(&r.DeploymentID, &r.Rev, &r.Reason, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.DeploymentID, &r.Rev, &r.Reason, &r.Kind, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

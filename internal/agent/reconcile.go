@@ -78,7 +78,12 @@ type Report struct {
 	Stopped []string         `json:"stopped"`
 	Stage   []StagingOutcome `json:"stage"`
 	Refused []Refusal        `json:"refused"`
-	Errors  []string         `json:"errors"`
+	// OutOfPolicy is a deployment node.toml narrows out that is **running
+	// anyway**, left alone rather than stopped (docs/specs/12-node-guardrails.md
+	// §3). One that is not running is not here: it is in Refused, because
+	// nothing was serving and nothing had to be protected.
+	OutOfPolicy []Refusal `json:"out_of_policy,omitempty"`
+	Errors      []string  `json:"errors"`
 	// RestartDone is deployments `nodary model restart` (R4-36) asked for and
 	// this run actually cycled, reported back so the control plane can stop
 	// asking (internal/observed.Heartbeat consumes it, the same shape
@@ -116,7 +121,8 @@ type StagingOutcome struct {
 // forgotten.
 func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	r := Report{Rev: p.Rev, Units: []UnitOutcome{}, Stopped: []string{},
-		Stage: []StagingOutcome{}, Refused: p.Refused, Errors: []string{}}
+		Stage: []StagingOutcome{}, Refused: p.Refused, OutOfPolicy: []Refusal{},
+		Errors: []string{}}
 	for _, s := range p.Stage {
 		r.Stage = append(r.Stage, StagingOutcome{Model: s.Model, State: s.State, Reason: s.Reason})
 	}
@@ -154,6 +160,27 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 		if restarted {
 			r.RestartDone = append(r.RestartDone, u.Deployment)
 		}
+	}
+
+	// docs/specs/12-node-guardrails.md §3, and the reason Build could not
+	// decide this itself: a guardrail narrowed under a serving deployment
+	// reports `out_of_policy` and does not kill it. **A guardrail nobody dares
+	// touch is not a guardrail** — if editing node.toml could terminate a model
+	// mid-request, an operator would never edit it, and the rails would be
+	// decorative.
+	//
+	// Before the stop loop, because `wanted` is what that loop consults. A
+	// placement that is out of policy and running is added to it; one that is
+	// out of policy and not running is an ordinary refusal, since there is
+	// nothing serving to protect and nothing to stop.
+	for _, v := range p.OutOfPolicy {
+		name := UnitName(v.Deployment)
+		if !h.isActive(ctx, name) {
+			r.Refused = append(r.Refused, v)
+			continue
+		}
+		wanted[name] = true
+		r.OutOfPolicy = append(r.OutOfPolicy, v)
 	}
 
 	// Stop what the plan no longer names. Scoped to nodary-model@* and nothing
