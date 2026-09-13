@@ -1,6 +1,7 @@
 package gateway_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -149,4 +150,157 @@ func tailLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// fakeUpstream is an OpenAI-compatible responder, run from the LiteLLM image
+// itself so this test pulls nothing of its own.
+//
+// In a container beside LiteLLM rather than on the host: a stand-in on the host
+// has to be reached through host-gateway, which is a Docker-specific flag and a
+// host firewall's business, and neither is what this test is about.
+const fakeUpstream = `
+import json, http.server
+B = json.dumps({"id": "c1", "object": "chat.completion", "created": 0, "model": "acme/tiny",
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"},
+                 "finish_reason": "stop"}],
+    "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4}}).encode()
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(B)))
+        self.end_headers()
+        self.wfile.write(B)
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()
+`
+
+// The deployment id in a usage row comes back from LiteLLM in a response
+// header, and a header is a contract nobody promised us.
+//
+// So it is asserted against the pinned digest rather than assumed. `gateway
+// sync` writes each route member's deployment id into `model_info.id`, and
+// internal/gateway reads it back as `x-litellm-model-id` to say which node —
+// and through deployment_gpu, which GPU — served a request. A version bump that
+// drops the header, renames it, or stops honoring our id turns per-node
+// chargeback silently back into NULLs, and nothing else in the tree would
+// notice: every other test here supplies the header itself.
+func TestLiteLLMReturnsTheDeploymentIdWeGaveIt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker is not installed")
+	}
+	image := pinnedLiteLLM(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, "docker", "info").Run(); err != nil {
+		t.Skip("docker is not usable by this user")
+	}
+	if err := exec.CommandContext(ctx, "docker", "image", "inspect", image).Run(); err != nil {
+		t.Skipf("the pinned image is not present; `docker pull %s` to run this", image)
+	}
+
+	const (
+		network    = "nodary-attribution-net"
+		upstream   = "nodary-attribution-upstream"
+		proxy      = "nodary-attribution-litellm"
+		deployment = "dep_tiny_gpu01"
+	)
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", upstream, proxy).Run()
+	_ = exec.CommandContext(ctx, "docker", "network", "rm", network).Run()
+	if out, err := exec.CommandContext(ctx, "docker", "network", "create", network).CombinedOutput(); err != nil {
+		t.Skipf("cannot create a docker network here: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("docker", "rm", "-f", upstream, proxy).Run()
+		_ = exec.Command("docker", "network", "rm", network).Run()
+	})
+
+	if out, err := exec.CommandContext(ctx, "docker", "run", "-d", "--name", upstream,
+		"--network", network, "--entrypoint", "python3", image, "-c", fakeUpstream,
+	).CombinedOutput(); err != nil {
+		t.Skipf("cannot run the stand-in upstream: %v\n%s", err, out)
+	}
+
+	conf := gateway.LiteLLMConfig{
+		MasterKey: "sk-nodary-test-master",
+		Models: []gateway.LiteLLMModel{{
+			Name: "acme/tiny", Model: "acme/tiny", ID: deployment,
+			APIBase: "http://" + upstream + ":8000/v1",
+		}},
+	}
+	body := conf.Render()
+	// The same assertion the gateway makes before using a configuration: a
+	// model_info block must not have cost us the logging pins.
+	if err := gateway.AssertLoggingOff(body); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "litellm.yaml")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if out, err := exec.CommandContext(ctx, "docker", "run", "-d", "--name", proxy,
+		"--network", network, "-p", "127.0.0.1:14998:4000",
+		"-v", path+":/app/config.yaml:ro", image,
+		"--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000",
+	).CombinedOutput(); err != nil {
+		t.Skipf("cannot run the image here: %v\n%s", err, out)
+	}
+
+	var up bool
+	for i := 0; i < 90 && !up; i++ {
+		resp, err := http.Get("http://127.0.0.1:14998/health/liveliness")
+		if err == nil {
+			resp.Body.Close()
+			up = resp.StatusCode == http.StatusOK
+		}
+		if !up {
+			time.Sleep(time.Second)
+		}
+	}
+	if !up {
+		logs, _ := exec.Command("docker", "logs", proxy).CombinedOutput()
+		t.Fatalf("LiteLLM did not start:\n%s", tailLines(string(logs), 30))
+	}
+
+	// Both shapes. A stream's headers go out before its body, so if the id did
+	// not survive that path half the traffic would be unattributed.
+	for _, stream := range []bool{false, true} {
+		ask, err := json.Marshal(map[string]any{"model": "acme/tiny", "stream": stream,
+			"messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			"http://127.0.0.1:14998/v1/chat/completions", bytes.NewReader(ask))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+conf.MasterKey)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("stream=%v: %v", stream, err)
+		}
+		got := resp.Header.Get("X-Litellm-Model-Id")
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			logs, _ := exec.Command("docker", "logs", proxy).CombinedOutput()
+			t.Fatalf("stream=%v: status %d\n%s", stream, resp.StatusCode, tailLines(string(logs), 40))
+		}
+		if got != deployment {
+			t.Errorf("stream=%v: X-Litellm-Model-Id = %q, want the model_info.id this rendered (%q)",
+				stream, got, deployment)
+		}
+	}
 }

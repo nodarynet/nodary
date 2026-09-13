@@ -234,6 +234,9 @@ func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMMod
 				Name:    r.Name,
 				Model:   r.Name,
 				APIBase: fmt.Sprintf("http://127.0.0.1:%d/v1", d.Port),
+				// So a usage row can say which member of this route served the
+				// request, and therefore which node and which GPU.
+				ID: d.ID,
 			})
 		}
 	}

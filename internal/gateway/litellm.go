@@ -21,6 +21,15 @@ type LiteLLMModel struct {
 	Name    string
 	APIBase string
 	Model   string
+	// ID is the deployment's id, written into model_info so that LiteLLM
+	// hands it back on every response as x-litellm-model-id.
+	//
+	// A route may have several members and LiteLLM picks between them, so
+	// nothing in a request says which deployment served it — and without that
+	// a usage row cannot be attributed to a node or a GPU, which is most of
+	// what metering is for at this size. Naming our own id here is what makes
+	// the one component that made the choice tell us what it chose.
+	ID string
 }
 
 // pinnedOff are the settings that must appear, set to these values, in every
@@ -77,6 +86,10 @@ model_list:
 		// OpenAI without authentication of their own; nodary is what
 		// authenticated the caller.
 		b.WriteString("      api_key: \"nodary-unused\"\n")
+		if m.ID != "" {
+			b.WriteString("    model_info:\n")
+			fmt.Fprintf(&b, "      id: %q\n", m.ID)
+		}
 	}
 	if len(models) == 0 {
 		// An empty list rather than an absent key: LiteLLM refuses a

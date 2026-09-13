@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,6 +126,24 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 
 	rec.usage.Status = mw.status
 	rec.usage.Latency = s.now().Sub(started)
+
+	// Which deployment served it, and therefore which node and which GPUs
+	// (deployment_gpu joins from here). LiteLLM load-balances the members of a
+	// route, so this is knowable only from the component that chose — and the
+	// id it returns is the one `gateway sync` wrote into model_info.
+	//
+	// Silent when the header is absent: a usage row with no deployment is a
+	// row that does not claim one, and guessing the route's first member would
+	// put a number against a GPU that may not have run anything.
+	if id := mw.Header().Get(litellmModelHeader); id != "" {
+		rec.usage.DeploymentID = id
+		if model, node, err := s.servedBy(r.Context(), id); err == nil {
+			rec.usage.ModelID, rec.usage.NodeName = model, node
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			s.log.Error("gateway", "detail", "attributing usage to "+id+": "+err.Error(),
+				"request_id", requestID(r))
+		}
+	}
 	// A stream that produced no usage chunk is `partial`, never zero: docs/specs
 	// §3 says usage is never silently dropped, because if disconnecting erased
 	// it, metering would be trivially avoidable. Counting the tokens actually

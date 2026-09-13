@@ -194,6 +194,30 @@ func (s *Server) routesFor(ctx context.Context, p identity.Principal) (map[strin
 	return out, rows.Err()
 }
 
+// litellmModelHeader is what LiteLLM returns on every response, carrying the
+// model_info.id of the deployment it actually routed to.
+//
+// Verified against the pinned image rather than assumed — a third-party header
+// is a contract nobody promised us, and TestLiteLLMReturnsTheDeploymentIdWeGaveIt
+// fails the build if a version bump drops it. When it is absent the usage row
+// carries no deployment, which is the honest answer: nothing else in the
+// request says which member of a route served it.
+const litellmModelHeader = "X-Litellm-Model-Id"
+
+// servedBy resolves the deployment LiteLLM chose into the columns a usage row
+// is attributed by. One indexed read on the primary key, per request.
+//
+// The model id comes from here too. It used to be set to the route name, which
+// is the name a client asks for and not a model: `model register` takes both,
+// and nothing makes them equal. `nodary usage --model` already matches either,
+// so recording the real one narrows nothing.
+func (s *Server) servedBy(ctx context.Context, deploymentID string) (modelID, nodeName string, err error) {
+	err = s.db.Read().QueryRowContext(ctx,
+		`SELECT model_id, node_name FROM deployment WHERE id = ?`, deploymentID,
+	).Scan(&modelID, &nodeName)
+	return modelID, nodeName, err
+}
+
 // listModels returns only the routes the caller may use — not the fleet.
 //
 // docs/specs/06-gateway.md §1 is explicit about that, and the reason is
