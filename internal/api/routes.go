@@ -100,19 +100,57 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The verification is a mutation: a stale hash is rehashed on success, and
-	// that write belongs in the same transaction as the login it authorized.
-	var who identity.User
+	now := s.now()
+	keys := keysFor(body.Username, r)
+
+	// Refused before anything expensive happens, and before anything is
+	// written. That ordering is the point of both halves of this: no PBKDF2 for
+	// an attacker to spend the control plane's only writer connection on, and
+	// no audit row per attempt for them to grow the chain with.
+	if wait := s.logins.lockedFor(keys, now); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(ceilSeconds(wait)))
+		s.fail(w, r, fmt.Errorf("%w: too many failed attempts; try again in %s",
+			errTooManyAttempts, wait.Round(time.Second)))
+		return
+	}
+	s.logins.forget(now)
+
+	// Outside any transaction. VerifyPassword says why at length: the hash is
+	// the expensive part and the writer pool holds one connection.
+	who, rehash, reason, err := identity.VerifyPassword(r.Context(), s.db.Read(),
+		body.Username, body.Password)
+	if err != nil {
+		if engaged := s.logins.fail(keys, now); engaged {
+			reason += "; further attempts locked out"
+		}
+		// Still audited, and still one row per attempt — but bounded now, at
+		// five per key per window rather than as many as a network can carry.
+		// The record gets the real reason; the caller gets "incorrect username
+		// or password" and cannot tell an unknown account from a suspended one.
+		_, _ = s.log.Act(r.Context(), audit.Request{
+			Actor:  audit.Actor{ID: body.Username, Method: "password"},
+			Action: "auth.login",
+		}, func(m audit.Mutation) error {
+			m.Detail("request_id", requestID(r))
+			if reason != "" {
+				m.Detail("reason", reason)
+			}
+			return err
+		})
+		s.fail(w, r, err)
+		return
+	}
+	s.logins.succeed(body.Username)
+
+	// The successful login and the hash upgrade it earned, in one transaction —
+	// the property the old shape had and this one keeps. Only the arithmetic
+	// moved out.
 	rec, err := s.log.Act(r.Context(), audit.Request{
 		Actor:  audit.Actor{ID: body.Username, Method: "password"},
 		Action: "auth.login",
 	}, func(m audit.Mutation) error {
-		var err error
-		who, err = identity.VerifyPassword(r.Context(), m, body.Username, body.Password)
-		if err == nil {
-			m.Detail("request_id", requestID(r))
-		}
-		return err
+		m.Detail("request_id", requestID(r))
+		return rehash.Apply(r.Context(), m)
 	})
 	if err != nil {
 		s.fail(w, r, err)

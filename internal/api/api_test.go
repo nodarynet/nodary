@@ -298,7 +298,9 @@ func TestTheAPIDemandsTheSameCeremonyAsTheCLI(t *testing.T) {
 func TestLoginIssuesAWorkingSession(t *testing.T) {
 	f := newFixture(t)
 
-	// No password is set yet, and that is a distinct answer from a wrong one.
+	// No password is set yet. 401, and — since the enumeration fix — with the
+	// same message a wrong password gets: see
+	// TestEveryAuthenticationFailureLooksTheSame.
 	if code, doc := f.do("POST", "/auth/login", "",
 		map[string]any{"username": "alice", "password": "correct horse battery staple"}, nil); code != http.StatusUnauthorized {
 		t.Fatalf("status = %d %v", code, doc)

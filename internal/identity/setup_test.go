@@ -54,10 +54,10 @@ func TestTheSetupLinkCreatesOneAdministratorAndDies(t *testing.T) {
 	// account. This is the assertion R5-08 is actually about — an account that
 	// exists with no password, or with one this code picked, would pass every
 	// check above and fail the requirement.
-	if _, err := f.act("auth.login", func(m audit.Mutation) error {
-		_, err := VerifyPassword(context.Background(), m, "admin", goodPassword)
-		return err
-	}); err != nil {
+	// Verification takes a read handle now, not a mutation: the hash is the
+	// expensive part and it no longer runs inside the login's write
+	// transaction. See VerifyPassword.
+	if _, _, _, err := VerifyPassword(context.Background(), f.db.Read(), "admin", goodPassword); err != nil {
 		t.Errorf("the administrator cannot log in with the password they set: %v", err)
 	}
 

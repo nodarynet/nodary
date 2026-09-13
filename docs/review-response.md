@@ -41,7 +41,7 @@ behind the claim correction its §1 argues for.
 | :--- | :--- | :--- | :--- |
 | 1.1 | Every node falls off the fleet 90 days after enrollment (§4.1, §5 item 5) | **Fixed** | R4-05 |
 | 1.2 | One user can consume the entire fleet (§4.1, §3, §5 item 6) | **Fixed** | R3-08/09/10 |
-| 1.3 | No lockout or throttle on failed authentication; PBKDF2 runs inside the single write transaction (§4.2, §5 item 7) | **Open** | new |
+| 1.3 | No lockout or throttle on failed authentication; PBKDF2 runs inside the single write transaction (§4.2, §5 item 7) | **Fixed** | R2-43 |
 | 1.4 | No backup or restore (§4.1, §5 item 8) | **Open** | R2-37 |
 
 ---
@@ -53,6 +53,9 @@ behind the claim correction its §1 argues for.
 | 2.1 | No upgrade path, required for CVE response on the pinned LiteLLM (§4.1, §5 item 10) | **Open** | R5-15 |
 | 2.2 | Suspending a user does not end their session (§4.3, §5 item 9) | **Open** | new |
 | 2.3 | Usage records cannot be attributed to a node or a GPU (§4.3) | **Open** | new |
+
+Username enumeration (§4.3) was fixed with 1.3, as the review predicted it would have to be —
+every authentication failure now returns one envelope, and the timing oracle went with it.
 
 ---
 
@@ -83,7 +86,6 @@ in `policy show`.
 | :--- | :--- |
 | The gateway holds a read-write handle to the audit database (§4.3) | The largest attack surface in the product shares a file with the tamper-evident log. Splitting metering into its own database, or putting the usage write behind an append-only interface, is the review's suggestion and is not costed yet |
 | Spec 08 §4 says the master key is sealed at rest; it is not (§4.3) | The TOTP seeds and agent CA key *are* sealed as documented — only this one is not. Either the implementation or the specification is wrong, and which one is a decision, not a bug fix |
-| Login distinguishes a suspended account from an unknown one (§4.3) | Username enumeration. Minor alone; it compounds with 1.3, so it is fixed there or not at all |
 | `verify-egress` probes IPv4 only (§4.3) | A v6 target would report `inconclusive` on every v4-only site, because the host control would fail for the ordinary reason. Recorded against R4-39; the decision belongs to R4-29 |
 
 ---

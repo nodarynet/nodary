@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/nodarynet/nodary/internal/audit"
 )
@@ -133,44 +134,117 @@ func SetPassword(ctx context.Context, m audit.Mutation, by Role, name, plain str
 	return nil
 }
 
-// Authenticate a password, and rehash on success when the stored parameters are
-// behind.
+// Rehash is a password upgrade waiting for a transaction to write it in.
 //
-// It takes an audit.Mutation because the rehash is a write and belongs in the
-// same transaction as the login it authorized — the alternative is a successful
-// login that silently failed to upgrade, forever.
-func VerifyPassword(ctx context.Context, m audit.Mutation, name, plain string) (User, error) {
-	u, err := Get(ctx, m.Tx(), name)
+// The hashing is already done by the time one of these exists — that is the
+// point of it. See VerifyPassword.
+type Rehash struct {
+	userID string
+	// was is the stored hash the verification actually ran against, so the
+	// write can refuse to clobber a password changed in between.
+	was   string
+	fresh string
+}
+
+// Pending reports whether there is anything to write.
+func (r Rehash) Pending() bool { return r.fresh != "" }
+
+// Apply writes the upgrade inside the transaction of the login that earned it.
+//
+// Guarded on the hash it verified against: between the read and this write the
+// account's password may have been changed by somebody else, and rehashing the
+// old plaintext over a new password would silently roll it back.
+func (r Rehash) Apply(ctx context.Context, m audit.Mutation) error {
+	if !r.Pending() {
+		return nil
+	}
+	res, err := m.Tx().ExecContext(ctx,
+		`UPDATE user SET password_hash = ? WHERE id = ? AND password_hash = ?`,
+		r.fresh, r.userID, r.was)
 	if err != nil {
-		// Same error as a wrong password: the login path must not say which.
-		return User{}, ErrBadPassword
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		m.Detail("password_rehashed", true)
+	}
+	return nil
+}
+
+// VerifyPassword authenticates a password against a read-only handle, and
+// reports any stored-parameter upgrade the caller should write.
+//
+// **It holds no transaction, and that is the whole point.** PBKDF2 at 600,000
+// iterations measures around 68ms, and internal/store caps the writer pool at
+// one connection by design — so running the hash inside the login's write
+// transaction let roughly fifteen unauthenticated attempts a second hold the
+// write lock continuously, blocking audit records, agent status posts and usage
+// rows behind somebody who had not authenticated. The rehash still belongs in
+// the same transaction as the login it authorized; only the arithmetic moved
+// out, and Rehash is what carries the result across.
+//
+// Every failure is ErrBadPassword. An unknown account, a suspended one and one
+// with no password set are indistinguishable to a caller — the comment on
+// ErrBadPassword always said so and the code did not, which is username
+// enumeration on the one endpoint reachable before any credential exists. The
+// real reason travels in `reason` instead, for the audit record: an operator
+// investigating gets it and an attacker does not.
+func VerifyPassword(ctx context.Context, q Querier, name, plain string) (u User, _ Rehash, reason string, err error) {
+	u, getErr := Get(ctx, q, name)
+	if getErr != nil {
+		// Hashed anyway. Returning here without doing the work answers an
+		// unknown account in microseconds and a real one in 68ms, which is the
+		// same enumeration oracle by a different route.
+		equalizeTiming(plain)
+		return User{}, Rehash{}, "no such account", ErrBadPassword
 	}
 	if !u.Active() {
-		return User{}, fmt.Errorf("%w: %q is %s", ErrNotActive, name, u.State)
+		equalizeTiming(plain)
+		return User{}, Rehash{}, "account is " + string(u.State), ErrBadPassword
 	}
 
 	var stored *string
-	if err := m.Tx().QueryRowContext(ctx,
+	if err := q.QueryRowContext(ctx,
 		`SELECT password_hash FROM user WHERE id = ?`, u.ID).Scan(&stored); err != nil {
-		return User{}, fmt.Errorf("reading the password for %q: %w", name, err)
+		return User{}, Rehash{}, "", fmt.Errorf("reading the password for %q: %w", name, err)
 	}
 	if stored == nil {
-		return User{}, ErrNoPassword
+		equalizeTiming(plain)
+		return User{}, Rehash{}, "no password is set", ErrBadPassword
 	}
 
 	ok, stale := checkPassword(*stored, plain)
 	if !ok {
-		return User{}, ErrBadPassword
+		return User{}, Rehash{}, "wrong password", ErrBadPassword
 	}
-	if stale {
-		// Replaced on the next successful verification, which is the only
-		// moment the plaintext is available to rehash with.
-		if fresh, err := HashPassword(plain); err == nil {
-			if _, err := m.Tx().ExecContext(ctx,
-				`UPDATE user SET password_hash = ? WHERE id = ?`, fresh, u.ID); err == nil {
-				m.Detail("password_rehashed", true)
-			}
-		}
+	if !stale {
+		return u, Rehash{}, "", nil
 	}
-	return u, nil
+	// Computed here rather than in Apply, so the second expensive operation is
+	// also outside the caller's transaction.
+	fresh, err := HashPassword(plain)
+	if err != nil {
+		// An upgrade that cannot be computed is not a reason to refuse a
+		// correct password; it is simply not upgraded this time.
+		return u, Rehash{}, "", nil
+	}
+	return u, Rehash{userID: u.ID, was: *stored, fresh: fresh}, "", nil
+}
+
+// equalizeTiming spends what a real verification would spend.
+//
+// Against a hash computed once and reused, because the cost being equalized is
+// the comparison's, not a salt's. sync.OnceValue rather than a constant so it
+// tracks pbkdf2Iterations instead of going stale the moment that changes.
+var timingHash = sync.OnceValue(func() string {
+	h, err := HashPassword(strings.Repeat("x", minPasswordRunes))
+	if err != nil {
+		return ""
+	}
+	return h
+})
+
+func equalizeTiming(plain string) {
+	if h := timingHash(); h != "" {
+		checkPassword(h, plain)
+	}
 }

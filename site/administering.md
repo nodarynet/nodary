@@ -230,6 +230,28 @@ them run unconditionally.
 `policy diff` reports which settings a candidate profile would **loosen** before you apply
 it. Loosening is permitted; doing it silently is not.
 
+## Accounts and sign-in
+
+Five failed sign-ins in fifteen minutes locks out for fifteen, counted against both the
+username and the connecting address — so neither walking a user list nor hammering one
+account gets anywhere. The lockout applies to the correct password too; that is the point of
+one.
+
+Every failure reads the same to the person trying: an unknown account, a suspended one, one
+with no password set and a wrong password are indistinguishable, and take the same time to
+answer. The real reason is in the audit record, where an operator investigating can see it
+and an attacker cannot.
+
+```sh
+sudo nodary audit list --action auth.login
+```
+
+!!! note "Lockouts do not survive a control-plane restart"
+    They are held in memory. An attacker who can restart the control plane already has root
+    on the machine holding the audit chain and does not need to guess passwords, and
+    persisting them would put a write on every failed attempt — on the single connection this
+    design exists to keep free.
+
 ## The record
 
 ```sh

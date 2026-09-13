@@ -40,6 +40,8 @@ type Server struct {
 	// weaker thing than an act's own attestation, and the CLI does not use them
 	// at all.
 	sessions *sessionStore
+	// logins throttles failed authentication — 800-171 3.1.8. See logins.go.
+	logins *logins
 }
 
 // Options configure a server.
@@ -62,7 +64,7 @@ func New(o Options) *Server {
 		o.Slog = slog.Default()
 	}
 	return &Server{db: o.DB, log: o.Log, key: o.Key, pki: o.PKI, dist: o.Dist, now: o.Now, slog: o.Slog,
-		sessions: newSessionStore()}
+		sessions: newSessionStore(), logins: newLogins()}
 }
 
 func (s *Server) logf(format string, a ...any) {

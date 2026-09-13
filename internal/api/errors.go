@@ -12,7 +12,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/config"
@@ -57,6 +59,11 @@ func statusFor(err error) (int, string) {
 	// explicit that hiding existence buys nothing here and costs support time.
 	case errors.Is(err, identity.ErrDenied):
 		return http.StatusForbidden, "forbidden"
+
+	// A lockout is not a credential failure: 401 invites a client to try
+	// another password, and this is the answer that says stop trying.
+	case errors.Is(err, errTooManyAttempts):
+		return http.StatusTooManyRequests, "too_many_attempts"
 
 	case errors.Is(err, identity.ErrNotFound),
 		errors.Is(err, identity.ErrNoTokens),
@@ -129,4 +136,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// errTooManyAttempts is NIST SP 800-171 3.1.8's refusal. See logins.go.
+var errTooManyAttempts = errors.New("too many failed attempts")
+
+// ceilSeconds rounds a wait up, and never to zero — Retry-After: 0 invites a
+// client straight back into the same refusal.
+func ceilSeconds(d time.Duration) int {
+	if s := int(math.Ceil(d.Seconds())); s > 0 {
+		return s
+	}
+	return 1
 }
