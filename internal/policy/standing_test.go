@@ -34,11 +34,11 @@ func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 			t.Errorf("%s carries an unrecognized standing %q", f.name, f.standing)
 		}
 	}
-	if got := len(Unenforced()); got != 8 {
-		t.Errorf("%d settings are unenforced, the display and the README say 8: %v", got, Unenforced())
+	if got := len(Unenforced()); got != 6 {
+		t.Errorf("%d settings are unenforced, the display and the README say 6: %v", got, Unenforced())
 	}
-	if enforcedN != 6 || invariantN != 2 {
-		t.Errorf("enforced = %d, invariant = %d; want 6 and 2", enforcedN, invariantN)
+	if enforcedN != 8 || invariantN != 2 {
+		t.Errorf("enforced = %d, invariant = %d; want 8 and 2", enforcedN, invariantN)
 	}
 }
 
@@ -70,8 +70,8 @@ func TestTheMarkingSurvivesEveryRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 	standing, lines := Standing(), Describe(p)
-	if len(standing) != 10 {
-		t.Errorf("Standing() carries %d annotations, want 10 (8 unenforced + 2 invariants)", len(standing))
+	if len(standing) != 8 {
+		t.Errorf("Standing() carries %d annotations, want 8 (6 unenforced + 2 invariants)", len(standing))
 	}
 	for name, note := range standing {
 		var found bool

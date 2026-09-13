@@ -117,10 +117,15 @@ Real, known, scheduled, and now stated where a reader meets the claim rather tha
 plan. Each is a row in the README's status tables and, where it is a policy setting, a mark
 in `policy show`.
 
+One row has since left this table rather than being dropped from it: **retention windows are
+enforced** (R2-14, R3-13). `nodary prune` applies them as an audited act naming the range it
+removed, a `systemd` timer supplies the period, and the chain left behind verifies against the
+cut it recorded — so the retention job cannot be mistaken for the tampering it would otherwise
+look exactly like.
+
 | Finding | Disclosed as | Lands in |
 | :--- | :--- | :--- |
 | Model origin allow/deny lists are stored only (§3, §4.3) | README; marked in `policy show`. The review's deeper question — attestation or enforced control — is answered: it is an operator's declared provenance, recorded and attributable, and the mark says so | R4-32 |
-| Retention windows are stored only (§3) | README; marked in `policy show` | R2-14, R3-13 |
 | The `node.toml` maintenance window is displayed and confines nothing (§3) | README; the other guardrails are enforced as of `5b8ae33` | R4-40 |
 | The SIEM sink is not built (§3, §4.2) | README; the administering guide documents the log-shipper-into-WORM workaround and what it does and does not prove | R2-41 |
 | OIDC is not built (§3) | Struck from the editions table | — |

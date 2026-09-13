@@ -52,8 +52,16 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
   - *done:* history is append-only; nothing is ever rewritten. There is no branch for rollback in the applier — every apply records a revision, so this holds by construction rather than by remembering
   - *deps:* R2-12
   - *deps:* R2-12
-- [ ] **R2-14** Retention and pruning as a periodic task · [08 §3](../specs/08-data-model.md#3-retention)
+- [x] **R2-14** Retention and pruning as a periodic task · [08 §3](../specs/08-data-model.md#3-retention)
   - *done:* pruning writes an audit record naming the range removed, and refuses to prune `audit` below the active profile's floor. A retention job that silently deletes evidence is indistinguishable from tampering
+  - **`nodary prune`, not a goroutine in `nodary-server`.** The spec says "periodic task" and the obvious reading is a ticker inside the server — but a prune must write a record, and a record needs an actor, a justification and an intent to bind. A goroutine has none, so it would need a synthetic principal invented for it, which is the one thing [07 §3](../specs/07-identity-audit.md#3-the-audit-chain)'s seam exists to stop. A verb gets the preview, the intent hash, the confirmation and the record for free; `nodary-prune.timer` supplies the period, which is what schedules things on this appliance already
+  - **pruning the chain would have made the product report its own retention job as tampering.** `VerifyDB` verified a database with `requireGenesis`, on the correct reasoning that *"a database holds the whole chain, so a partial one there means records were deleted"*. So a prune records where it cut (migration 0019) and verification checks the survivors against that instead — reusing `audit.Anchor`, already exercised by a rotated sink file and by `export --from-seq`, where an anchored fragment proves as much as a whole chain from the anchor onwards
+  - the anchor is **on `installation`, not a table of its own**: a prune only ever removes a prefix, so the latest cut is the only thing verification can ask about. The history of prunes is in the chain itself
+  - what it does not claim: an anchor is written by whoever can write the database, so it defends nothing about the range that is gone — nothing can, once the records are. That is what `audit verify --mirror` is for, and it is why the floor exists
+  - **the floor is enforced against sequence, not timestamp.** The prefix stops at the first record young enough to keep, so one stale timestamp among younger records — `audit.KindClockWentBack` exists because that happens — cannot drag the records inside the window out with it
+  - the **tail is always kept**, whatever the window says. The prune's own record is appended to the same transaction afterwards and needs a predecessor; an emptied table would restart it at genesis while the anchor said otherwise, and the prune would refuse to verify itself
+  - a pass that removes nothing **still writes its record**. That it ran and found nothing is what makes a gap in the history mean something
+  - gated on `PermPolicyApply` rather than a permission of its own: what may be pruned is decided by `audit_retention_days` and `usage_retention_days`, so the role that sets those already decides this, and [07 §1](../specs/07-identity-audit.md#1-roles-and-permissions)'s table is vocabulary rather than a place to add to
   - *deps:* R1-26, R2-08, R2-11
 
 ## HTTP layer

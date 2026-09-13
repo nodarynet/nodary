@@ -51,10 +51,10 @@ CLI only.
 - **Runs model servers** as systemd units against containerd, through declarative backend descriptors — vLLM, SGLang and llama.cpp today; adding another is a TOML file, not a code change. llama.cpp serves GGUF, and can serve where VRAM is short.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
 - **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits — `rpm`, `tpm`, `daily_tokens` and `max_concurrent`, per user, per role and globally, with a `429` that names which limit was hit and when it clears.
-- **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied.
+- **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied. A daily `nodary prune` applies the profile's retention windows as an audited act that names the range it removed — and the chain that remains verifies against the cut it recorded, so retention cannot be mistaken for tampering.
 - **Carries policy as one reviewable object** rather than behavior scattered through code — mandatory
-  re-authentication, justification floors, credential lifetimes and deny-by-default egress are in force.
-  Origin allow/deny lists and retention windows are not: `nodary policy show` marks every setting nothing
+  re-authentication, justification floors, credential lifetimes, retention windows and deny-by-default
+  egress are in force. Origin allow/deny lists are not: `nodary policy show` marks every setting nothing
   acts on yet and names the task that will enforce it, because a profile gets read as a list of controls.
 - **Keeps prompts and completions out of its own records.** The metering schema is closed: no free-text body field exists to write into, a test fails if content reaches the database or a log, and LiteLLM's request logging is pinned off with the pinning asserted ([ADR 0006](docs/adr/0006-cui-boundary-and-fips.md)).
 
@@ -128,7 +128,6 @@ is not in force. So the list is here on the front page rather than only in a pla
 | Not yet enforced | State | Lands in |
 | :--- | :--- | :--- |
 | Model origin allow/deny lists | parsed, validated and diffed; checked nowhere | [R4-32](docs/tasks/R4-agent.md) |
-| Retention windows | displayed; nothing prunes | [R2-14](docs/tasks/R2-control-plane.md), [R3-13](docs/tasks/R3-gateway.md) |
 | The `node.toml` maintenance window | the other guardrails are enforced; `window.maintenance` is displayed and confines nothing | [R4-40](docs/tasks/R4-agent.md) |
 
 | Not built | Lands in |
@@ -145,8 +144,8 @@ is not in force. So the list is here on the front page rather than only in a pla
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 31 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
-| **R3** Gateway | 12 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
+| **R2** Control plane | 32 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 31 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
 | **R6** Backends | 4 of 16 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM, SGLang and llama.cpp |
