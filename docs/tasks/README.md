@@ -29,15 +29,15 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | | Milestone | Proves | Depth | Open |
 | :--- | :--- | :--- | :--- | ---: |
 | **[R0](R0-release.md)** | Release pipeline | The distribution path works while the stakes are zero | task | **0 of 26** |
-| **[R1](R1-core-audit-identity.md)** | Core, audit, identity | Accountability, before any rearchitecture | task | **0 of 36** |
-| **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 14 of 42 |
-| **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 16 |
-| **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 37 |
-| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 27 |
-| **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 12 |
-| **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 |
-| **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 |
-| **[R9](R9-evidence-remediation.md)** | Evidence and remediation | Records become a deliverable an assessor consumes | task | 8 of 20 |
+| **[R1](R1-core-audit-identity.md)** | Core, audit, identity | Accountability, before any rearchitecture | task | **0 of 38** |
+| **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 12 of 43 |
+| **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | 4 of 16 |
+| **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 12 of 41 |
+| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 14 of 33 |
+| **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 10 of 14 |
+| **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 of 8 |
+| **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 of 6 |
+| **[R9](R9-evidence-remediation.md)** | Evidence and remediation | Records become a deliverable an assessor consumes | task | 5 of 20 |
 
 R9 is [the pivot](../plans/pivot-cmmc.md#9-roadmap-deltas)'s addition. It depends on
 R1's chain and R2's revisions and lands after R2, and it is at task level despite being
