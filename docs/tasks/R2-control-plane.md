@@ -81,10 +81,27 @@ the constraints that keep it honest. · [08 §1](../specs/08-data-model.md#1-sch
   - *deps:* R1-14, R2-18
 - [x] **R2-20** `X-Nodary-Justify` and `X-Nodary-TOTP` on mutating requests · [09](../specs/09-api.md)
   - *deps:* R1-15, R1-16
-- [ ] **R2-21** Pagination: `limit` (default 50, max 500), `cursor`, `next_cursor` · [09 §2](../specs/09-api.md#2-conventions)
-- [ ] **R2-22** `If-Match` on versioned objects, `409` on mismatch
+- [x] **R2-21** Pagination: `limit` (default 50, max 500), `cursor`, `next_cursor` · [09 §2](../specs/09-api.md#2-conventions)
+  - **keyed, not offset-based.** Every listing is already ordered by its own key in SQL, and a cursor that is the last key returned stays correct when rows are inserted or removed between pages — where an offset silently skips or repeats one, exactly where paging matters most
+  - a limit above the maximum is an **error, not a silent clamp**, the rule `audit.Filter` already states: a caller that asked for 5000 and was handed 500 has been given a wrong answer quietly, and will page through the wrong number of them without learning why
+  - `next_cursor` is absent on the last page rather than empty, so a client stops without one more request that returns nothing. The audit and revision listings fetch one row past the page, so "is there more" is answered by the same query rather than a second count that can disagree with it
+  - users are keyed on **name and id together**: `?all=true` can return a deleted user and a live one sharing a name, and a cursor on the name alone would step over the second. Tokens keep their newest-first order and page the other way rather than being reordered to suit the paginator
+- [x] **R2-22** `If-Match` on versioned objects, `409` on mismatch
   - *done:* two administrators cannot silently overwrite one another
-- [ ] **R2-23** `Idempotency-Key`: a repeat within 24h returns the original response rather than acting twice
+  - **the configuration revision is the version**, not a counter per object. Models, deployments, routes, limits and the active profile are all read out of one `config.Snapshot` and every change to any of them records one revision (R2-11), so a second counter beside it could only disagree with it. The cost is that it is conservative — editing a route is refused when somebody else changed a *limit* — and that is the right way to be wrong: the lost update it prevents is silent, and the failure it causes instead says what to do
+  - **checked inside the mutation's own transaction**, never before it. Read outside, two administrators could both see revision N, both pass, and both apply — the exact race the header closes. `internal/store` caps the writer pool at one connection, so a check inside the transaction is serialized by construction
+  - reads stamp an `ETag`, so a client has something to send back, and both the quoted form and a bare number are accepted — a client echoing the header and one that pulled the number out of the JSON are both being reasonable
+  - its own code, `revision_changed`, rather than the shared `conflict`: re-read and retry is right here and wrong for a name already taken
+  - *found while wiring it:* the API's `policy apply` preview was missing the `denies` list the CLI's has (R4-32), so an administrator over HTTP was not shown which registered models a profile would deny before agreeing to it. Both front ends now render the same preview, which is what the tracker's first cross-cutting constraint is for
+- [x] **R2-23** `Idempotency-Key`: a repeat within 24h returns the original response rather than acting twice
+  - **the row is written before the handler runs, not after.** Recording the outcome afterwards makes this a cache of responses, and a cache does not stop the case that actually happens: a client whose request timed out retries while the first attempt is still working, and both mint a token. Inserting first turns the key into an exclusion and the primary key enforces it. Proved by injection — the concurrent-retry test mints twice without it
+  - **scoped to the caller.** A key is a client's own string, so two clients can choose the same one; handing one caller's response to another is a disclosure, not merely a wrong answer. The injection for this returns somebody else's freshly minted token
+  - a key reused for a **different** request is refused rather than replayed: that is a client bug, and answering it with the old response hides the bug behind a plausible success. A request that **fails** releases its key, so one malformed attempt does not burn the key the client will retry with
+  - a row left in flight by a process that died is **not** reclaimed by the next attempt. Nobody knows whether that mutation committed, and guessing "it did not" is how a second token gets minted; the retry is told to look, and the chain is where the answer is
+  - **the stored response is sealed under `secret.key`.** `POST /tokens` returns the plaintext token, and [10 §4](../specs/10-cli.md#4-output) says that is shown exactly once and never readable again — a replayable copy in a column would make that untrue of the database file. A test reads the column and fails if the token is in it
+  - every POST is wrapped **by default**, with an exemption list that states a reason per entry, because a new endpoint added without a thought about replay is the failure this exists to prevent
+  - the writes live in **`internal/replay`**, exempt from `TestNothingBypassesTheSeam` the way `internal/observed` is and under a rule its package comment carries: it writes one table and nothing else. A row records that an HTTP request arrived, not something an operator did, and an audit record per retry would bury a month of administration — 0006_fleet.sql's argument for usage rows
+  - spent keys are pruned by the retention pass (R2-14), because each holds a sealed copy of a response and one of those responses is a credential
 - [x] **R2-24** Request IDs threaded from request through audit and usage records · [06 §6](../specs/06-gateway.md#6-error-envelope)
   - *done:* a user's report of one bad request resolves to one row without guesswork
 
