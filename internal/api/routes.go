@@ -17,6 +17,7 @@ import (
 	"github.com/nodarynet/nodary/internal/core"
 	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
+	"github.com/nodarynet/nodary/internal/metering"
 	"github.com/nodarynet/nodary/internal/policy"
 )
 
@@ -117,6 +118,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/limits", s.listFleet("limits"))
 	h("PUT", "/limits/{kind}/{id}", s.putLimit)
 	h("POST", "/tokens/join", s.createJoinToken)
+
+	// Usage — R2-32. The same reader `nodary usage show` uses.
+	h("GET", "/usage", s.listUsage)
 }
 
 // --- auth --------------------------------------------------------------------
@@ -1051,5 +1055,73 @@ func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 		// Named rather than silent: an operator who asked for a restart and got
 		// one fewer than they have replicas needs to know which, and why.
 		return map[string]any{"skipped_disabled": skipped}
+	})
+}
+
+// listUsage is R2-32: GET /usage?from&to&user&model&node&group_by.
+//
+// Through internal/metering, which `nodary usage show` also calls, so the two
+// front ends cannot report different totals for one question — and through
+// audit.ParseBound for the dates, so `from=2026-09-01` means the same thing
+// here as it does on `audit list`.
+//
+// **Every authenticated caller can read it, and that is the permission table as
+// written rather than a choice made here.** docs/specs/07-identity-audit.md §1
+// grants `usage.read.self` and `state.read` to the same role — RoleViewer, the
+// lowest — so there is no line in it separating "my usage" from "everyone's",
+// and nothing for this handler to enforce. Narrowing by role rank instead would
+// put an access rule in a handler where the table cannot be read to find it,
+// and inventing a `usage.read.all` would be vocabulary §1 does not define — the
+// reasoning that kept PermRoute* from being invented for `route set`.
+//
+// So the gap is recorded against R2-32 rather than papered over: a site where a
+// user should not see a colleague's token spend needs that permission to exist
+// first. `nodary usage show` has the same reach today, for the same reason.
+func (s *Server) listUsage(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, "", func(d core.Deps) (any, error) {
+		p, err := s.principalOf(r)
+		if err != nil {
+			return nil, err
+		}
+		f := metering.Filter{
+			User:  r.URL.Query().Get("user"),
+			Model: r.URL.Query().Get("model"),
+			Node:  r.URL.Query().Get("node"),
+			Group: r.URL.Query().Get("group_by"),
+		}
+		if f.Group != "" && !metering.ValidGroup(f.Group) {
+			return nil, badRequest("group_by must be user, model, node or route")
+		}
+		if f.From, err = audit.ParseBound(r.URL.Query().Get("from"), false); err != nil {
+			return nil, err
+		}
+		if f.To, err = audit.ParseBound(r.URL.Query().Get("to"), true); err != nil {
+			return nil, err
+		}
+
+		if err := authorizeRead(p, string(identity.PermUsageReadSelf)); err != nil {
+			return nil, err
+		}
+
+		page, err := readPage(r)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := metering.Query(r.Context(), d.DB.Read(), f)
+		if err != nil {
+			return nil, err
+		}
+		// **Paged only when ungrouped**, and that is not an omission. A grouped
+		// report is ordered busiest-first, so a cursor keyed on the subject
+		// would step over rows — and it is bounded anyway by how many distinct
+		// users, models, nodes or routes exist, where the ungrouped listing has
+		// one row per request and no bound at all. Truncating a report at 50
+		// would also hide its tail while looking complete, which is the failure
+		// a silent limit clamp is refused for elsewhere.
+		if f.Group != "" {
+			return listBody("usage", rows, ""), nil
+		}
+		items, next := paginate(rows, page, func(row metering.Row) string { return row.Subject })
+		return listBody("usage", items, next), nil
 	})
 }

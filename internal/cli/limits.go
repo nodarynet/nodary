@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/metering"
 )
 
 func cmdLimits(e env, args []string) int {
@@ -208,7 +208,7 @@ func cmdUsageShow(e env, args []string) int {
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	if *groupBy != "" && !validGroup(*groupBy) {
+	if *groupBy != "" && !metering.ValidGroup(*groupBy) {
 		fmt.Fprintf(e.stderr, "nodary usage show: --group_by must be user, model, node or route\n")
 		return ExitUsage
 	}
@@ -234,9 +234,9 @@ func cmdUsageShow(e env, args []string) int {
 		return ExitUsage
 	}
 
-	rows, err := queryUsage(db.Read(), usageFilter{
-		user: *user, model: *model, node: *node, group: *groupBy,
-		from: lower, to: upper,
+	rows, err := metering.Query(context.Background(), db.Read(), metering.Filter{
+		User: *user, Model: *model, Node: *node, Group: *groupBy,
+		From: lower, To: upper,
 	})
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary usage show: %v\n", err)
@@ -256,85 +256,4 @@ func cmdUsageShow(e env, args []string) int {
 		fmt.Fprintf(e.stdout, "%-28s %8d %12d %12d\n", r.Subject, r.Requests, r.Prompt, r.Completion)
 	}
 	return ExitOK
-}
-
-func validGroup(s string) bool {
-	switch s {
-	case "user", "model", "node", "route":
-		return true
-	}
-	return false
-}
-
-// UsageRow is one line of `usage show`, aggregated or not. Counts only.
-type UsageRow struct {
-	Subject    string `json:"subject"`
-	Requests   int64  `json:"requests"`
-	Prompt     int64  `json:"prompt_tokens"`
-	Completion int64  `json:"completion_tokens"`
-}
-
-type usageFilter struct {
-	user, model, node, group string
-	from, to                 string
-}
-
-// queryUsage aggregates the closed record.
-//
-// The GROUP BY column is chosen from a fixed set rather than interpolated from
-// the flag, because it is the one part of this query that comes from a caller.
-func queryUsage(q *sql.DB, f usageFilter) ([]UsageRow, error) {
-	group := map[string]string{
-		"user": "coalesce(u.user_id, '')", "model": "coalesce(u.model_id, '')",
-		"node": "coalesce(u.node_name, '')", "route": "coalesce(u.route, '')",
-	}[f.group]
-	subject := group
-	if group == "" {
-		subject, group = "coalesce(u.request_id, u.id)", "u.id"
-	}
-
-	where := []string{"1 = 1"}
-	var args []any
-	// --model matches either the route asked for or the model actually served:
-	// the two differ once a route has several members, and an operator asking
-	// about a model means both.
-	if f.model != "" {
-		where = append(where, "(u.model_id = ? OR u.route = ?)")
-		args = append(args, f.model, f.model)
-	}
-	if f.node != "" {
-		where = append(where, "u.node_name = ?")
-		args = append(args, f.node)
-	}
-	if f.user != "" {
-		// By name, because that is what an operator types.
-		where = append(where, "u.user_id = (SELECT id FROM user WHERE name = ?)")
-		args = append(args, f.user)
-	}
-	for _, b := range []struct{ op, val string }{{">=", f.from}, {"<=", f.to}} {
-		if b.val != "" {
-			where = append(where, "u.ts "+b.op+" ?")
-			args = append(args, b.val)
-		}
-	}
-
-	query := fmt.Sprintf(
-		`SELECT %s, count(*), coalesce(sum(u.prompt_tokens), 0), coalesce(sum(u.completion_tokens), 0)
-		 FROM usage u WHERE %s GROUP BY %s ORDER BY 2 DESC, 1`,
-		subject, strings.Join(where, " AND "), group)
-
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("reading usage: %w", err)
-	}
-	defer rows.Close()
-	var out []UsageRow
-	for rows.Next() {
-		var r UsageRow
-		if err := rows.Scan(&r.Subject, &r.Requests, &r.Prompt, &r.Completion); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }
