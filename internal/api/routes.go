@@ -195,16 +195,24 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		p, err := readPage(r)
+		if err != nil {
+			return nil, err
+		}
 		users, err := identity.List(r.Context(), d.DB.Read(), r.URL.Query().Get("all") == "true")
 		if err != nil {
 			return nil, err
 		}
+		// Name and id, not name alone: `?all=true` can return a deleted user
+		// and a live one sharing a name, and a cursor on the name by itself
+		// would step over the second of them.
+		users, next := paginate(users, p, func(u identity.User) string { return u.Name + "\x00" + u.ID })
 		out := make([]map[string]any, len(users))
 		for i, u := range users {
 			out[i] = map[string]any{"id": u.ID, "name": u.Name, "role": string(u.Role),
 				"state": string(u.State), "totp_enrolled": u.TOTPEnrolled}
 		}
-		return map[string]any{"users": out}, nil
+		return listBody("users", out, next), nil
 	})
 }
 
@@ -262,10 +270,17 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermTokenManage), func(d core.Deps) (any, error) {
+		p, err := readPage(r)
+		if err != nil {
+			return nil, err
+		}
 		tokens, err := identity.ListTokens(r.Context(), d.DB.Read(), r.URL.Query().Get("user"))
 		if err != nil {
 			return nil, err
 		}
+		tokens, next := paginateDesc(tokens, p, func(t identity.Token) string {
+			return t.CreatedAt.UTC().Format(audit.TimeFormat) + "\x00" + t.ID
+		})
 		out := make([]map[string]any, len(tokens))
 		for i, t := range tokens {
 			// The display prefix, never a hash and never a secret
@@ -273,7 +288,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 			out[i] = map[string]any{"id": t.ID, "user_id": t.UserID, "kind": string(t.Kind),
 				"prefix": t.Prefix, "revoked": t.Revoked(), "unattended": t.Unattended}
 		}
-		return map[string]any{"tokens": out}, nil
+		return listBody("tokens", out, next), nil
 	})
 }
 
@@ -356,11 +371,26 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		if f.To, err = audit.ParseBound(r.URL.Query().Get("to"), true); err != nil {
 			return nil, err
 		}
+		p, err := readPage(r)
+		if err != nil {
+			return nil, err
+		}
+		if f.BeforeSeq, err = p.seq(); err != nil {
+			return nil, err
+		}
+		// One past the page, so "is there more" is answered by the same query
+		// rather than by a second count that can disagree with it.
+		f.Limit = p.limit + 1
 		records, err := audit.List(r.Context(), d.DB, f)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"records": records}, nil
+		next := ""
+		if len(records) > p.limit {
+			records = records[:p.limit]
+			next = strconv.FormatInt(records[len(records)-1].Seq, 10)
+		}
+		return listBody("records", records, next), nil
 	})
 }
 
@@ -452,16 +482,29 @@ func resolveProfile(name, source string) (policy.Profile, []byte, error) {
 
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request) {
 	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
-		revs, err := config.List(r.Context(), d.DB.Read(), 50)
+		p, err := readPage(r)
 		if err != nil {
 			return nil, err
+		}
+		before, err := p.seq()
+		if err != nil {
+			return nil, err
+		}
+		revs, err := config.List(r.Context(), d.DB.Read(), p.limit+1, before)
+		if err != nil {
+			return nil, err
+		}
+		next := ""
+		if len(revs) > p.limit {
+			revs = revs[:p.limit]
+			next = strconv.FormatInt(revs[len(revs)-1].Seq, 10)
 		}
 		out := make([]map[string]any, len(revs))
 		for i, rev := range revs {
 			out[i] = map[string]any{"seq": rev.Seq, "ts": rev.TS.Format(audit.TimeFormat),
 				"actor": rev.Actor, "justification": rev.Justification, "hash": rev.Hash}
 		}
-		return map[string]any{"revisions": out}, nil
+		return listBody("revisions", out, next), nil
 	})
 }
 
@@ -530,8 +573,16 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 		// internal/fleet, not SQL here: `nodary node list` answers the same
 		// question and this handler used to be the only implementation of it,
 		// so the two could disagree about what a fleet looks like.
+		p, err := readPage(r)
+		if err != nil {
+			return nil, err
+		}
 		nodes, err := fleet.Nodes(r.Context(), d.DB.Read(), s.now())
-		return map[string]any{"nodes": nodes}, err
+		if err != nil {
+			return nil, err
+		}
+		items, next := paginate(nodes, p, func(n fleet.Node) string { return n.Name })
+		return listBody("nodes", items, next), nil
 	})
 }
 
@@ -611,15 +662,27 @@ func (s *Server) listFleet(what string) http.HandlerFunc {
 			// What this read saw, so a client has something to send back as
 			// If-Match (09 §2).
 			setRevisionETag(r.Context(), w, d.DB.Read())
+			p, err := readPage(r)
+			if err != nil {
+				return nil, err
+			}
+			// Each of these is already ordered by its own key in SQL, which is
+			// what a keyed cursor needs and what config.Read guarantees.
 			switch what {
 			case "models":
-				return map[string]any{"models": snap.Models}, nil
+				items, next := paginate(snap.Models, p, func(m config.Model) string { return m.ID })
+				return listBody("models", items, next), nil
 			case "deployments":
-				return map[string]any{"deployments": snap.Deployments}, nil
+				items, next := paginate(snap.Deployments, p, func(d config.Deployment) string { return d.ID })
+				return listBody("deployments", items, next), nil
 			case "routes":
-				return map[string]any{"routes": snap.Routes}, nil
+				items, next := paginate(snap.Routes, p, func(rt config.Route) string { return rt.Name })
+				return listBody("routes", items, next), nil
 			default:
-				return map[string]any{"limits": snap.Limits}, nil
+				items, next := paginate(snap.Limits, p, func(l config.Limit) string {
+					return l.SubjectKind + "/" + l.SubjectID
+				})
+				return listBody("limits", items, next), nil
 			}
 		})
 	}

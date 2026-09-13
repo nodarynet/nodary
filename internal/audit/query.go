@@ -34,6 +34,10 @@ type Filter struct {
 	// FromSeq selects records at or after a sequence number. It is how a
 	// destination that fell behind catches up.
 	FromSeq int64
+	// BeforeSeq selects records strictly before a sequence number. Listings are
+	// descending, so this is what a page continues from: an upper bound, where
+	// FromSeq is a lower one (docs/specs/09-api.md §2).
+	BeforeSeq int64
 	// Limit caps the result: zero means DefaultLimit, Unlimited means every
 	// match. Anything above MaxLimit is an error rather than a silent clamp,
 	// because a caller that asked for 5000 records and got 500 has been given a
@@ -95,6 +99,9 @@ func (f Filter) where() (string, []any) {
 	}
 	if f.FromSeq > 0 {
 		clauses, args = append(clauses, "seq >= ?"), append(args, f.FromSeq)
+	}
+	if f.BeforeSeq > 0 {
+		clauses, args = append(clauses, "seq < ?"), append(args, f.BeforeSeq)
 	}
 	if f.Actor != "" {
 		clauses, args = append(clauses, "actor_id = ?"), append(args, f.Actor)

@@ -154,7 +154,7 @@ func cmdConfigList(e env, args []string) int {
 	}
 	defer db.Close()
 
-	revs, err := config.List(context.Background(), db.Read(), *limit)
+	revs, err := config.List(context.Background(), db.Read(), *limit, 0)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary config list: %v\n", err)
 		return ExitFailure

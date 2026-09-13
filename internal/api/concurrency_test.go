@@ -149,3 +149,116 @@ func TestAConflictWritesNothing(t *testing.T) {
 		t.Errorf("a refused write moved the revision from %s to %s", before, after)
 	}
 }
+
+// --- pagination (R2-21) ------------------------------------------------------
+
+// A page is a slice plus the cursor to continue from, and walking the pages has
+// to produce every record exactly once.
+func TestPagingTheAuditChainVisitsEveryRecordOnce(t *testing.T) {
+	f := newFixture(t)
+	for i := range 12 {
+		if code, doc := f.putLimit(i+1, nil); code != http.StatusOK {
+			t.Fatalf("write %d: %d %v", i, code, doc)
+		}
+	}
+
+	seen := map[float64]bool{}
+	cursor, pages := "", 0
+	for {
+		path := "/audit?limit=5"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		code, doc, _ := f.doFull("GET", path, f.admin, nil, nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET %s: %d %v", path, code, doc)
+		}
+		records, _ := doc["records"].([]any)
+		if len(records) > 5 {
+			t.Fatalf("a page of %d records was returned for limit=5", len(records))
+		}
+		for _, raw := range records {
+			rec, _ := raw.(map[string]any)
+			seq, _ := rec["seq"].(float64)
+			if seen[seq] {
+				t.Fatalf("seq %v appeared on two pages", seq)
+			}
+			seen[seq] = true
+		}
+		next, _ := doc["next_cursor"].(string)
+		if next == "" {
+			break
+		}
+		cursor = next
+		if pages++; pages > 20 {
+			t.Fatal("paging did not terminate")
+		}
+	}
+	if len(seen) < 12 {
+		t.Errorf("walked %d records over %d pages, want at least the 12 writes", len(seen), pages+1)
+	}
+	// The last page must not carry a cursor, or a client makes one more request
+	// to be told there is nothing.
+	if pages == 0 {
+		t.Error("the whole chain came back in one page; the limit was not applied")
+	}
+}
+
+func TestPagingASnapshotListing(t *testing.T) {
+	f := newFixture(t)
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		if code, doc, _ := f.doFull("PUT", "/limits/user/"+name, f.admin,
+			map[string]any{"subject_kind": "user", "subject_id": name, "rpm": 10},
+			map[string]string{api.HeaderJustify: "seeding"}); code != http.StatusOK {
+			t.Fatalf("seeding %s: %d %v", name, code, doc)
+		}
+	}
+
+	code, doc, _ := f.doFull("GET", "/limits?limit=2", f.admin, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("%d %v", code, doc)
+	}
+	first, _ := doc["limits"].([]any)
+	if len(first) != 2 {
+		t.Fatalf("first page has %d entries, want 2: %v", len(first), doc)
+	}
+	next, _ := doc["next_cursor"].(string)
+	if next == "" {
+		t.Fatal("no next_cursor with more remaining")
+	}
+
+	code, doc, _ = f.doFull("GET", "/limits?limit=2&cursor="+next, f.admin, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("%d %v", code, doc)
+	}
+	second, _ := doc["limits"].([]any)
+	if len(second) != 1 {
+		t.Errorf("second page has %d entries, want the remaining 1: %v", len(second), doc)
+	}
+	if _, more := doc["next_cursor"]; more {
+		t.Error("the last page carries a cursor, so a client makes one request too many")
+	}
+	// And the pages do not overlap.
+	if len(second) == 1 && len(first) == 2 {
+		id := func(v any) any { return v.(map[string]any)["subject_id"] }
+		if id(second[0]) == id(first[0]) || id(second[0]) == id(first[1]) {
+			t.Errorf("page two repeats page one: %v then %v", first, second)
+		}
+	}
+}
+
+// A limit above the maximum is an error, not a silent clamp: a caller that
+// asked for 5000 and got 500 has been given a wrong answer quietly.
+func TestAnOversizeLimitIsRefused(t *testing.T) {
+	f := newFixture(t)
+	for _, q := range []string{"limit=5000", "limit=0", "limit=-1", "limit=many"} {
+		code, doc, _ := f.doFull("GET", "/models?"+q, f.admin, nil, nil)
+		if code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400: %v", q, code, doc)
+		}
+	}
+	// And the documented maximum is accepted.
+	if code, doc, _ := f.doFull("GET", "/models?limit=500", f.admin, nil, nil); code != http.StatusOK {
+		t.Errorf("limit=500 was refused: %d %v", code, doc)
+	}
+}

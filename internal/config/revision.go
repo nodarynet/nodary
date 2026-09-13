@@ -153,13 +153,20 @@ func Get(ctx context.Context, q Querier, seq int64) (Revision, error) {
 }
 
 // List returns revisions newest first.
-func List(ctx context.Context, q Querier, limit int) ([]Revision, error) {
+// before is an exclusive upper bound on the sequence, which is what a page of a
+// descending listing continues from (docs/specs/09-api.md §2). Zero means the
+// newest.
+func List(ctx context.Context, q Querier, limit int, before int64) ([]Revision, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	bound, args := "", []any{}
+	if before > 0 {
+		bound, args = " WHERE seq < ?", append(args, before)
+	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT seq, ts, actor, coalesce(justification, ''), prev_hash, hash
-		 FROM revision ORDER BY seq DESC LIMIT ?`, limit)
+		 FROM revision`+bound+` ORDER BY seq DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("listing revisions: %w", err)
 	}
