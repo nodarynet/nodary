@@ -92,6 +92,12 @@ func cmdModelRegister(e env, args []string) int {
 	envJSON := fs.String("env", "", "container environment, a JSON object")
 	grant := fs.String("grant", "", "users who may call this route, comma-separated")
 	source := fs.String("source", "local", "local (weights already on this box) or remote (the agent fetches them)")
+	// docs/specs/05-catalog.md §1. Provenance is checked against the active
+	// profile's origin lists (§2) and the license is recorded and never
+	// interpreted, so one is a control and the other is evidence.
+	originOrg := fs.String("origin-org", "", "who published the weights, checked against policy")
+	originCountry := fs.String("origin-country", "", "where they were published, checked against policy")
+	license := fs.String("license", "", "the weights' license; recorded for audit, not interpreted")
 	manifestPath := fs.String("manifest", "",
 		"path to a manifest file, sha256sum format — required for --source remote")
 	out := fs.String("o", "", "write the configuration document here instead of applying it")
@@ -210,6 +216,7 @@ func cmdModelRegister(e env, args []string) int {
 	want := &config.Snapshot{
 		Models: []config.Model{{
 			ID: id, Backend: *backendName, Source: *source, Artifact: layout,
+			OriginOrg: *originOrg, OriginCountry: *originCountry, License: *license,
 			ManifestSHA256: sum, TotalBytes: total, ManifestBody: manifestBody,
 		}},
 		Deployments: []config.Deployment{{
