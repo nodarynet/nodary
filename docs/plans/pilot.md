@@ -180,5 +180,5 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
   - [x] 1.4 R2-37 backup and restore — one archive carrying the database and the key, refusing a destination other users can read
 - [ ] Tier 2 — operability
   - [x] 2.1 R5-15 upgrade — the control-plane half. `--check` diffs every pin this binary carries against the host; the upgrade backs up first and repins the LiteLLM image, which is the CVE path the review named. The agent half waits on R5-16
-  - [ ] 2.2 session principals re-checked
+  - [x] 2.2 session principals re-checked — a session holds a user id and resolves it on every request, the way the token path always has. A suspension lands on the next request rather than within a week
   - [ ] 2.3 usage attributed to node and deployment

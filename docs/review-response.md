@@ -54,7 +54,7 @@ R3's blockers are closed and R5's remaining rows are the upgrade path and the of
 | # | Finding | Status | Where |
 | :--- | :--- | :--- | :--- |
 | 2.1 | No upgrade path, required for CVE response on the pinned LiteLLM (§4.1, §5 item 10) | **Fixed** | R5-15 · `00fcfa3` |
-| 2.2 | Suspending a user does not end their session (§4.3, §5 item 9) | **Open** | new |
+| 2.2 | Suspending a user does not end their session (§4.3, §5 item 9) | **Fixed** | R2-25 · `cfbded3` |
 | 2.3 | Usage records cannot be attributed to a node or a GPU (§4.3) | **Open** | new |
 
 Username enumeration (§4.3) was fixed with 1.3, as the review predicted it would have to be —
