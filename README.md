@@ -130,7 +130,7 @@ front page rather than only in a plan.
 | :--- | :--- |
 | The offline bundle | [R5-13/14](docs/tasks/R5-install.md) |
 | Agent self-upgrade — `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it | [R5-16](docs/tasks/R5-install.md) |
-| Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local`. The API's conventions are built; the remaining handlers and a remote client are not | [R2-26 – R2-32](docs/tasks/R2-control-plane.md) |
+| Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local`. The API itself is now nearly complete — what is missing is a client that speaks to a remote one | [R2-26](docs/tasks/R2-control-plane.md), [R5-13/14](docs/tasks/R5-install.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
 | A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
 | OIDC, and backends beyond vLLM, SGLang and llama.cpp — TensorRT-LLM needs the `prepare` phase | [R6-06](docs/tasks/R6-backends.md) |
@@ -139,7 +139,7 @@ front page rather than only in a plan.
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 36 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 38 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 34 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 20 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |

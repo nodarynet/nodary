@@ -148,7 +148,7 @@ now checked, and that leaving the flag off no longer passes an allowlist.
 | The `node.toml` maintenance window is displayed and confines nothing (§3) | README; the other guardrails are enforced as of `5b8ae33` | R4-40 |
 | OIDC is not built (§3) | Struck from the editions table | — |
 | The FIPS build is overstated (§3) | Struck from the editions table; README says CI proves the tree builds and passes under `GODEBUG=fips140=on` and ships no artifact | R5-25/26 |
-| No remote administration; every administrator needs root on the control plane (§4.2) | README, and a standing note at the top of the administering guide saying privileged acts attribute to `root`/`local`. The API's own conventions — pagination, `If-Match`, `Idempotency-Key` — are built as of R2-21/22/23, so what remains is the handlers for a few verbs and a client that speaks to a remote control plane | R2-26 – R2-32 |
+| No remote administration; every administrator needs root on the control plane (§4.2) | README, and a standing note at the top of the administering guide saying privileged acts attribute to `root`/`local`. The API is now nearly complete — its conventions (R2-21/22/23), node revoke, the model verbs and usage are all served — so what remains is **a client that speaks to a remote control plane**, and `nodary` reaching one with `--server` | R2-26, and the client |
 | Agent self-upgrade is not built — `nodary upgrade` moves the control-plane host, and a GPU node is upgraded by re-running `install.sh` (§4.1) | README, and the administering guide's upgrade section | R5-16 |
 | Egress verification is structurally inconclusive at an air-gapped site (§4.3) | The administering guide, under `verify-egress` | R4-29 |
 
