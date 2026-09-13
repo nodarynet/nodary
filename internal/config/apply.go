@@ -450,3 +450,59 @@ func checkArtifact(m Model) error {
 		"05 §1 requires the artifact kind to match the backend's weights_layout",
 		m.ID, m.Artifact, m.Backend, d.Backend.WeightsLayout)
 }
+
+// DeniedModel is a catalog entry an origin policy refuses, with what is
+// currently serving it.
+type DeniedModel struct {
+	ID          string   `json:"id"`
+	Origin      string   `json:"origin"`
+	Deployments []string `json:"deployments"`
+}
+
+// Denied names the models a profile's origin lists would refuse, and the
+// deployments that would be left serving them.
+//
+// docs/specs/05-catalog.md §2 and docs/specs/11-failure-modes.md: tightening a
+// policy under a registered model **flags** it rather than stopping it, because
+// pulling a serving model out from under its users is a decision an operator
+// makes, not one a configuration change makes for them. Flagged has to mean
+// somewhere an operator actually looks, and the moment they are deciding is
+// when they apply the profile — so this goes in `policy apply`'s preview, where
+// it is part of what they attest to rather than a line they scroll past.
+//
+// Computed rather than stored. A column would have to be kept in step with
+// every policy change and would be wrong the moment a profile loosened again;
+// the origin and the profile are both already here.
+func Denied(ctx context.Context, q Querier, p policy.Profile) ([]DeniedModel, error) {
+	snap, err := Read(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	var out []DeniedModel
+	for _, m := range snap.Models {
+		if p.DeniesOrigin(m.OriginOrg, m.OriginCountry) == nil {
+			continue
+		}
+		d := DeniedModel{ID: m.ID, Origin: originOf(m), Deployments: []string{}}
+		for _, dep := range snap.Deployments {
+			if dep.ModelID == m.ID {
+				d.Deployments = append(d.Deployments, dep.ID)
+			}
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func originOf(m Model) string {
+	switch {
+	case m.OriginOrg != "" && m.OriginCountry != "":
+		return m.OriginOrg + " (" + m.OriginCountry + ")"
+	case m.OriginOrg != "":
+		return m.OriginOrg
+	case m.OriginCountry != "":
+		return m.OriginCountry
+	default:
+		return "undeclared"
+	}
+}

@@ -171,3 +171,63 @@ func TestTighteningPolicyDoesNotStopAModelAlreadyRegistered(t *testing.T) {
 		t.Fatalf("changing a model's origin to a denied one was allowed: %s", stderr)
 	}
 }
+
+// docs/specs/05-catalog.md §2: deployments referencing a model whose origin
+// later becomes denied are flagged, not silently stopped. The moment to show
+// that is when the operator applies the profile, inside the preview they
+// attest to — a flag nobody is shown at the moment of the decision is not one.
+func TestApplyingAProfileNamesWhatItWouldDenyAndStopsNothing(t *testing.T) {
+	a := newAppliance(t)
+	models := a.registerable(t)
+	a.originPolicy(t, "[]", "[]")
+	if code, stderr := a.register(t, models, "--origin-org", "acme", "--origin-country", "CN"); code != ExitOK {
+		t.Fatalf("register: %s", stderr)
+	}
+
+	// The preview first: --dry-run applies nothing and must already say so.
+	body := `[policy]
+name                     = "tight"
+require_totp             = false
+require_justification    = false
+min_justification_length = 0
+require_signed_artifacts = true
+allow_unattended_tokens  = true
+allow_custom_backends    = true
+allow_derived_images     = true
+require_pinned_derives   = false
+egress_default           = "deny"
+model_origin_denylist    = ["CN"]
+require_model_manifest   = false
+audit_retention_days     = 365
+usage_retention_days     = 90
+session_ttl_minutes      = 10080
+token_max_ttl_days       = 3650
+`
+	path := filepath.Join(t.TempDir(), "tight.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := a.run("policy", "apply", path, "--dry-run", "--justify", "seeing what this denies")
+	if code != ExitOK {
+		t.Fatalf("dry run: %d %s", code, stderr)
+	}
+	if !strings.Contains(stdout+stderr, "acme/tiny") {
+		t.Errorf("the preview does not name the model it would deny:\n%s\n%s", stdout, stderr)
+	}
+
+	code, _, stderr = a.run("policy", "apply", path, "--yes", "--justify", "tightening origins")
+	if code != ExitOK {
+		t.Fatalf("apply: %d %s", code, stderr)
+	}
+	for _, want := range []string{"acme/tiny", "CN", "Nothing was stopped", "model disable"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the report does not say %q:\n%s", want, stderr)
+		}
+	}
+
+	// Flagged, not stopped: the deployment is still there and still enabled.
+	if n := a.scalar(t, `SELECT count(*) FROM deployment WHERE model_id = 'acme/tiny' AND disabled = 0`); n != "1" {
+		t.Errorf("%s enabled deployments, want the one left alone", n)
+	}
+}

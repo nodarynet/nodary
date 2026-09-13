@@ -221,7 +221,20 @@ func cmdPolicyApply(e env, args []string) int {
 			for i, c := range d {
 				lines[i] = c.String()
 			}
-			return map[string]any{"from": from.Name, "to": candidate.Name, "changes": lines}, nil
+			// What this profile would deny that is already registered. In the
+			// preview, so it is part of what the operator attests to rather
+			// than a warning printed after the decision — docs/specs/05-catalog.md
+			// §2 flags these rather than stopping them, and a flag nobody is
+			// shown at the moment of the change is not a flag.
+			denied, err := config.Denied(ctx, tx, candidate)
+			if err != nil {
+				return nil, err
+			}
+			out := map[string]any{"from": from.Name, "to": candidate.Name, "changes": lines}
+			if len(denied) > 0 {
+				out["denies"] = denied
+			}
+			return out, nil
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := s.touch(m); err != nil {
@@ -241,6 +254,8 @@ func cmdPolicyApply(e env, args []string) int {
 		return code
 	}
 
+	reportDenied(e, s, candidate)
+
 	if *format == "json" {
 		return writeJSON(e, "policy apply", map[string]any{
 			"profile": candidate.Name, "changes": changes,
@@ -258,4 +273,28 @@ func plural(word string, n int) string {
 		return word
 	}
 	return word + "s"
+}
+
+// reportDenied names what the profile just applied refuses and is still
+// serving.
+//
+// **Flagged, not stopped** (docs/specs/11-failure-modes.md). Nothing here stops
+// anything: it says what an operator would have to decide, and names the verb
+// that decides it, because a model pulled out from under its users by a policy
+// edit is exactly the surprise this rule exists to prevent.
+func reportDenied(e env, s *session, p policy.Profile) {
+	denied, err := config.Denied(context.Background(), s.db.Read(), p)
+	if err != nil || len(denied) == 0 {
+		return
+	}
+	fmt.Fprintf(e.stderr, "\n%s now denies %d already-registered %s. Nothing was stopped:\n",
+		p.Name, len(denied), plural("model", len(denied)))
+	for _, d := range denied {
+		serving := "not deployed"
+		if len(d.Deployments) > 0 {
+			serving = "serving as " + strings.Join(d.Deployments, ", ")
+		}
+		fmt.Fprintf(e.stderr, "  %s — origin %s, %s\n", d.ID, d.Origin, serving)
+	}
+	fmt.Fprintf(e.stderr, "  Stopping one is your decision and is audited: `nodary model disable <id>`.\n")
 }
