@@ -157,10 +157,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := identity.Principal{User: who, Role: who.Role,
-		Actor: audit.Actor{ID: who.ID, Method: "session"}}
 	ttl := s.sessionTTL(r.Context())
-	value := s.sessions.create(p, ttl, s.now())
+	value := s.sessions.create(who.ID, ttl, s.now())
 
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: value, Path: "/",
