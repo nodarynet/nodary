@@ -63,13 +63,22 @@ func TestNodeLeaveDestroysTheCredentials(t *testing.T) {
 // Weights are the expensive thing on the disk and are kept unless asked for,
 // the same split uninstall draws.
 func TestNodeLeaveKeepsWeightsUnlessAsked(t *testing.T) {
-	models := t.TempDir()
-	weights := filepath.Join(models, "hub", "models--acme--tiny")
-	if err := os.MkdirAll(weights, 0o755); err != nil {
-		t.Fatal(err)
+	// models_dir names an absolute path in the *target* filesystem, so under a
+	// staged tree the weights live beneath the prefix. Writing this test with
+	// them outside it hid a real bug: `--root <tmp> --purge-models` read the
+	// path bare and deleted the machine's real /var/lib/nodary/models.
+	models := "/var/lib/nodary/models"
+	staged := func(root string) string {
+		t.Helper()
+		weights := filepath.Join(root, models, "hub", "models--acme--tiny")
+		if err := os.MkdirAll(weights, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return weights
 	}
-	root, _, _, _ := enrolledTree(t, models)
 
+	root, _, _, _ := enrolledTree(t, models)
+	weights := staged(root)
 	if code, _, stderr := run(t, "node", "leave", "--root", root, "--yes"); code != ExitOK {
 		t.Fatalf("node leave: exit %d: %s", code, stderr)
 	}
@@ -80,10 +89,11 @@ func TestNodeLeaveKeepsWeightsUnlessAsked(t *testing.T) {
 	// Asked for, they go — and the flag has to be able to find them, which
 	// means reading models_dir out of agent.toml before removing it.
 	root2, _, _, _ := enrolledTree(t, models)
+	weights2 := staged(root2)
 	if code, _, stderr := run(t, "node", "leave", "--root", root2, "--yes", "--purge-models"); code != ExitOK {
 		t.Fatalf("node leave --purge-models: exit %d: %s", code, stderr)
 	}
-	if _, err := os.Stat(weights); !os.IsNotExist(err) {
+	if _, err := os.Stat(weights2); !os.IsNotExist(err) {
 		t.Errorf("--purge-models left the weights behind: %v", err)
 	}
 }

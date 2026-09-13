@@ -56,15 +56,23 @@ type Options struct {
 	Run  Runner
 }
 
+// The defaults setDefaults applies, named so an uninstall removes from the same
+// places an install wrote to rather than repeating two string literals that can
+// drift apart.
+const (
+	DefaultBinDir  = "/usr/local/bin"
+	DefaultUnitDir = "/etc/systemd/system"
+)
+
 func (o *Options) setDefaults() {
 	if o.Run == nil {
 		o.Run = Exec
 	}
 	if o.BinDir == "" {
-		o.BinDir = "/usr/local/bin"
+		o.BinDir = DefaultBinDir
 	}
 	if o.UnitDir == "" {
-		o.UnitDir = "/etc/systemd/system"
+		o.UnitDir = DefaultUnitDir
 	}
 	if o.Binary == "" {
 		// The stable path, not wherever this process happens to be: the units

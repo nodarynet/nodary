@@ -97,11 +97,10 @@ func isTerminal(r io.Reader) bool {
 // error says "not in this release" instead of "unknown command", which is the
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
-	"backend":   "backend descriptor registration",
-	"bundle":    "offline bundle creation",
-	"uninstall": "uninstall",
-	"restart":   "restart local units",
-	"status":    "local status",
+	"backend": "backend descriptor registration",
+	"bundle":  "offline bundle creation",
+	"restart": "restart local units",
+	"status":  "local status",
 }
 
 // Main runs one invocation and returns its exit code.
@@ -157,6 +156,8 @@ func dispatch(e env, args []string) int {
 		return cmdUpgrade(e, args[1:])
 	case "prune":
 		return cmdPrune(e, args[1:])
+	case "uninstall":
+		return cmdUninstall(e, args[1:])
 	case "install":
 		return cmdInstall(e, args[1:])
 	case "node":
@@ -229,6 +230,8 @@ Available in this release:
                          --check reports which pins would move, and changes nothing
   prune                Apply the retention windows the active policy sets
                          one audited pass; a systemd timer runs it daily
+  uninstall            Remove nodary from this host, for whichever roles it has
+                         --purge state and logs, --purge-models staged weights
   model                The catalog
                          register       Weights already on disk (or a manifest) -> a served route
                          enable         Turn a disabled deployment back on

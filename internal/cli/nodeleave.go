@@ -135,7 +135,11 @@ func cmdNodeLeave(e env, args []string) int {
 	}
 
 	if *purgeModels {
-		dir := orElse(conf.ModelsDir, agent.DefaultModelsDir())
+		// Under --root like everything else this removes. The models directory
+		// is an absolute path from agent.toml, so using it bare made
+		// `--root <tmp> --purge-models` delete the real weights on the machine
+		// running the test rather than the staged copy.
+		dir := filepath.Join(*root, orElse(conf.ModelsDir, agent.DefaultModelsDir()))
 		step := leaveStep{Step: install.Step{Name: "remove: " + dir}}
 		if err := os.RemoveAll(dir); err != nil {
 			step.Detail, step.Failed, failed = err.Error(), true, true
