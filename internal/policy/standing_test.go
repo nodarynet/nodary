@@ -1,6 +1,9 @@
 package policy
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,4 +93,30 @@ func TestTheMarkingSurvivesEveryRendering(t *testing.T) {
 			t.Errorf("require_totp is enforced and should carry no annotation: %q", l)
 		}
 	}
+}
+
+// The administering guide states the count in prose, and prose goes stale in
+// exactly the way a marked setting must not: a reader is told four settings are
+// unenforced, counts six in `policy show`, and now distrusts both. Pinned here
+// rather than in the guide's own package because this is where the number is
+// decided.
+func TestTheGuideSaysHowManySettingsAreUnmarked(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "site", "administering.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("%s of\nits sixteen settings are marked today", spellOut(len(Unenforced())))
+	if !strings.Contains(string(body), want) {
+		t.Errorf("the administering guide does not say %q; %d settings are unenforced: %v",
+			want, len(Unenforced()), Unenforced())
+	}
+}
+
+func spellOut(n int) string {
+	words := []string{"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+		"Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen"}
+	if n < len(words) {
+		return words[n]
+	}
+	return fmt.Sprint(n)
 }

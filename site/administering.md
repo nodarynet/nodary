@@ -208,6 +208,32 @@ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
 
 `nodary node show <node-name>` follows the deployment from `starting` to `ready`.
 
+### Provenance
+
+`--origin-org` and `--origin-country` declare where the weights came from, and `--license`
+records which license they carry. The license is **recorded and never interpreted**; the origin
+is a control:
+
+```sh
+sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
+    --node <node-name> --gpu 0 --port 8001 \
+    --origin-org Qwen --origin-country CN \
+    --license apache-2.0 \
+    --grant alice --justify "first model"
+```
+
+A profile's `model_origin_allowlist` and `model_origin_denylist` are checked against both
+fields, case-insensitively, and a denied model is **refused at registration** with the attempt
+written to the audit chain — the actor, the model, and the origin it claimed. The check sits
+where `model register` and `config apply` meet, so a hand-written document is not a way around
+the verb.
+
+Two rules worth knowing before you write a profile:
+
+- An **empty allowlist means any origin**. A non-empty one means a model that declares no
+  origin is refused too, because otherwise the control is bypassed by leaving the flag off.
+- The **denylist wins**. An origin on both lists is denied.
+
 ### Serving a GGUF with llama.cpp
 
 `--backend llama-cpp` changes where the weights go and what to put there. vLLM and SGLang take
@@ -328,13 +354,26 @@ sudo nodary policy apply regulated --justify "moving the pilot to regulated"
 ```
 
 `policy show` marks every setting nothing acts on yet and names the task that will enforce
-it, so the profile can be read as a list of controls rather than a list of numbers. Eight of
+it, so the profile can be read as a list of controls rather than a list of numbers. Four of
 its sixteen settings are marked today. Two more are **invariants** — `require_signed_artifacts`
 and `egress_default` are refused at parse if set to anything else, and the mechanisms behind
 them run unconditionally.
 
 `policy diff` reports which settings a candidate profile would **loosen** before you apply
 it. Loosening is permitted; doing it silently is not.
+
+Tightening the origin lists under a model already registered does **not** stop it. `policy
+apply` names every model the candidate profile would deny, its origin, and what is serving it
+— in the preview you approve, not after — and leaves them running:
+
+```
+tight now denies 1 already-registered model. Nothing was stopped:
+  acme/tiny — origin acme (CN), serving as tiny-fractal
+  Stopping one is your decision and is audited: `nodary model disable <id>`.
+```
+
+Pulling a model out from under its users is an operator's decision, so the profile flags it and
+you make it.
 
 ## Accounts and sign-in
 
