@@ -115,3 +115,51 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 		t.Errorf("ceilSeconds(1.5s) = %d, want 2 (rounded up, not down)", got)
 	}
 }
+
+// The daily reset is a UTC day boundary, tested at fabricated times rather than
+// against whatever the clock happens to say.
+//
+// The HTTP-level test asserted only that the reset was "more than ten minutes
+// away", which passed all day and failed in CI at 23:51 UTC — where a daily
+// budget genuinely does reset in 556 seconds. A test that is wrong for nine
+// minutes a day is one nobody trusts the next time it goes red, so the property
+// is pinned here where the clock is an argument.
+func TestSecondsUntilDailyReset(t *testing.T) {
+	at := func(h, m, s int) time.Time {
+		return time.Date(2026, 9, 13, h, m, s, 0, time.UTC)
+	}
+	for _, c := range []struct {
+		what string
+		now  time.Time
+		want int
+	}{
+		{"just after midnight", at(0, 0, 1), 86399},
+		{"midday", at(12, 0, 0), 43200},
+		// The case CI hit. Nine minutes is a correct answer here, not a bug.
+		{"nine minutes to midnight", at(23, 51, 0), 540},
+		// Never zero: Retry-After: 0 invites a client straight back into the
+		// same refusal.
+		{"the last second of the day", at(23, 59, 59), 1},
+		{"exactly midnight", at(0, 0, 0), 86400},
+	} {
+		if got := secondsUntilDailyReset(c.now); got != c.want {
+			t.Errorf("%s: %ds, want %d", c.what, got, c.want)
+		}
+	}
+
+	// And it is a *day* boundary, not a rolling twenty-four hours: two different
+	// times on one day resolve to the same instant.
+	morning := at(9, 0, 0).Add(time.Duration(secondsUntilDailyReset(at(9, 0, 0))) * time.Second)
+	evening := at(21, 0, 0).Add(time.Duration(secondsUntilDailyReset(at(21, 0, 0))) * time.Second)
+	if !morning.Equal(evening) {
+		t.Errorf("a budget checked at 09:00 resets at %s and at 21:00 resets at %s", morning, evening)
+	}
+
+	// A non-UTC clock resolves against the UTC boundary, which is what makes
+	// "a UTC day" mean one thing across a fleet. 05:00 on the 14th in UTC+9 is
+	// 20:00 UTC on the 13th, so the reset is four hours away and not nineteen.
+	east := time.FixedZone("UTC+9", 9*3600)
+	if got := secondsUntilDailyReset(time.Date(2026, 9, 14, 5, 0, 0, 0, east)); got != 4*3600 {
+		t.Errorf("a UTC+9 clock gave %ds, want the UTC boundary four hours away", got)
+	}
+}

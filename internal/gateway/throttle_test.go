@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // setLimit writes one row the way `nodary limits set` does. It is written
@@ -154,9 +156,18 @@ func TestADailyTokenBudgetRefusesOnceItIsSpent(t *testing.T) {
 	if got, _ := doc.Error.Detail["limit"].(string); got != "daily_tokens" {
 		t.Errorf("the refusal names %q, want daily_tokens", got)
 	}
-	// It resets at a UTC hour, not in a minute.
-	if secs, _ := doc.Error.Detail["resets_in_seconds"].(float64); secs < 600 {
-		t.Errorf("a daily budget claims to reset in %vs", secs)
+	// **It resets at the UTC day boundary, not on a rolling window**, and that
+	// is asserted against the boundary itself rather than against "more than
+	// ten minutes away". The loose version passed all day and failed in CI at
+	// 23:51 UTC, where a daily budget genuinely does reset in 556 seconds — a
+	// test that is wrong for nine minutes a day is a test nobody trusts the
+	// next time it goes red.
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
+	want := midnight.Sub(now).Seconds()
+	secs, _ := doc.Error.Detail["resets_in_seconds"].(float64)
+	if diff := math.Abs(secs - want); diff > 5 {
+		t.Errorf("a daily budget resets in %vs; the next UTC midnight is %vs away", secs, want)
 	}
 }
 
