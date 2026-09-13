@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -44,10 +46,18 @@ const (
 // exists to catch.
 //
 // example.com is IANA-reserved and permanent; 1.1.1.1:443 answers from anywhere
-// with a route off-box.
+// with a route off-box, and 2606:4700:4700::1111 is the same resolver over IPv6.
+//
+// Both families, because R4-39 made the isolated bridge refuse IPv6 —
+// disable_ipv6, accept_ra=0, and a drop rule keyed on the interface rather than
+// on an address family — and nothing verified any of it. The exposure that
+// change exists for is a container autoconfiguring a *global* v6 address from a
+// router advertisement, which is egress that an IPv4-only probe reports as
+// isolation.
 var (
-	probeName = "example.com"
-	probeAddr = "1.1.1.1:443"
+	probeName  = "example.com"
+	probeAddr  = "1.1.1.1:443"
+	probeAddr6 = "[2606:4700:4700::1111]:443"
 )
 
 // egressTimeout bounds each check. Short, because three checks run after every
@@ -97,40 +107,135 @@ func RunEgressProbe(ctx context.Context) EgressProbe {
 	}}
 }
 
-// checkDefaultRoute reads the kernel's table rather than shelling out to `ip`.
+// checkDefaultRoute reads the kernel's tables rather than shelling out to `ip`.
 //
-// /proc/net/route lists a default route as destination 00000000 with the
-// RTF_GATEWAY flag. Reading it directly means the probe has no dependency on
-// iproute2 being present in whatever namespace it lands in.
+// Reading /proc directly means the probe has no dependency on iproute2 being
+// present in whatever namespace it lands in — no vLLM image promises it.
+//
+// **Both families, in one check rather than two.** The report's shape does not
+// move, and "is there a way off this box" is one question: a namespace with a
+// v6 default route and no v4 one has egress, and answering that with two checks
+// where one says `isolated` invites reading the wrong one.
 func checkDefaultRoute() Check {
+	return routeCheck("/proc/net/route", "/proc/net/ipv6_route")
+}
+
+// routeCheck is checkDefaultRoute against named tables, so a test can drive the
+// whole check — including which family its message names — from a fixture
+// rather than from whatever the machine running the test happens to be plugged
+// into.
+func routeCheck(v4Path, v6Path string) Check {
 	c := Check{Name: CheckRoute}
-	f, err := os.Open("/proc/net/route")
+	v4, err := defaultRoute4From(v4Path)
 	if err != nil {
 		// Not isolated: the check could not run, and a check that could not run
 		// must never report the property it was meant to establish.
-		c.Detail = "cannot read /proc/net/route: " + err.Error()
+		c.Detail = err.Error()
 		return c
+	}
+	v6, err := defaultRoute6From(v6Path)
+	if err != nil {
+		c.Detail = err.Error()
+		return c
+	}
+
+	switch {
+	case v4 != "" && v6 != "":
+		c.Detail = fmt.Sprintf("default routes exist: IPv4 via %s, IPv6 via %s", v4, v6)
+	case v4 != "":
+		c.Detail = "an IPv4 default route exists via " + v4
+	case v6 != "":
+		c.Detail = "an IPv6 default route exists via " + v6
+	default:
+		c.Isolated, c.Detail = true, "no default route, IPv4 or IPv6"
+	}
+	return c
+}
+
+// defaultRoute4From returns what a 0.0.0.0/0 route points at, or "" for none.
+//
+// A table that cannot be read is an error, not "no route": there is no Linux
+// namespace without IPv4 routing, so failing to read it means the check could
+// not run — and a check that could not run must never report the property it
+// was meant to establish.
+func defaultRoute4From(path string) (string, error) {
+	return scanRoutes(path, defaultRoute4)
+}
+
+// defaultRoute6From is the same for ::/0.
+//
+// A *missing* table is not an error here: /proc/net/ipv6_route is absent when
+// the namespace has no IPv6 stack at all, and that is the property rather than
+// a failure to look for it. R4-39 sets disable_ipv6 on the isolated bridge, so
+// this is the ordinary case on a correctly configured node.
+func defaultRoute6From(path string) (string, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", nil
+	}
+	return scanRoutes(path, defaultRoute6)
+}
+
+// scanRoutes reads one of the kernel's route tables with the matcher for its
+// format, and returns the first match.
+func scanRoutes(path string, match func([]string) string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read %s: %w", path, err)
 	}
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	sc.Scan() // the header
 	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 3 {
-			continue
-		}
-		if fields[1] == "00000000" {
-			c.Detail = fmt.Sprintf("a default route exists via %s", fields[0])
-			return c
+		if via := match(strings.Fields(sc.Text())); via != "" {
+			return via, nil
 		}
 	}
 	if err := sc.Err(); err != nil {
-		c.Detail = "reading /proc/net/route: " + err.Error()
-		return c
+		return "", fmt.Errorf("reading %s: %w", path, err)
 	}
-	c.Isolated, c.Detail = true, "no default route"
-	return c
+	return "", nil
+}
+
+// defaultRoute4 matches a line of /proc/net/route: iface, destination, gateway.
+// A destination of 00000000 is 0.0.0.0/0. The header line has no such column
+// and falls out on its own.
+func defaultRoute4(fields []string) string {
+	if len(fields) < 3 || fields[1] != "00000000" {
+		return ""
+	}
+	return fields[0]
+}
+
+// zeroAddr6 is ::/0's destination column.
+const zeroAddr6 = "00000000000000000000000000000000"
+
+// Route flags and metrics that mean a ::/0 entry carries nothing.
+//
+// **Measured, not assumed.** A host with no IPv6 egress at all carries two
+// ::/0 entries on `lo`, flags 00200200 and metric ffffffff — RTF_REJECT with an
+// infinite metric, which is how the kernel spells `unreachable default`. Taking
+// any ::/0 line as egress would have made this check report non-isolated on
+// every ordinary host, which is the same defect as a check that passes
+// everywhere, inverted. `ip -6 route` hides these, which is exactly why reading
+// /proc means reading it properly.
+const (
+	rtfReject      = 0x0200
+	metricInfinite = 0xffffffff
+)
+
+// defaultRoute6 matches a line of /proc/net/ipv6_route: destination, prefix
+// length, source, source prefix, next hop, metric, refcount, use, flags, device.
+func defaultRoute6(fields []string) string {
+	if len(fields) < 10 || fields[0] != zeroAddr6 || fields[1] != "00" {
+		return ""
+	}
+	if metric, err := strconv.ParseUint(fields[5], 16, 64); err == nil && metric == metricInfinite {
+		return ""
+	}
+	if flags, err := strconv.ParseUint(fields[8], 16, 64); err == nil && flags&rtfReject != 0 {
+		return ""
+	}
+	return fields[9]
 }
 
 // checkDNS must fail. See the note at the top of this file: this is the check
@@ -151,20 +256,52 @@ func checkDNS(ctx context.Context) Check {
 	return c
 }
 
-// checkConnect must fail.
+// checkConnect must fail, over both families.
+//
+// The two dials run together rather than in sequence. egressTimeout is short
+// because this runs after every deployment start and a slow assertion is one
+// somebody turns off; doing them one after the other would have doubled the
+// worst case for the same answer.
 func checkConnect(ctx context.Context) Check {
 	c := Check{Name: CheckConnect}
 	ctx, cancel := context.WithTimeout(ctx, egressTimeout)
 	defer cancel()
 
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", probeAddr)
-	if err != nil {
-		c.Isolated, c.Detail = true, "cannot reach "+probeAddr+": "+errSummary(err)
+	targets := []string{probeAddr, probeAddr6}
+	// Indexed rather than appended to from the goroutines: the report then
+	// carries the targets in the order they are declared, and does not reshuffle
+	// itself between runs because two dials finished in a different order.
+	// An empty entry is a target that was reached.
+	failed := make([]string, len(targets))
+	var wg sync.WaitGroup
+	for i, addr := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var d net.Dialer
+			conn, err := d.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				failed[i] = addr + ": " + errSummary(err)
+				return
+			}
+			conn.Close()
+		}()
+	}
+	wg.Wait()
+
+	var reached, refused []string
+	for i, addr := range targets {
+		if failed[i] == "" {
+			reached = append(reached, addr)
+		} else {
+			refused = append(refused, failed[i])
+		}
+	}
+	if len(reached) > 0 {
+		c.Detail = "connected to " + strings.Join(reached, " and ")
 		return c
 	}
-	conn.Close()
-	c.Detail = "connected to " + probeAddr
+	c.Isolated, c.Detail = true, "cannot reach "+strings.Join(refused, "; ")
 	return c
 }
 
