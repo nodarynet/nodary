@@ -1,0 +1,70 @@
+# llama.cpp. docs/specs/04-backends.md §6.
+#
+# The third built-in, and the one that shows the descriptor format carries more
+# than a vocabulary. vLLM and SGLang differ only in spelling; this one differs
+# in shape -- a single GGUF file rather than a HuggingFace cache, a
+# backend-specific option with no canonical equivalent, and the ability to serve
+# where there is no VRAM at all.
+#
+# The image is `server-cuda` from ghcr.io/ggml-org/llama.cpp, the project's own
+# publication, pinned by digest in components.json like every other. The same
+# repository publishes `server-vulkan`, `server-intel` and a CPU-only `server`,
+# which is the route to hosts that are not NVIDIA -- but every one of them needs
+# a GPU seam nodary does not have yet (preflight, enumeration, CDI naming and
+# the --gpus flag all resolve through nvidia-smi and nvidia-ctk), so this
+# descriptor pins the one that works on the hardware the agent can already see.
+[backend]
+name           = "llama-cpp"
+api            = "openai"
+weights_layout = "single-file"
+mount_path     = "/models"
+container_port = 8080
+image_default  = "ghcr.io/ggml-org/llama.cpp:server-cuda"
+
+[backend.capabilities]
+# It has `--tensor-split`, which divides one model's layers across cards by
+# proportion. That is not tensor parallelism and saying `true` here would let a
+# document written for vLLM move to this backend and mean something else.
+tensor_parallel = false
+expert_parallel = false
+quantization    = ["gguf"]
+lora            = false
+# The reason this backend is worth having beyond a second vocabulary: it serves
+# where VRAM is short or absent.
+cpu_offload = true
+
+[backend.args]
+# `-m {v}`, with a space: Args splits a rendered template into separate argv
+# elements for exactly this form.
+model_path  = "-m {v}"
+max_context = "-c {v}"
+port        = "--port {v}"
+# Without it the server binds loopback *inside* the container, which is not the
+# loopback the published port maps to, and every request is refused by a
+# deployment that reports healthy.
+host = "--host {v}"
+
+[backend.extra]
+# Backend-specific and named: how many layers to put on the GPU. There is no
+# canonical parameter for it because there is nothing to be canonical about --
+# no other backend in this build expresses the idea at all.
+gpu_layers = "-ngl {v}"
+
+[backend.gpu]
+mechanism = "device-flag"
+
+[backend.probe]
+health = "/health"
+# llama.cpp has one endpoint for both: /health answers 503 while the model is
+# loading and 200 once it can serve, which is the distinction two probes exist
+# to draw elsewhere.
+ready = "/health"
+# Lower than vLLM's and SGLang's half hour. A GGUF is loaded rather than
+# compiled, so a llama.cpp server that has not answered in ten minutes is stuck
+# rather than slow.
+ready_timeout_s = 600
+
+[backend.metrics]
+# Served only with `--metrics`, which is not in the argv above; the path is
+# recorded so that enabling it through extra_args needs no descriptor change.
+path = "/metrics"

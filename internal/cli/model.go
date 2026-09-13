@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/agent"
+	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/preflight"
@@ -84,7 +85,7 @@ func cmdModelRegister(e env, args []string) int {
 	gpus := fs.String("gpu", "0", "GPU indices on that node, comma-separated")
 	port := fs.Int("port", 8001, "loopback port the deployment publishes")
 	route := fs.String("route", "", "the name clients ask for (default: the model's name, lowercased)")
-	backend := fs.String("backend", "vllm", "backend descriptor")
+	backendName := fs.String("backend", "vllm", "backend descriptor")
 	modelsDir := fs.String("models-dir", "", "where weights are staged (default "+agent.DefaultModelsDir()+")")
 	image := fs.String("image", "", "container image (default: the digest this build pins)")
 	gpuMemory := fs.Float64("gpu-memory", 0.80, "fraction of each card's VRAM to reserve")
@@ -120,6 +121,20 @@ func cmdModelRegister(e env, args []string) int {
 		name = strings.ToLower(id[strings.LastIndex(id, "/")+1:])
 	}
 
+	// The weights' layout comes from the backend, which
+	// internal/config/apply.go already calls the authority on it: each
+	// descriptor declares one `weights_layout`, and 05 §1 requires the model's
+	// artifact kind to match. It was hardcoded to `hf-cache` here, so
+	// `--backend llama-cpp` looked for a HuggingFace cache that a GGUF is not
+	// in, and stamped an artifact kind config.Apply then refused — the one
+	// path an operator would actually take.
+	desc, err := backend.Get(*backendName)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+		return ExitUsage
+	}
+	layout := desc.Backend.WeightsLayout
+
 	var sum, manifestBody string
 	var total int64
 	if *source == "remote" {
@@ -133,7 +148,7 @@ func cmdModelRegister(e env, args []string) int {
 			return ExitUsage
 		}
 	} else {
-		dir, err := agent.ModelDir(orElse(*modelsDir, agent.DefaultModelsDir()), "hf-cache", id)
+		dir, err := agent.ModelDir(orElse(*modelsDir, agent.DefaultModelsDir()), layout, id)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
 			return ExitUsage
@@ -143,11 +158,22 @@ func cmdModelRegister(e env, args []string) int {
 			// a deployment that applies cleanly and then sits in `staging`
 			// forever with the reason buried in a heartbeat.
 			fmt.Fprintf(e.stderr, "nodary model register: no weights at %s\n", dir)
-			fmt.Fprintf(e.stderr,
-				"  Place them there — flat, as config.json and the tensor files, not a\n"+
-					"  blobs/ and snapshots/ cache — or run\n"+
-					"    scripts/stage-model.sh %s\n"+
-					"  or register --source remote --manifest FILE to have a node fetch them.\n", id)
+			// Named for the layout this backend declares. Telling somebody
+			// with a GGUF to place `config.json and the tensor files` sends
+			// them looking for files their model does not have.
+			switch layout {
+			case "single-file":
+				fmt.Fprintf(e.stderr,
+					"  %s serves a %s model, so place the one file there — a .gguf and nothing\n"+
+						"  else — or register --source remote --manifest FILE to have a node fetch it.\n",
+					*backendName, layout)
+			default:
+				fmt.Fprintf(e.stderr,
+					"  Place them there — flat, as config.json and the tensor files, not a\n"+
+						"  blobs/ and snapshots/ cache — or run\n"+
+						"    scripts/stage-model.sh %s\n"+
+						"  or register --source remote --manifest FILE to have a node fetch them.\n", id)
+			}
 			return ExitFailure
 		}
 		var files int
@@ -162,7 +188,7 @@ func cmdModelRegister(e env, args []string) int {
 
 	pinned := *image
 	if pinned == "" {
-		if pinned, ok = pinnedImage(e, *backend); !ok {
+		if pinned, ok = pinnedImage(e, *backendName); !ok {
 			return ExitFailure
 		}
 	}
@@ -183,11 +209,11 @@ func cmdModelRegister(e env, args []string) int {
 
 	want := &config.Snapshot{
 		Models: []config.Model{{
-			ID: id, Backend: *backend, Source: *source, Artifact: "hf-cache",
+			ID: id, Backend: *backendName, Source: *source, Artifact: layout,
 			ManifestSHA256: sum, TotalBytes: total, ManifestBody: manifestBody,
 		}},
 		Deployments: []config.Deployment{{
-			ID: name + "-" + *node, ModelID: id, NodeName: *node, Backend: *backend,
+			ID: name + "-" + *node, ModelID: id, NodeName: *node, Backend: *backendName,
 			Image: pinned, GPUs: indices, Params: string(raw), Env: *envJSON, Port: *port,
 		}},
 		Routes: []config.Route{{

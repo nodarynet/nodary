@@ -17,11 +17,15 @@ func TestTheBuiltInDescriptorsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Builtins: %v", err)
 	}
-	if got := Names(all); !reflect.DeepEqual(got, []string{"sglang", "vllm"}) {
-		t.Fatalf("built-ins = %v, want sglang and vllm", got)
+	if got := Names(all); !reflect.DeepEqual(got, []string{"llama-cpp", "sglang", "vllm"}) {
+		t.Fatalf("built-ins = %v, want llama-cpp, sglang and vllm", got)
 	}
-	if _, err := Get("llama-cpp"); !errors.Is(err, ErrUnknown) {
-		t.Errorf("Get(llama-cpp): error = %v, want ErrUnknown — it needs [backend.extra], which is R6", err)
+	// TensorRT-LLM is still out, and for the reason llama.cpp was until
+	// `[backend.extra]` landed: it needs `[backend.prepare]` (R6-06), and a
+	// descriptor embedded whose features are unimplemented is a backend the
+	// binary claims to support and cannot run.
+	if _, err := Get("tensorrt-llm"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("Get(tensorrt-llm): error = %v, want ErrUnknown — it needs [backend.prepare]", err)
 	}
 }
 

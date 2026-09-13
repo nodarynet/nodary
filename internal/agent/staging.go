@@ -71,6 +71,47 @@ func ModelDir(modelsDir, layout, modelID string) (string, error) {
 	return "", fmt.Errorf("unknown weights layout %q for %s", layout, modelID)
 }
 
+// SingleFileName is the one file a `single-file` model's manifest names.
+//
+// llama.cpp is told `-m <file>`, not `-m <directory>`, so the argv needs the
+// weights' actual name and only the manifest has it. Reading it is cheap —
+// the manifest is a few lines of `sha256sum` output beside hundreds of
+// gigabytes — which is why this runs even under `--no-verify`: that flag
+// exists to skip re-reading *the weights*, not to skip a text file.
+//
+// **Exactly one, or an error naming what it found.** A layout called
+// `single-file` holding three files is a contradiction, and the one case that
+// really produces it — a GGUF split into shards, where llama.cpp is handed the
+// first — is a convention this does not invent. Refusing says so; picking one
+// would be a guess that serves the wrong weights in silence.
+func SingleFileName(modelsDir, modelID string) (string, error) {
+	dir, err := ModelDir(modelsDir, "single-file", modelID)
+	if err != nil {
+		return "", err
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ManifestName))
+	if err != nil {
+		return "", fmt.Errorf("reading %s to find the weights file: %w", ManifestName, err)
+	}
+	entries, err := ParseManifest(body)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) != 1 {
+		return "", fmt.Errorf("%s lists %d files and the %s layout is one; a sharded GGUF is not "+
+			"something this build picks between", ManifestName, len(entries), "single-file")
+	}
+	// Refused, not escaped — the same rule extra_args follows, and for the same
+	// reason: this name lands in NODARY_ARGS, which the unit expands unquoted so
+	// systemd splits it on whitespace. A file called `my model.gguf` would
+	// reach llama.cpp as two arguments neither of which is a path.
+	if strings.ContainsAny(entries[0].Path, " \t\n") {
+		return "", fmt.Errorf("the weights are named %q; whitespace in the name cannot survive the "+
+			"unit's EnvironmentFile, so rename the file and restage", entries[0].Path)
+	}
+	return entries[0].Path, nil
+}
+
 // VerifyStaged reads every byte the manifest names and reports what it found.
 //
 // There is no size-and-mtime fast path, deliberately.

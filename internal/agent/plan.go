@@ -111,7 +111,11 @@ type Stage struct {
 	// StateStaging, against Total once Total is known — a HEAD request away,
 	// not from anything the control plane has to be trusted to report
 	// correctly.
-	Bytes int64 `json:"bytes,omitempty"`
+	// File is the weights' own name, for a `single-file` layout and empty for
+	// every other. llama.cpp is told `-m <file>`, and only the manifest knows
+	// which file that is (SingleFileName).
+	File  string `json:"file,omitempty"`
+	Bytes int64  `json:"bytes,omitempty"`
 	// Total is 0 when unknown — a local verdict never sets it (Bytes already
 	// means "the whole thing" once staged) and a remote download that has not
 	// finished its HEAD requests yet has nothing to report.
@@ -223,6 +227,14 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			continue
 		}
 		st.Dir = dir
+		if s.Layout == "single-file" {
+			// Regardless of Verify: the manifest is a text file, and without
+			// its one entry unitFor has no argv to render. A failure here is
+			// not a staging verdict — the weights may be perfectly fine — so
+			// it leaves File empty and lets unitFor refuse the deployment with
+			// a reason about the argv rather than about the bytes.
+			st.File, _ = SingleFileName(opt.ModelsDir, s.Model)
+		}
 		switch {
 		case !opt.Verify:
 			// Applies to remote as much as local: a preview must not start a
@@ -337,9 +349,20 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	// The model path as the *container* sees it: the weights are bind-mounted
 	// at the descriptor's mount_path, so the argv must name that side.
 	inContainer := desc.Backend.MountPath
-	if desc.Backend.WeightsLayout == "hf-cache" {
+	switch desc.Backend.WeightsLayout {
+	case "hf-cache":
 		inContainer = filepath.Join(desc.Backend.MountPath,
 			"hub", "models--"+strings.ReplaceAll(d.Model, "/", "--"))
+	case "single-file":
+		// The file, not the directory it sits in. A backend that takes
+		// `-m /models` starts, reads a directory where it expected weights,
+		// and fails with a message about the file format — which is a long way
+		// from the missing manifest entry that actually caused it.
+		if staged[d.Model].File == "" {
+			return Unit{}, fmt.Errorf("the %s layout needs the weights' own name and %s does not "+
+				"give one; check %s beside them", desc.Backend.WeightsLayout, d.Model, ManifestName)
+		}
+		inContainer = filepath.Join(desc.Backend.MountPath, staged[d.Model].File)
 	}
 	for _, a := range extra {
 		// Refused, not escaped. The unit template expands ${NODARY_ARGS}

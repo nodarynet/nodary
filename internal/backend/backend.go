@@ -57,6 +57,23 @@ type Backend struct {
 	ImageDefault  string            `toml:"image_default"`
 	Capabilities  Capabilities      `toml:"capabilities"`
 	Args          map[string]string `toml:"args"`
+	// Extra is backend-specific options surfaced as named ones
+	// (docs/specs/04-backends.md §6): llama.cpp's `gpu_layers = "-ngl {v}"`
+	// has no equivalent anywhere else, and there is no canonical parameter for
+	// it because there is nothing to be canonical about.
+	//
+	// A second table rather than more rows in Args, because the difference is
+	// the point. A name in Args is one nodary *translates* — the same
+	// `max_context` reaches vLLM as `--max-model-len` and SGLang as
+	// `--context-length`, and a document written against one backend means the
+	// same thing against another. A name here is one nodary merely *passes*,
+	// and moving the deployment to a different backend is expected to refuse
+	// rather than to quietly mean something else.
+	//
+	// It is still named, unlike extra_args: an operator writes
+	// `gpu_layers: 33` and the descriptor knows the spelling, so a typo is
+	// refused instead of reaching the container as an argument nobody wrote.
+	Extra map[string]string `toml:"extra"`
 	// Env is applied to every container this backend runs.
 	Env map[string]string `toml:"env"`
 	// EnvWSL2 is applied only on a WSL2 host.
@@ -166,6 +183,19 @@ func (d Descriptor) Validate() error {
 				ErrInvalid, b.Name, canonical, tmpl)
 		}
 	}
+	for name, tmpl := range b.Extra {
+		if !strings.Contains(tmpl, "{v}") {
+			return fmt.Errorf("%w: %s: extra.%s = %q has no {v} to substitute",
+				ErrInvalid, b.Name, name, tmpl)
+		}
+		// A name in both tables is a descriptor that cannot say which
+		// translation it meant, and whichever Args happened to consult first
+		// would become the answer. Refused rather than ordered.
+		if _, both := b.Args[name]; both {
+			return fmt.Errorf("%w: %s: %s is in both args and extra; a name is translated or "+
+				"passed through, not both", ErrInvalid, b.Name, name)
+		}
+	}
 	return nil
 }
 
@@ -255,6 +285,14 @@ func (d Descriptor) Args(modelPath string, p Params, extra []string) ([]string, 
 			continue
 		}
 		tmpl, ok := b.Args[name]
+		if !ok {
+			// Then a backend-specific one, if the descriptor names it. Checked
+			// second so a canonical name can never be shadowed by a
+			// pass-through of the same spelling — Validate refuses that case,
+			// and this is the order that makes the refusal unnecessary rather
+			// than merely enforced.
+			tmpl, ok = b.Extra[name]
+		}
 		if !ok {
 			dropped = append(dropped, name)
 			continue
