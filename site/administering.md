@@ -70,6 +70,11 @@ runs a control probe on the host, and reports `inconclusive` rather than `compli
 the host itself reaches nothing — which is the honest answer on a genuinely air-gapped site,
 and worth knowing before you rely on it as your isolation evidence.
 
+All three checks cover **IPv4 and IPv6**. That matters more than it sounds: the isolated
+bridge refuses IPv6 outright, because a container on a dual-stack network can pick up a global
+address and a default route from a router advertisement without anything asking it to. The
+route check reads both of the kernel's tables, so that namespace is reported as what it is.
+
 ## Placing weights
 
 nodary does not download weights for you by default. The air-gapped path is first-class
