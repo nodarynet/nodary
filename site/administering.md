@@ -611,6 +611,37 @@ re-running `server install` as an upgrade would, which is why this is a separate
     upgrade that downloaded something unchecked is exactly what the install path has no override
     flag for.
 
+## Removing nodary
+
+```sh
+sudo nodary uninstall                          # a GPU node
+sudo nodary uninstall --purge                  # a control plane, or a --with-node box
+sudo nodary uninstall --purge --purge-models   # and the weights
+```
+
+One verb for whichever roles the host has, so a `--with-node` box needs no special handling. It
+stops and disables the units, removes them, removes `/opt/nodary`, the `nodary` link and
+`/etc/nodary`, and deletes the components **nodary itself installed** — a `containerd` that was
+already on the machine when nodary arrived is recorded as found and is left where it is, along
+with any unit file nodary did not write.
+
+By default `/var/lib/nodary` and the weights stay. `--purge` takes the state and the logs;
+`--purge-models` takes the weights, and is separate because they are the most expensive thing on
+the disk. `--purge` on its own never deletes weights, even though they live inside the data
+directory.
+
+!!! warning "A control plane needs `--purge`, and not only for tidiness"
+    `/etc/nodary` is removed either way, and `secret.key` is in it. Keeping
+    `/var/lib/nodary` without it would leave a database nothing can ever unseal again — every
+    TOTP seed, the agent CA private key and the LiteLLM master key with it. So the uninstall
+    refuses rather than letting you find out later. If you want any of it, take a backup
+    first: `nodary backup create /path/to/backup.tar.gz`.
+
+Uninstalling a node does **not** tell the control plane, for the same reason `nodary node leave`
+does not: a node announcing its own departure is a claim the far end would have to trust from
+the machine least able to make it. The fleet still holds its certificate until an administrator
+runs `nodary node revoke <name>` on the control plane, and the uninstall prints that line.
+
 ## Checking a host
 
 ```sh

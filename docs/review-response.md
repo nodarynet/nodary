@@ -117,7 +117,7 @@ Real, known, scheduled, and now stated where a reader meets the claim rather tha
 plan. Each is a row in the README's status tables and, where it is a policy setting, a mark
 in `policy show`.
 
-Three rows have since left this table rather than being dropped from it.
+Four rows have since left this table rather than being dropped from it.
 
 **Retention windows are enforced** (R2-14, R3-13). `nodary prune` applies them as an audited act
 naming the range it removed, a `systemd` timer supplies the period, and the chain left behind
@@ -130,6 +130,11 @@ asynchronously, so a wedged destination never delays a mutation and a full queue
 than blocking. That does not make the signed bundle prove more than it did: its key is still
 sealed on the same host. What it closes is the gap the bundle never could — a copy of the chain
 that left the machine before anyone had a reason to rewrite it.
+
+**There is an uninstall** (R5-17). One verb for whichever roles a host carries, removing only what
+nodary placed — components recorded as placed, and unit files carrying its own marker — and keeping
+state and weights unless asked. Removing a control plane requires `--purge`, because `/etc/nodary`
+goes either way and `secret.key` is in it.
 
 **Model origin allow/deny lists are enforced** (R4-31, R4-32), which answers the review's deeper
 question — attestation or control — with *control*. A denied origin is refused where both write
@@ -144,7 +149,6 @@ now checked, and that leaving the flag off no longer passes an allowlist.
 | OIDC is not built (§3) | Struck from the editions table | — |
 | The FIPS build is overstated (§3) | Struck from the editions table; README says CI proves the tree builds and passes under `GODEBUG=fips140=on` and ships no artifact | R5-25/26 |
 | No remote administration; every administrator needs root on the control plane (§4.2) | README, and a standing note at the top of the administering guide saying privileged acts attribute to `root`/`local` | R2-21 – R2-32 |
-| No uninstall (§4.1) | README | R5-17 |
 | Agent self-upgrade is not built — `nodary upgrade` moves the control-plane host, and a GPU node is upgraded by re-running `install.sh` (§4.1) | README, and the administering guide's upgrade section | R5-16 |
 | Egress verification is structurally inconclusive at an air-gapped site (§4.3) | The administering guide, under `verify-egress` | R4-29 |
 

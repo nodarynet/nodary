@@ -128,7 +128,7 @@ front page rather than only in a plan.
 
 | Not built | Lands in |
 | :--- | :--- |
-| Uninstall and the offline bundle | [R5-13/14](docs/tasks/R5-install.md), [R5-17](docs/tasks/R5-install.md) |
+| The offline bundle | [R5-13/14](docs/tasks/R5-install.md) |
 | Agent self-upgrade — `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it | [R5-16](docs/tasks/R5-install.md) |
 | Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local` | [R2-21 – R2-32](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
@@ -142,7 +142,7 @@ front page rather than only in a plan.
 | **R2** Control plane | 33 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 34 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
-| **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
+| **R5** Install | 20 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
 | **R6** Backends | 4 of 16 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM, SGLang and llama.cpp |
 | **R9** Evidence | 15 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
 
