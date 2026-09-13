@@ -409,9 +409,26 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 			for i, c := range d {
 				lines[i] = c.String()
 			}
-			return map[string]any{"from": from.Name, "to": candidate.Name, "changes": lines}, nil
+			// The same preview the CLI renders, including what this profile
+			// would deny that is already registered (R4-32). Two front ends
+			// showing different previews of one act is the divergence the
+			// tracker's first cross-cutting constraint exists to prevent —
+			// and the half missing here is the one an operator needs to see
+			// before agreeing.
+			denied, err := config.Denied(ctx, tx, candidate)
+			if err != nil {
+				return nil, err
+			}
+			out := map[string]any{"from": from.Name, "to": candidate.Name, "changes": lines}
+			if len(denied) > 0 {
+				out["denies"] = denied
+			}
+			return out, nil
 		},
 		Apply: func(m audit.Mutation, _ any) error {
+			if err := checkIfMatch(r.Context(), r, m.Tx()); err != nil {
+				return err
+			}
 			p, _ := s.principalOf(r)
 			if err := policy.Apply(r.Context(), m, p.Role, s.now(), candidate, source); err != nil {
 				return err
@@ -492,6 +509,9 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 			return map[string]any{"changes": config.FilterChanges(config.Changes(have, target.Snapshot), prune), "prune": prune}, nil
 		},
 		Apply: func(m audit.Mutation, _ any) error {
+			if err := checkIfMatch(r.Context(), r, m.Tx()); err != nil {
+				return err
+			}
 			p, _ := s.principalOf(r)
 			if _, err := config.Apply(r.Context(), m, s.now(), target.Snapshot,
 				config.Options{Prune: prune}); err != nil {
@@ -588,6 +608,9 @@ func (s *Server) listFleet(what string) http.HandlerFunc {
 			if err != nil {
 				return nil, err
 			}
+			// What this read saw, so a client has something to send back as
+			// If-Match (09 §2).
+			setRevisionETag(r.Context(), w, d.DB.Read())
 			switch what {
 			case "models":
 				return map[string]any{"models": snap.Models}, nil
@@ -713,6 +736,7 @@ func (s *Server) showFleet(what string) http.HandlerFunc {
 			if err != nil {
 				return nil, err
 			}
+			setRevisionETag(r.Context(), w, d.DB.Read())
 			switch what {
 			case "models":
 				for _, m := range snap.Models {
@@ -796,6 +820,9 @@ func (s *Server) applyOne(w http.ResponseWriter, r *http.Request, target string,
 			return map[string]any{"changes": config.Changes(have, want)}, nil
 		},
 		Apply: func(m audit.Mutation, _ any) error {
+			if err := checkIfMatch(r.Context(), r, m.Tx()); err != nil {
+				return err
+			}
 			p, _ := s.principalOf(r)
 			want, err := config.Read(r.Context(), m.Tx())
 			if err != nil {

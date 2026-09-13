@@ -74,6 +74,12 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, identity.ErrBadTransition):
 		return http.StatusConflict, "conflict"
 
+	// 09 §2: a mutation whose If-Match no longer holds. Its own code rather
+	// than the shared "conflict", because a client acts on it differently —
+	// re-read and retry is right here and wrong for a name already taken.
+	case errors.Is(err, ErrRevisionChanged):
+		return http.StatusConflict, "revision_changed"
+
 	case errors.Is(err, attest.ErrIntentChanged):
 		return http.StatusPreconditionFailed, "intent_changed"
 
