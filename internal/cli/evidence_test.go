@@ -99,8 +99,24 @@ func TestBundleVerifiesWithSha256sumAndMinisignAlone(t *testing.T) {
 	a.addUser("bob", "operator")
 	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
 
+	// The window is given explicitly, spanning yesterday to tomorrow.
+	//
+	// R9-21: this test failed once with `chain.jsonl holds 1 records` and never
+	// reproduced. The three records it makes land within about twenty
+	// milliseconds of each other, and the default period ends at the export
+	// command's own `time.Now()` — with the monotonic reading stripped by
+	// `.UTC()`, so the comparison is pure wall clock. A wall clock that steps
+	// backward between the writes and the export, which a VM's does when its
+	// host resyncs, legitimately narrows the window and legitimately drops
+	// records. The assertion below is about what a bundle carries, not about
+	// whether the clock advanced, so it no longer depends on that. The default
+	// period is asserted directly in TestThePeriodDefaultsToNinetyDays, where
+	// there is no clock to race.
+	day := 24 * time.Hour
 	out := filepath.Join(a.dir, "bundle.tar.gz")
-	code, stdout, stderr := a.run("evidence", "export", "--out", out)
+	code, stdout, stderr := a.run("evidence", "export", "--out", out,
+		"--from", time.Now().Add(-day).UTC().Format(time.DateOnly),
+		"--to", time.Now().Add(day).UTC().Format(time.DateOnly))
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0: %s", code, stderr)
 	}
@@ -353,4 +369,94 @@ func runIn(dir, name string, args ...string) (string, error) {
 	cmd.Dir = dir
 	o, err := cmd.CombinedOutput()
 	return string(o), err
+}
+
+// R9-21. The ≥3 assertion in TestBundleVerifiesWithSha256sumAndMinisignAlone
+// exists because a bound that silently excluded everything shipped once
+// already, and it was the only thing guarding that. It guarded it by racing a
+// wall clock. These two assert the same property with dates chosen on purpose,
+// so a period that holds records carries them and a period that holds none says
+// so — neither of which depends on when the test happens to run.
+func TestAPeriodThatHoldsRecordsCarriesThem(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.addUser("bob", "operator")
+	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
+
+	day := 24 * time.Hour
+	out := filepath.Join(a.dir, "bundle.tar.gz")
+	if code, _, stderr := a.run("evidence", "export", "--out", out,
+		"--from", time.Now().Add(-day).UTC().Format(time.DateOnly),
+		"--to", time.Now().Add(day).UTC().Format(time.DateOnly)); code != ExitOK {
+		t.Fatalf("export: %d %s", code, stderr)
+	}
+	members := extractBundle(t, out, t.TempDir())
+
+	// Three: alice, bob, and the license. The export's own record commits after
+	// the segment is built, so it is not one of them.
+	if n := strings.Count(members["chain.jsonl"], "\n"); n != 3 {
+		t.Errorf("chain.jsonl holds %d records, want the three this test made:\n%s",
+			n, members["chain.jsonl"])
+	}
+	if !strings.Contains(members["verify.txt"], "RESULT: verified") {
+		t.Errorf("the segment did not verify:\n%s", members["verify.txt"])
+	}
+}
+
+// And the failure this all exists to prevent: a bundle whose period covers
+// nothing must say so, not ship an empty file that every other check passes on.
+func TestAPeriodThatHoldsNoRecordsSaysSo(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
+
+	// A week in 2020, which this appliance's chain cannot reach into.
+	out := filepath.Join(a.dir, "bundle.tar.gz")
+	if code, _, stderr := a.run("evidence", "export", "--out", out,
+		"--from", "2020-01-01", "--to", "2020-01-07"); code != ExitOK {
+		t.Fatalf("export: %d %s", code, stderr)
+	}
+	members := extractBundle(t, out, t.TempDir())
+
+	if members["chain.jsonl"] != "" {
+		t.Errorf("chain.jsonl is not empty for a period before the chain began:\n%s",
+			members["chain.jsonl"])
+	}
+	if !strings.Contains(members["verify.txt"], "no audit records fall in this period") {
+		t.Errorf("verify.txt does not say the period is empty, so a reader would take an "+
+			"empty bundle for a clean one:\n%s", members["verify.txt"])
+	}
+}
+
+// The default period, asserted where there is no clock to race: ninety days
+// back from the moment the command ran, through that moment.
+func TestThePeriodDefaultsToNinetyDays(t *testing.T) {
+	now := time.Date(2026, 9, 13, 5, 21, 37, 621_000_000, time.UTC)
+	e := env{stdout: io.Discard, stderr: io.Discard}
+
+	start, end, ok := period(e, now, "", "")
+	if !ok {
+		t.Fatal("the default period was refused")
+	}
+	if !end.Equal(now) {
+		t.Errorf("end = %s, want the moment the command ran", end)
+	}
+	if want := now.AddDate(0, 0, -90); !start.Equal(want) {
+		t.Errorf("start = %s, want %s", start, want)
+	}
+
+	// --to is a date, and covers the whole of it: a bundle asked for through
+	// the 13th that stopped at midnight would omit the day it names.
+	_, end, ok = period(e, now, "", "2026-09-13")
+	if !ok {
+		t.Fatal("an explicit --to was refused")
+	}
+	if got := end.UTC().Format(time.RFC3339Nano); got != "2026-09-13T23:59:59.999999999Z" {
+		t.Errorf("--to 2026-09-13 ends at %s", got)
+	}
+
+	// And a period that runs backwards is refused rather than silently empty.
+	if _, _, ok := period(e, now, "2026-09-13", "2026-09-01"); ok {
+		t.Error("--to before --from was accepted")
+	}
 }
