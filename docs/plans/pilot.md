@@ -178,7 +178,7 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
   - [x] 1.2 R3-08/09/10 throttling and quota — enforced in the gateway, with a `429` that names the limit and when it clears
   - [x] 1.3 login throttle, and PBKDF2 out of the write transaction — five failures per user and per address, and a locked-out attempt costs no hash and no write
   - [x] 1.4 R2-37 backup and restore — one archive carrying the database and the key, refusing a destination other users can read
-- [ ] Tier 2 — operability
+- [x] Tier 2 — operability
   - [x] 2.1 R5-15 upgrade — the control-plane half. `--check` diffs every pin this binary carries against the host; the upgrade backs up first and repins the LiteLLM image, which is the CVE path the review named. The agent half waits on R5-16
   - [x] 2.2 session principals re-checked — a session holds a user id and resolves it on every request, the way the token path always has. A suspension lands on the next request rather than within a week
   - [x] 2.3 usage attributed to node and deployment — through the deployment id LiteLLM returns, because a route has members and LiteLLM is what picks one. Pinned against the real image, and silent rather than guessing when the header is absent
