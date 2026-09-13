@@ -101,16 +101,40 @@ anything outside them is refused and reported — `nodary node show <name>` prin
 against the node. Nothing is retried: a limit being hit repeatedly is something you should
 see, not something the fleet should grind against.
 
-!!! warning "Editing this file never stops a running model"
+!!! warning "Editing this file never stops a running model on the spot"
     Narrow a limit under a deployment that is already serving and it keeps serving, reported
     as `out_of_policy` rather than refused. That is deliberate — a guardrail that could
     terminate a model mid-request is one nobody would dare edit, which makes it no guardrail
     at all. Closing the gap is yours to do: widen the limit again, or stop the deployment
     with `nodary model disable`.
 
-`window.maintenance` is **not** enforced yet. It parses, it is validated, and it confines
-nothing — see [R4-40](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R4-agent.md)
-for why it was split out rather than shipped with the rest.
+### The maintenance window
+
+`window.maintenance` is **when** the gap above gets closed for you, and it is the only thing
+it does:
+
+```toml
+[window]
+maintenance = "sat 02:00-06:00 UTC"
+```
+
+A deployment left `out_of_policy` by an edit to this file keeps serving until the window opens,
+and is stopped then. A node that declares no window keeps it serving indefinitely, which is the
+behavior you get with no `[window]` section at all.
+
+It confines **nothing else**. `nodary node drain`, `nodary model disable` and `nodary model
+restart` act immediately whatever the clock says: those are explicit decisions you are making
+now, usually because something is already wrong, and a node you are draining because it is
+failing should not keep serving until Saturday. The window schedules the disruption nobody
+asked for, not the ones you did.
+
+Two things to know when you write one:
+
+- **The zone has to be one this host resolves.** `UTC` always does. `EST`, `CET` and `MST` do;
+  `PST` and `AEST` do **not** and are refused when the file loads, rather than parsing cleanly
+  and then matching no minute of any week.
+- **A window may cross midnight.** `sat 22:00-02:00 UTC` is Saturday evening and the small
+  hours of Sunday. One that opens and closes at the same minute is refused as the typo it is.
 
 ## Placing weights
 

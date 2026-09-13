@@ -173,13 +173,27 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	// placement that is out of policy and running is added to it; one that is
 	// out of policy and not running is an ordinary refusal, since there is
 	// nothing serving to protect and nothing to stop.
+	//
+	// **Unless the maintenance window is open.** §3's sentence has two halves,
+	// and this is the second: such a deployment waits "for the control plane to
+	// withdraw it, **or for the next maintenance window**". Without that, an
+	// out-of-policy deployment waits forever — the node states a verdict every
+	// minute about something it goes on running, and the only way to act on it
+	// is from the far end. Leaving it out of `wanted` is the whole change: the
+	// stop loop below already does the rest.
+	//
+	// A node that declares no window is unaffected, because an absent window is
+	// never open (NodeConfig.MaintenanceOpen). Nothing an operator asked for is
+	// ever deferred by it: this is the only action the window governs.
 	for _, v := range p.OutOfPolicy {
 		name := UnitName(v.Deployment)
 		if !h.isActive(ctx, name) {
 			r.Refused = append(r.Refused, v)
 			continue
 		}
-		wanted[name] = true
+		if !p.MaintenanceOpen {
+			wanted[name] = true
+		}
 		r.OutOfPolicy = append(r.OutOfPolicy, v)
 	}
 

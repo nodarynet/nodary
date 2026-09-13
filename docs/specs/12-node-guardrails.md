@@ -58,7 +58,7 @@ maintenance        = "sat 02:00-06:00 UTC"   # confine disruptive actions
 | `allow.prepare_jobs` | A backend `prepare` step ([04](04-backends.md#4-the-prepare-phase)) |
 | `allow.package_install` | Post-enrollment host package changes |
 | `allow.reboot` | Any reboot, independent of `reboot_policy` |
-| `window.maintenance` | Stop, restart or restage outside the window |
+| `window.maintenance` | Nothing directly. It is **when** a deployment this file left `out_of_policy` is stopped (§3) |
 
 Every field is optional. A file with no `[limits]` section offers the whole machine, which is
 the right default for a dedicated GPU host and is what `nodary node install` writes unless
@@ -77,6 +77,18 @@ to withdraw it, or for the next maintenance window.
 
 Silently terminating a serving model because a config file changed would make the file
 dangerous to edit, and a guardrail nobody dares touch is not a guardrail.
+
+**The window confines that one action and no other.** An earlier draft of §2's table said it
+refused any stop, restart or restage outside the window. That reading was rejected when it was
+built: `nodary node drain`, `nodary model disable` and `nodary model restart` are explicit,
+audited decisions an operator is making *now*, usually because something is already wrong, and
+a window that deferred them would mean a node you are draining because it is failing keeps
+serving until Saturday. The disruption a window exists to schedule is the one **nobody asked
+for** — and after R4-14/R4-16 there is exactly one of those: a guardrail narrowed under a
+deployment that is already running.
+
+A node that declares no window is unchanged by this: an `out_of_policy` deployment then waits
+for the control plane to withdraw it, and for nothing else.
 
 ## 4. Reported inventory
 

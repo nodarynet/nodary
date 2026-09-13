@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/backend"
@@ -62,6 +63,11 @@ type Plan struct {
 	// only Reconcile has, so Reconcile is what actually restarts them and
 	// reports which ones landed as Report.RestartDone.
 	Restart []string `json:"restart,omitempty"`
+	// MaintenanceOpen says whether node.toml's window is open at the moment
+	// this plan was built. Decided here rather than in Reconcile so the plan
+	// stays a complete description of what should happen, and so one clock
+	// read covers the whole cycle.
+	MaintenanceOpen bool `json:"maintenance_open,omitempty"`
 }
 
 // Unit is one deployment rendered as everything systemd needs.
@@ -140,6 +146,10 @@ type PlanOptions struct {
 	// anything is reconciled (docs/specs/12-node-guardrails.md §1). The zero
 	// value offers the whole machine, which is what an absent file means.
 	Node NodeConfig
+	// Now is the clock the maintenance window is read against. The zero value
+	// means time.Now(); it is a parameter so a test can stand at 3am on a
+	// Saturday without waiting for one.
+	Now time.Time
 	// Verify runs the manifest check. It is a parameter because reading every
 	// byte of a large model is minutes of disk, and `nodary agent plan` should
 	// be able to answer without doing it.
@@ -175,8 +185,12 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	if opt.ConfigDir == "" {
 		opt.ConfigDir = paths.ConfigDir
 	}
+	if opt.Now.IsZero() {
+		opt.Now = time.Now()
+	}
 	p := Plan{Rev: doc.Rev, Node: doc.Node, Units: []Unit{}, Stage: []Stage{},
-		Refused: []Refusal{}, OutOfPolicy: []Refusal{}, Disabled: []string{}}
+		Refused: []Refusal{}, OutOfPolicy: []Refusal{}, Disabled: []string{},
+		MaintenanceOpen: opt.Node.MaintenanceOpen(opt.Now)}
 
 	descriptors, err := backend.Builtins()
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -116,10 +117,95 @@ func (c NodeConfig) Validate(path string) error {
 	if n := c.Limits.MaxDeployments; n != nil && *n < 0 {
 		return fmt.Errorf("%w: %s: max_deployments %d is negative", ErrBadConfig, path, *n)
 	}
-	if w := c.Window.Maintenance; w != "" && !maintenancePattern.MatchString(w) {
-		return fmt.Errorf(`%w: %s: maintenance %q is not "sat 02:00-06:00 UTC"`, ErrBadConfig, path, w)
+	if w := c.Window.Maintenance; w != "" {
+		if err := checkMaintenance(w); err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrBadConfig, path, err)
+		}
 	}
 	return nil
+}
+
+// checkMaintenance holds a window to more than its shape.
+//
+// The zone is **resolved here**, not at use, for the reason maintenancePattern
+// already gives: a window that silently never opens is a problem discovered at
+// 2am on a Saturday. Measured, and the reason this is not merely defensive:
+// Go's zone database resolves "EST", "CET" and "MST" and does not resolve
+// "PST" or "AEST" -- so half the abbreviations an operator would reach for
+// first are not zones at all, and without this they would parse, validate,
+// advertise, and never match a single minute.
+//
+// A host with no zone database resolves "UTC" and nothing else, which is the
+// right failure: the refusal names the problem instead of the window quietly
+// never arriving.
+func checkMaintenance(w string) error {
+	m := maintenancePattern.FindStringSubmatch(w)
+	if m == nil {
+		return fmt.Errorf(`maintenance %q is not "sat 02:00-06:00 UTC"`, w)
+	}
+	if _, err := time.LoadLocation(strings.ToUpper(m[6])); err != nil {
+		return fmt.Errorf("maintenance %q: %s is not a time zone this host knows; "+
+			"UTC always resolves, and an abbreviation like PST does not", w, m[6])
+	}
+	if m[2]+m[3] == m[4]+m[5] {
+		return fmt.Errorf("maintenance %q opens and closes at the same minute", w)
+	}
+	return nil
+}
+
+// MaintenanceOpen reports whether now falls inside the declared window.
+//
+// docs/specs/12-node-guardrails.md §3: a deployment a node.toml edit
+// invalidated keeps serving and waits "for the control plane to withdraw it,
+// **or for the next maintenance window**". This is that clock, and it is the
+// whole of what the window does -- it never suppresses an action an operator
+// asked for.
+//
+// **An absent window is never open**, which is exactly today's behavior: an
+// out-of-policy deployment then waits for the control plane and nothing else.
+// A node that declares no window has not asked for anything to be stopped on
+// a schedule, and reading "no window" as "any time" would turn the safest
+// configuration into the most disruptive one.
+//
+// A window whose end is before its start **wraps past midnight**: "sat
+// 22:00-02:00" is Saturday evening and the small hours of Sunday, which is
+// what somebody who wrote it means and the hours a maintenance window most
+// often occupies.
+func (c NodeConfig) MaintenanceOpen(now time.Time) bool {
+	m := maintenancePattern.FindStringSubmatch(c.Window.Maintenance)
+	if m == nil {
+		return false
+	}
+	loc, err := time.LoadLocation(strings.ToUpper(m[6]))
+	if err != nil {
+		return false // refused at load; closed here rather than guessing a zone
+	}
+	day, ok := weekdays[strings.ToLower(m[1])]
+	if !ok {
+		return false
+	}
+	start, end := minuteOf(m[2], m[3]), minuteOf(m[4], m[5])
+
+	local := now.In(loc)
+	at := local.Hour()*60 + local.Minute()
+	if start < end {
+		return local.Weekday() == day && at >= start && at < end
+	}
+	return (local.Weekday() == day && at >= start) ||
+		(local.Weekday() == (day+1)%7 && at < end)
+}
+
+var weekdays = map[string]time.Weekday{
+	"sun": time.Sunday, "mon": time.Monday, "tue": time.Tuesday, "wed": time.Wednesday,
+	"thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday,
+}
+
+// minuteOf converts the pattern's own capture groups, which it has already
+// held to two digits in range, so a parse here cannot fail.
+func minuteOf(hh, mm string) int {
+	h, _ := strconv.Atoi(hh)
+	m, _ := strconv.Atoi(mm)
+	return h*60 + m
 }
 
 // Offer is what this node advertises to the control plane:

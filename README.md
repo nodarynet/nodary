@@ -121,14 +121,9 @@ and served through the gateway — metered, with one usage row recording counts 
 text anywhere in the database. `nodary doctor` diagnoses a host in one pass, including a live
 re-run of the egress assertion. The route is [docs/plans/mvp.md](docs/plans/mvp.md).
 
-**What it cannot do yet.** The record-keeping is ahead of the enforcement, and the difference
-matters more here than in an ordinary roadmap gap: a capability described as enforced, which is
-really an object the system stores and displays, hands an SSP author language for a control that
-is not in force. So the list is here on the front page rather than only in a plan.
-
-| Not yet enforced | State | Lands in |
-| :--- | :--- | :--- |
-| The `node.toml` maintenance window | the other guardrails are enforced; `window.maintenance` is displayed and confines nothing | [R4-40](docs/tasks/R4-agent.md) |
+**What it cannot do yet.** Every policy setting and node guardrail this build displays is now
+enforced. What remains is not built at all rather than half-built, and the list is here on the
+front page rather than only in a plan.
 
 | Not built | Lands in |
 | :--- | :--- |
@@ -146,7 +141,7 @@ is not in force. So the list is here on the front page rather than only in a pla
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 32 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
-| **R4** Agent | 33 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
+| **R4** Agent | 34 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
 | **R6** Backends | 4 of 16 | descriptor schema, argument translation, container environment (incl. WSL2); vLLM, SGLang and llama.cpp |
 | **R9** Evidence | 15 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
