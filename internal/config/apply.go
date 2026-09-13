@@ -11,6 +11,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/backend"
+	"github.com/nodarynet/nodary/internal/policy"
 )
 
 // ErrUnknownNode is returned when a configuration names a node that has never
@@ -96,7 +97,7 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 		}
 	}
 
-	if err := applyModels(ctx, tx, now, want, have, opt, &res); err != nil {
+	if err := applyModels(ctx, m, now, want, have, opt, &res); err != nil {
 		return res, err
 	}
 	if err := applyDeployments(ctx, tx, now, want, have, opt, &res); err != nil {
@@ -116,7 +117,19 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 	return res, nil
 }
 
-func applyModels(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Snapshot, opt Options, res *Result) error {
+func applyModels(ctx context.Context, mut audit.Mutation, now time.Time, want, have *Snapshot, opt Options, res *Result) error {
+	tx := mut.Tx()
+
+	// Read once, and only when there is something to check: every apply passes
+	// through here, most of them with no models in the document at all.
+	var active policy.Profile
+	if len(want.Models) > 0 {
+		var err error
+		if active, _, err = policy.Active(ctx, tx); err != nil {
+			return fmt.Errorf("reading the active policy: %w", err)
+		}
+	}
+
 	for _, m := range want.Models {
 		// docs/specs/05-catalog.md §1: the artifact kind **must match the
 		// backend's weights_layout**. Checked here because the alternative is
@@ -125,6 +138,9 @@ func applyModels(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 		// names neither the field nor the document that set it. A catalog entry
 		// that can never stage is not a catalog entry.
 		if err := checkArtifact(m); err != nil {
+			return err
+		}
+		if err := checkOrigin(mut, active, m, have); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO model
@@ -145,6 +161,41 @@ func applyModels(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 	}
 	return prune(ctx, tx, "model", "id", names(have.Models, func(m Model) string { return m.ID }),
 		names(want.Models, func(m Model) string { return m.ID }), opt, res)
+}
+
+// checkOrigin refuses a model whose provenance the active profile denies.
+//
+// Here rather than in `model register`, because register is not the only way a
+// model reaches the catalog: it builds a document and hands it to Apply, and so
+// does `config apply` with one an operator wrote. A check in the verb would be
+// a control with a documented bypass sitting next to it.
+//
+// **Only a new model, or one whose declared origin moved.** A profile tightened
+// after a model was registered flags its deployments rather than stopping them
+// (docs/specs/05-catalog.md §2, docs/specs/11-failure-modes.md), and refusing
+// every later document that merely restates that model would stop them by
+// another road: the operator could change nothing else in the fleet until they
+// deleted it. `nodary policy apply` names what a candidate profile would deny,
+// which is where that decision belongs and who should be making it.
+func checkOrigin(mut audit.Mutation, active policy.Profile, want Model, have *Snapshot) error {
+	for _, had := range have.Models {
+		if had.ID == want.ID && had.OriginOrg == want.OriginOrg && had.OriginCountry == want.OriginCountry {
+			return nil
+		}
+	}
+	err := active.DeniesOrigin(want.OriginOrg, want.OriginCountry)
+	if err == nil {
+		return nil
+	}
+	// docs/specs/05-catalog.md §2: the rejection is recorded with the actor and
+	// the attempted origin. The actor is a field of the record already; without
+	// these the origin would exist only inside the error text, which is prose a
+	// query cannot find. A rolled-back failure still carries them —
+	// audit.Log.Act writes its record in a transaction of its own.
+	mut.Detail("denied_model", want.ID)
+	mut.Detail("denied_origin_org", want.OriginOrg)
+	mut.Detail("denied_origin_country", want.OriginCountry)
+	return fmt.Errorf("model %q: %w", want.ID, err)
 }
 
 func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Snapshot, opt Options, res *Result) error {
