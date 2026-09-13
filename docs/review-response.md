@@ -53,7 +53,7 @@ R3's blockers are closed and R5's remaining rows are the upgrade path and the of
 
 | # | Finding | Status | Where |
 | :--- | :--- | :--- | :--- |
-| 2.1 | No upgrade path, required for CVE response on the pinned LiteLLM (§4.1, §5 item 10) | **Open** | R5-15 |
+| 2.1 | No upgrade path, required for CVE response on the pinned LiteLLM (§4.1, §5 item 10) | **Fixed** | R5-15 · `00fcfa3` |
 | 2.2 | Suspending a user does not end their session (§4.3, §5 item 9) | **Open** | new |
 | 2.3 | Usage records cannot be attributed to a node or a GPU (§4.3) | **Open** | new |
 
@@ -77,7 +77,8 @@ in `policy show`.
 | OIDC is not built (§3) | Struck from the editions table | — |
 | The FIPS build is overstated (§3) | Struck from the editions table; README says CI proves the tree builds and passes under `GODEBUG=fips140=on` and ships no artifact | R5-25/26 |
 | No remote administration; every administrator needs root on the control plane (§4.2) | README, and a standing note at the top of the administering guide saying privileged acts attribute to `root`/`local` | R2-21 – R2-32 |
-| No upgrade or uninstall (§4.1) | README | R5-15, R5-17 |
+| No uninstall (§4.1) | README | R5-17 |
+| Agent self-upgrade is not built — `nodary upgrade` moves the control-plane host, and a GPU node is upgraded by re-running `install.sh` (§4.1) | README, and the administering guide's upgrade section | R5-16 |
 | The audit chain has no anchor outside the box it protects (§4.2) | The administering guide, including why the signed bundle does not close it — the signing key is sealed on the same host, so the signature establishes integrity since export, not since the event | R2-41 |
 | Egress verification is structurally inconclusive at an air-gapped site (§4.3) | The administering guide, under `verify-egress` | R4-29 |
 

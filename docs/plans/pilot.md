@@ -108,6 +108,7 @@ Not deferred quietly. Each is a sentence the README owes a reader.
 | R7, R8 — the UI | CLI only, as the README already says |
 | R6-08 – R6-12 derived images | The settings governing them are placeholders for unbuilt features — 0.1 distinguishes these from the ones above |
 | R9-16 – R9-18 POA&M clocks | The bundle member exists and is empty |
+| R5-16 agent self-upgrade | `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it |
 | R2-21/22/23, R5-13/14 | Conventions and offline install, neither on the pilot path |
 
 ## 4. Decisions
@@ -178,6 +179,6 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
   - [x] 1.3 login throttle, and PBKDF2 out of the write transaction — five failures per user and per address, and a locked-out attempt costs no hash and no write
   - [x] 1.4 R2-37 backup and restore — one archive carrying the database and the key, refusing a destination other users can read
 - [ ] Tier 2 — operability
-  - [ ] 2.1 R5-15 upgrade
+  - [x] 2.1 R5-15 upgrade — the control-plane half. `--check` diffs every pin this binary carries against the host; the upgrade backs up first and repins the LiteLLM image, which is the CVE path the review named. The agent half waits on R5-16
   - [ ] 2.2 session principals re-checked
   - [ ] 2.3 usage attributed to node and deployment

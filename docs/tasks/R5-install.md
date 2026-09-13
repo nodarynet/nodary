@@ -95,6 +95,11 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 - [ ] **R5-15** `nodary upgrade [--to VERSION] [--check]` — control plane first, then agents from its mirror · [01 §9](../specs/01-install.md#9-upgrade)
   - *done:* `--check` reports which components would move and to what digest; an agent that cannot upgrade keeps running its current version and reports `upgrade_failed` rather than falling over; a pre-upgrade backup is taken automatically and named in the output
+  - **the control-plane half is built** (`00fcfa3`): `--check` diffs the release `current` points at, the image pinned in `litellm.env` and every archive digest in the ownership record against what this binary pins; the upgrade takes the backup, places the binary, rewrites the units, refills the mirror, moves the image pin and restarts only the units whose inputs changed
+  - it is a **separate verb rather than a re-run of `server install`** because that rewrites `server.toml` from its own flag defaults, so upgrading that way resets the bind address and drops the `--host` names the operator gave
+  - a read it cannot complete is a failure, not an absent pin. Answering "is this host exposed" from a file nobody could open is the one thing this verb must not do
+  - **open:** the agent half. A node is upgraded by re-running `install.sh` on it until R5-16 serves the binary from the mirror, and `upgrade_failed` has nothing to report from yet
+  - **open:** `--to VERSION`, refused by name. Fetching a release means verifying a release signature and `install.sh`'s `NODARY_PUBKEY` is still `REPLACE_AT_RELEASE_TIME` — there is no key, so a download here would be an unverified one
 - [ ] **R5-16** `GET /api/v1/agent/dist/{version}` serving the binary and components for agent self-upgrade · [03 §1](../specs/03-agent.md#1-transport)
 - [ ] **R5-17** `nodary uninstall [--purge] [--purge-models] [--force]` · [01 §10](../specs/01-install.md#10-uninstall)
   - *done:* the default keeps `/var/lib/nodary` and the models directory; `--purge-models` is separate because weights cost hours to restage; uninstalling the server requires `--purge` to be explicit about the audit database

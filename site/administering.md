@@ -316,6 +316,47 @@ not announce itself, it fails weeks later at a TOTP prompt or a node's next requ
 refuses an archive that holds a database but no sealing key, rather than restoring a control
 plane that starts and cannot read its own secrets.
 
+## Upgrading
+
+An upgrade is two steps, and only the second one is this verb. `install.sh` fetches a release,
+verifies its signature and its digest, and repoints `/opt/nodary/current`; `nodary upgrade` then
+moves everything that release pins onto the host.
+
+The second step is the one that matters for a CVE in the data plane. The LiteLLM image a
+control plane runs is named in `/etc/nodary/litellm.env`, written once at install time from the
+manifest embedded in the binary of the day. A release that moves that pin does not rewrite the
+file, so until you run this the fixed digest sits in the new binary and the vulnerable image
+keeps starting.
+
+```sh
+sudo nodary advisory check          # does a published advisory name a digest we pin?
+curl -fsSL https://nodary.net/install.sh | sh
+sudo nodary upgrade --check         # which pins would move, and to what
+sudo nodary upgrade --justify "CVE-2026-… in the data plane"
+```
+
+`--check` reads and changes nothing: the release `current` points at, the image pinned in
+`litellm.env`, and the digest of every archive and binary in `/etc/nodary/components.json` — each
+against what this binary pins. A file it cannot read is a failure, not an absent pin; a report
+that guessed would be answering "is this host exposed" from something nobody opened.
+
+The upgrade itself takes a backup first, names it in the output, and then moves the binary, the
+unit files, the mirror, and the image pin — restarting only the units whose inputs actually
+changed. It does not touch `server.toml`, `litellm.yaml`, or anything else you configured:
+re-running `server install` as an upgrade would, which is why this is a separate verb.
+
+!!! warning "GPU nodes are upgraded by hand"
+    `nodary upgrade` moves the host it runs on. Agents fetching a new binary from their control
+    plane's mirror is [R5-16](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R5-install.md)
+    and is not built, so a node is upgraded by re-running `install.sh` on it. The two sides
+    share a protocol version and skew is bounded to the upgrade window, so do the control plane
+    first and the nodes shortly after.
+
+    `--to VERSION` is refused rather than silently absent. Fetching a release means verifying a
+    release signature, and until the signing key ships there is nothing to verify against — an
+    upgrade that downloaded something unchecked is exactly what the install path has no override
+    flag for.
+
 ## Checking a host
 
 ```sh
