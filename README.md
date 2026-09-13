@@ -52,6 +52,7 @@ CLI only.
 - **Stages weights** with resumable, verified transfers, including a fully offline path for air-gapped sites.
 - **Issues and revokes tokens**, meters every request against the person who made it, and enforces per-user rate and budget limits — `rpm`, `tpm`, `daily_tokens` and `max_concurrent`, per user, per role and globally, with a `429` that names which limit was hit and when it clears.
 - **Records every administrative action** in a hash-chained, tamper-evident audit log, with a required justification and a hash binding the approved preview to what was actually applied. A daily `nodary prune` applies the profile's retention windows as an audited act that names the range it removed — and the chain that remains verifies against the cut it recorded, so retention cannot be mistaken for tampering.
+- **Ships the chain off the box it protects.** A compromised control plane can rewrite its own database consistently; it cannot rewrite a copy that has already left. Records are delivered to a JSONL file and to any NDJSON endpoint — Splunk, Elastic, or a shipper in front of one — asynchronously, so a wedged SIEM never delays a mutation, and `nodary audit verify --mirror` validates the copy on a machine that has never seen the database.
 - **Carries policy as one reviewable object** rather than behavior scattered through code — mandatory
   re-authentication, justification floors, credential lifetimes, retention windows, model origin
   allow/deny lists and deny-by-default egress are in force. `nodary policy show` marks every setting
@@ -129,7 +130,6 @@ front page rather than only in a plan.
 | :--- | :--- |
 | Uninstall and the offline bundle | [R5-13/14](docs/tasks/R5-install.md), [R5-17](docs/tasks/R5-install.md) |
 | Agent self-upgrade — `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it | [R5-16](docs/tasks/R5-install.md) |
-| A network audit sink — ship `audit.jsonl` to WORM storage yourself until then | [R2-41](docs/tasks/R2-control-plane.md) |
 | Remote administration: `--server` is specified and unimplemented, so every administrator needs root on the control plane and privileged acts attribute to `root`/`local` | [R2-21 – R2-32](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
 | A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
@@ -139,7 +139,7 @@ front page rather than only in a plan.
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 32 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 33 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 34 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 19 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |

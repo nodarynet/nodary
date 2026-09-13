@@ -439,15 +439,53 @@ exiting non-zero. It refuses a record whose stored JSON is merely *decodable* ra
 canonical, which closes the obvious forgery: a trailing second document that decodes to the
 same map and would re-hash clean.
 
-!!! note "The chain has no anchor outside this machine"
+!!! note "The anchor has to be off this machine"
     A compromised control plane can rewrite the whole chain consistently, and the signed
-    evidence bundle does not close that — its signing key is sealed on the same host. Until
-    the network sink lands
-    ([R2-41](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R2-control-plane.md)),
-    point a log shipper at `/var/log/nodary/audit.jsonl` into WORM storage. Records carry
-    `seq` and `hash`, so a receiver dedupes and detects gaps without trusting the sender, and
-    `nodary audit verify --mirror` validates the copy on a machine that has never seen the
-    database.
+    evidence bundle does not close that — its signing key is sealed on the same host. What
+    does is a copy that left the machine before anyone had a reason to rewrite it. Records
+    carry `seq` and `hash`, so a receiver dedupes and detects gaps without trusting the
+    sender, and `nodary audit verify --mirror` validates the copy on a machine that has never
+    seen the database.
+
+### Shipping records to a SIEM
+
+Uncomment the `[audit]` block in `/etc/nodary/server.toml`:
+
+```toml
+[audit]
+sinks      = "file:/var/log/nodary/audit.jsonl,https://splunk.internal:8088/services/collector"
+on_failure = "warn"
+```
+
+Keep the `file:` sink alongside the network one. It costs nothing, and it is what
+`audit export --from-seq` re-reads when a destination falls behind.
+
+The credential goes in `/etc/nodary/audit-sink.token`, not in `server.toml` — that file gets
+read and pasted while diagnosing things. It holds the **whole `Authorization` header value**,
+so every destination is the same mechanism:
+
+```sh
+printf 'Splunk 8f3a-…' | sudo tee /etc/nodary/audit-sink.token >/dev/null
+sudo chmod 600 /etc/nodary/audit-sink.token
+```
+
+`Bearer …` and `ApiKey …` work the same way. The file is re-read for every batch, so rotating
+the credential needs no restart.
+
+Four things worth knowing:
+
+- **Delivery never delays a change.** Records are posted by a background worker, one JSON
+  document per line. A SIEM that is down or slow costs nothing at the prompt.
+- **A backlog is dropped, not queued.** The database is the authoritative copy and holding an
+  unbounded spool in the control plane would be a second thing to go wrong. When a destination
+  falls behind, catch it up with `nodary audit export --from-seq N`.
+- **`on_failure = "block"` refuses the next mutation while a sink is failing.** It cannot
+  refuse the one that failed — that record is already committed. `warn` is the default, and is
+  the right answer for 800-171 3.3.4, which asks for an alert on an audit logging failure and
+  not a halt.
+- **Plaintext `http` is refused except to `127.0.0.1`.** Audit records say who did what, when,
+  and to which object. A local shipper that owns the TLS itself is the ordinary deployment and
+  is allowed; a plaintext URL to another host is not.
 
 ## Retention
 
@@ -481,9 +519,10 @@ as much as a whole chain from the anchor onwards.
 !!! warning "Pruning removes evidence, and nothing on this box can prove what it said"
     The cut is recorded in the same database, so it defends nothing about the range that is
     gone — no local record can, once the records are. Retention is exactly when the off-box
-    mirror stops being optional: ship `/var/log/nodary/audit.jsonl` into WORM storage *before*
-    the window closes, and `nodary audit verify --mirror` keeps proving what the pruned range
-    said long after the database stops carrying it.
+    copy stops being optional: configure the `[audit]` sink above, or ship
+    `/var/log/nodary/audit.jsonl` into WORM storage yourself, *before* the window closes.
+    `nodary audit verify --mirror` keeps proving what the pruned range said long after the
+    database stops carrying it.
 
 ## Backups
 
