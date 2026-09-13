@@ -291,6 +291,12 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 		// order to let a heartbeat through.
 		// docs/plans/R4a-agent-protocol.md §4
 		filepath.Join(root, "internal", "observed"): true,
+		// internal/replay writes one table and nothing else: what an HTTP
+		// request already answered (docs/specs/09-api.md §2). The act it
+		// protects has its own record in the chain; a record per retry of it
+		// would bury a month of administration, which is 0006_fleet.sql's
+		// argument for usage rows. Its package comment carries the rule.
+		filepath.Join(root, "internal", "replay"): true,
 	})
 	if err != nil {
 		t.Fatal(err)

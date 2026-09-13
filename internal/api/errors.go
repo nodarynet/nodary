@@ -20,6 +20,7 @@ import (
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/policy"
+	"github.com/nodarynet/nodary/internal/replay"
 )
 
 // Error is the envelope of docs/specs/09-api.md §3. `code` is stable and
@@ -79,6 +80,14 @@ func statusFor(err error) (int, string) {
 	// re-read and retry is right here and wrong for a name already taken.
 	case errors.Is(err, ErrRevisionChanged):
 		return http.StatusConflict, "revision_changed"
+
+	// 09 §2's Idempotency-Key. Two conflicts a client acts on differently: one
+	// is a bug in the client (it reused a key), the other is a question about
+	// what already happened.
+	case errors.Is(err, replay.ErrKeyReused):
+		return http.StatusConflict, "idempotency_key_reused"
+	case errors.Is(err, replay.ErrKeyInFlight):
+		return http.StatusConflict, "idempotency_key_in_flight"
 
 	case errors.Is(err, attest.ErrIntentChanged):
 		return http.StatusPreconditionFailed, "intent_changed"

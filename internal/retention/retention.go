@@ -24,6 +24,11 @@ import (
 // the hours afterwards, not about the token still working.
 const joinTokenGrace = 24 * time.Hour
 
+// idempotencyWindow is docs/specs/09-api.md §2's replay window. Past it a key
+// means nothing, so the row — which holds a sealed copy of a response, and for
+// `POST /tokens` that response holds a credential — has no reason to exist.
+const idempotencyWindow = 24 * time.Hour
+
 // Window is how long each table keeps rows, from the active policy profile.
 //
 // Two numbers rather than one, and they are not interchangeable: the whole
@@ -49,6 +54,8 @@ type Removed struct {
 	UsageRows   int64
 	UsageGroups int64
 	JoinTokens  int64
+	// IdempotencyKeys is spent replay keys past their window (09 §2).
+	IdempotencyKeys int64
 
 	// UsageBefore and AuditBefore are the cutoffs this pass used. They are what
 	// makes the audit record name a *range* rather than a count, which is
@@ -61,7 +68,7 @@ type Removed struct {
 // nothing still writes its record — that it ran and found nothing is a fact
 // worth the same line as any other — but a caller may want to say so.
 func (r Removed) Any() bool {
-	return r.AuditThrough > 0 || r.UsageRows > 0 || r.JoinTokens > 0
+	return r.AuditThrough > 0 || r.UsageRows > 0 || r.JoinTokens > 0 || r.IdempotencyKeys > 0
 }
 
 // Prune applies every retention rule in docs/specs/08-data-model.md §3's table.
@@ -77,6 +84,9 @@ func Prune(ctx context.Context, tx *sql.Tx, w Window, now time.Time) (Removed, e
 		return Removed{}, err
 	}
 	if err := pruneJoinTokens(ctx, tx, stamp(now.Add(-joinTokenGrace)), &r); err != nil {
+		return Removed{}, err
+	}
+	if err := pruneIdempotency(ctx, tx, stamp(now.Add(-idempotencyWindow)), &r); err != nil {
 		return Removed{}, err
 	}
 	if err := pruneAudit(ctx, tx, &r); err != nil {
@@ -110,6 +120,11 @@ func Plan(ctx context.Context, tx *sql.Tx, w Window, now time.Time) (Removed, er
 		`SELECT count(*) FROM join_token WHERE expires_at < ?`,
 		stamp(now.Add(-joinTokenGrace))).Scan(&r.JoinTokens); err != nil {
 		return Removed{}, fmt.Errorf("counting expired join tokens: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM idempotency WHERE created_at < ?`,
+		stamp(now.Add(-idempotencyWindow))).Scan(&r.IdempotencyKeys); err != nil {
+		return Removed{}, fmt.Errorf("counting spent idempotency keys: %w", err)
 	}
 	if err := auditPrefix(ctx, tx, &r); err != nil {
 		return Removed{}, err
@@ -176,6 +191,18 @@ func pruneUsage(ctx context.Context, tx *sql.Tx, r *Removed) error {
 		return fmt.Errorf("pruning usage: %w", err)
 	}
 	r.UsageRows, _ = dropped.RowsAffected()
+	return nil
+}
+
+// pruneIdempotency drops replay keys past 09 §2's window. Each carries a sealed
+// copy of a response, and one of those responses is a token, so this is a
+// retention rule about a credential and not only about table size.
+func pruneIdempotency(ctx context.Context, tx *sql.Tx, cutoff string, r *Removed) error {
+	res, err := tx.ExecContext(ctx, `DELETE FROM idempotency WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return fmt.Errorf("pruning spent idempotency keys: %w", err)
+	}
+	r.IdempotencyKeys, _ = res.RowsAffected()
 	return nil
 }
 

@@ -375,3 +375,27 @@ func TestUnattributedUsageRollsUpRatherThanFailingThePass(t *testing.T) {
 		t.Errorf("the unattributed row landed as %d prompt tokens, want 4", tok)
 	}
 }
+
+// A spent replay key carries a sealed copy of a response, and for POST /tokens
+// that response holds a credential — so this is a retention rule about a
+// credential, not only about table size.
+func TestSpentIdempotencyKeysArePruned(t *testing.T) {
+	db := openDB(t)
+	for name, at := range map[string]time.Time{
+		"stale": now.Add(-25 * time.Hour),
+		"fresh": now.Add(-1 * time.Hour),
+	} {
+		exec(t, db, `INSERT INTO idempotency (key, principal, request, status, response, created_at)
+		             VALUES (?, 'usr_a', ?, 200, ?, ?)`,
+			name, fmt.Sprintf("%064d", 1), []byte("sealed"), stamp(at))
+	}
+
+	r := prune(t, db, Window{AuditDays: 1095, UsageDays: 90})
+
+	if r.IdempotencyKeys != 1 {
+		t.Errorf("pruned %d keys, want the one past the window", r.IdempotencyKeys)
+	}
+	if n := count(t, db, `SELECT count(*) FROM idempotency WHERE key = 'fresh'`); n != 1 {
+		t.Error("a key still inside the replay window was pruned")
+	}
+}

@@ -25,8 +25,32 @@ func authorizeRead(p identity.Principal, perm string) error {
 	return identity.Authorize(p.Role, identity.Permission(perm))
 }
 
+// notIdempotent are the POSTs that Idempotency-Key does not wrap, each because
+// it has no authenticated caller to scope a key to.
+//
+// An exemption list rather than wrapping the handlers that want it: a new POST
+// added without a thought about replay is the failure this exists to prevent,
+// so the default is on and a decision to leave it off is written down here.
+var notIdempotent = map[string]string{
+	// Runs before the credential it checks exists; a key would have nobody to
+	// belong to. A replayed login is also harmless — it re-authenticates.
+	"/auth/login":  "no principal yet",
+	"/auth/logout": "ends the credential a key would be scoped to",
+	// The agent protocol authenticates by client certificate and is already
+	// idempotent by construction: the desired state is a complete end state and
+	// a status post is an observation, not an act (docs/specs/03-agent.md §2).
+	"/enroll":       "unauthenticated by design; a join token is single-use instead",
+	"/agent/status": "an observation, replayed harmlessly",
+	"/agent/renew":  "guarded by the certificate it replaces",
+}
+
 func (s *Server) routes(mux *http.ServeMux) {
 	h := func(method, path string, fn http.HandlerFunc) {
+		if method == http.MethodPost {
+			if _, exempt := notIdempotent[path]; !exempt {
+				fn = s.idempotent(fn)
+			}
+		}
 		mux.HandleFunc(method+" "+Prefix+path, fn)
 	}
 
@@ -927,3 +951,7 @@ func (s *Server) createJoinToken(w http.ResponseWriter, r *http.Request) {
 		},
 	}, func(core.Outcome) any { return map[string]any{"token": plaintext} })
 }
+
+// NotIdempotentForTest exposes the exemption list so a test can hold each entry
+// to having a stated reason. Not part of the served surface.
+func NotIdempotentForTest() map[string]string { return notIdempotent }

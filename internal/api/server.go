@@ -12,6 +12,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/core"
 	"github.com/nodarynet/nodary/internal/identity"
+	"github.com/nodarynet/nodary/internal/replay"
 	"github.com/nodarynet/nodary/internal/secret"
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -23,9 +24,10 @@ const Prefix = "/api/v1"
 // Server holds the process's handles. It is deliberately small: a handler that
 // needed something not here would be a handler doing something the core should.
 type Server struct {
-	db  *store.DB
-	log *audit.Log
-	key func() (*secret.Key, error)
+	db     *store.DB
+	log    *audit.Log
+	key    func() (*secret.Key, error)
+	replay *replay.Store
 	// pki is where the agent CA lives: the enrollment endpoint signs from it and
 	// the listener verifies client certificates against it.
 	pki string
@@ -64,6 +66,7 @@ func New(o Options) *Server {
 		o.Slog = slog.Default()
 	}
 	return &Server{db: o.DB, log: o.Log, key: o.Key, pki: o.PKI, dist: o.Dist, now: o.Now, slog: o.Slog,
+		replay:   replay.New(o.DB, o.Now),
 		sessions: newSessionStore(), logins: newLogins()}
 }
 
