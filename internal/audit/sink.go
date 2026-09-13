@@ -46,8 +46,8 @@ const (
 // ErrBadSinkSpec is returned by ParseSinks and ParsePosture.
 var ErrBadSinkSpec = errors.New("audit sink specification is not valid")
 
-// ParseSinks reads a comma-separated specification: "file:/path", "stdout",
-// "stderr", or "none".
+// ParseSinks reads a comma-separated specification: "file:/path",
+// "https://host/path", "stdout", "stderr", or "none".
 //
 // "none" must stand alone. Configuring it alongside a real sink is a
 // contradiction rather than a preference, and silently picking one of the two
@@ -91,9 +91,17 @@ func ParseSinks(spec string) ([]Sink, error) {
 				return nil, fmt.Errorf("%w: \"file:\" has no path", ErrBadSinkSpec)
 			}
 			sinks = append(sinks, NewFileSink(path))
+		case strings.HasPrefix(f, "https://"), strings.HasPrefix(f, "http://"):
+			// R2-41's network sink. The credential is deliberately not part of
+			// the specification string: it lives in paths.AuditSinkToken(), so
+			// this value stays safe to print, paste and commit.
+			if err := checkEndpoint(f); err != nil {
+				return nil, err
+			}
+			sinks = append(sinks, NewHTTPSink(f, paths.AuditSinkToken()))
 		default:
 			return nil, fmt.Errorf(
-				"%w: %q is not one of file:PATH, stdout, stderr or none", ErrBadSinkSpec, f)
+				"%w: %q is not one of file:PATH, https://URL, stdout, stderr or none", ErrBadSinkSpec, f)
 		}
 	}
 	return sinks, nil
@@ -156,7 +164,21 @@ func NewDelivery(sinks []Sink, posture Posture, warn io.Writer) *Delivery {
 // DeliveryFromEnv builds a Delivery from NODARY_AUDIT_SINKS and
 // NODARY_AUDIT_ON_SINK_FAILURE, defaulting to the JSONL file and "warn".
 func DeliveryFromEnv(warn io.Writer) (*Delivery, error) {
-	spec := os.Getenv(SinksEnv)
+	return DeliveryFor("", "", warn)
+}
+
+// DeliveryFor builds a Delivery from a configured specification, with the
+// environment able to override it and the JSONL file as the floor.
+//
+// **The environment wins over the file**, which is the opposite of the usual
+// order and is deliberate: the configured value is the durable one a site runs,
+// and the variable is the escape hatch — a test that wants no delivery at all,
+// or an operator running one command against a copy of a database who should
+// not be posting to the production SIEM while doing it.
+func DeliveryFor(spec, posture string, warn io.Writer) (*Delivery, error) {
+	if v := os.Getenv(SinksEnv); v != "" {
+		spec = v
+	}
 	if spec == "" {
 		spec = "file:" + paths.AuditLog()
 	}
@@ -164,13 +186,16 @@ func DeliveryFromEnv(warn io.Writer) (*Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
-	posture := Warn
-	if p := os.Getenv(PostureEnv); p != "" {
-		if posture, err = ParsePosture(p); err != nil {
+	if v := os.Getenv(PostureEnv); v != "" {
+		posture = v
+	}
+	on := Warn
+	if posture != "" {
+		if on, err = ParsePosture(posture); err != nil {
 			return nil, err
 		}
 	}
-	return NewDelivery(sinks, posture, warn), nil
+	return NewDelivery(sinks, on, warn), nil
 }
 
 // warnf reports a delivery problem on the warn writer.

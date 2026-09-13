@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/core"
@@ -122,7 +123,12 @@ func openSession(e env, verb, dbPath, keyPath, credsPath string) (*session, bool
 	}
 	s.who = who
 
-	delivery, err := audit.DeliveryFromEnv(e.stderr)
+	sinks, posture, ok := configuredSinks(e, verb, keyPath)
+	if !ok {
+		db.Close()
+		return nil, false
+	}
+	delivery, err := audit.DeliveryFor(sinks, posture, e.stderr)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		db.Close()
@@ -336,3 +342,33 @@ func exitFor(err error) int {
 
 // splitComma splits a comma-separated flag value.
 func splitComma(s string) []string { return strings.Split(s, ",") }
+
+// configuredSinks reads server.toml's [audit] block (R2-41).
+//
+// A missing file is not an error: a GPU node has no server.toml, and neither
+// does an operator running against a copy of a database somewhere. **A file
+// that exists and will not parse is**, and it fails the command rather than
+// falling back to the JSONL file — an appliance configured to ship its chain to
+// a SIEM, quietly not doing so because of a typo, is the exact shape of failure
+// docs/plans/pilot.md §1 is about: a control that is believed to be in force.
+// It is found beside the key the caller named rather than always at
+// /etc/nodary, so a command pointed at another tree — a test appliance, or a
+// restored backup being inspected — reads that tree's delivery configuration
+// and not the live one's. An empty keyPath is the installed control plane,
+// including under systemd, where the key arrives as a credential in a tmpfs and
+// its directory is not /etc/nodary at all.
+func configuredSinks(e env, verb, keyPath string) (sinks, posture string, ok bool) {
+	path := serverConfigPath("")
+	if keyPath != "" {
+		path = filepath.Join(filepath.Dir(keyPath), "server.toml")
+	}
+	cfg, err := api.LoadAudit(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", "", true
+	case err != nil:
+		fmt.Fprintf(e.stderr, "nodary %s: reading audit delivery from %s: %v\n", verb, path, err)
+		return "", "", false
+	}
+	return cfg.Sinks, cfg.OnFailure, true
+}

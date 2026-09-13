@@ -15,6 +15,27 @@ type ServerConfig struct {
 	Bind    string `toml:"bind"`
 	DataDir string `toml:"data_dir"`
 	TLS     TLS    `toml:"tls"`
+	Audit   Audit  `toml:"audit"`
+}
+
+// Audit is where committed records are delivered (R2-41).
+//
+// Here rather than in the systemd unit, which is the only other place it could
+// have gone: the unit says "Written by nodary. Edits are overwritten." at the
+// top and means it, so configuring a SIEM by adding an Environment= line would
+// be configuration that an upgrade silently deletes.
+//
+// No credential field, deliberately. The Authorization header value lives in
+// paths.AuditSinkToken(); server.toml is read by anyone diagnosing the control
+// plane and pasted into support threads, and a secret that survives one paste
+// has leaked.
+type Audit struct {
+	// Sinks is audit.ParseSinks's specification — "file:/path",
+	// "https://host/path", "stdout", "stderr", "none", comma-separated. Empty
+	// means the JSONL file alone, which is what an install without a SIEM runs.
+	Sinks string `toml:"sinks"`
+	// OnFailure is "warn" (the default) or "block".
+	OnFailure string `toml:"on_failure"`
 }
 
 // TLS points at the certificate the control plane serves.
@@ -92,4 +113,26 @@ func RenderServerConfig(c ServerConfig) []byte {
 		fmt.Fprintf(&b, "\n[tls]\ncertificate = %q\nkey = %q\n", c.TLS.Certificate, c.TLS.Key)
 	}
 	return []byte(b.String())
+}
+
+// LoadAudit reads only server.toml's [audit] block.
+//
+// Separate from LoadServerConfig, which validates the whole file, because every
+// CLI verb resolves audit delivery on its way to opening a session: a typo in a
+// TLS path would otherwise fail `nodary backup create`, which is exactly the
+// command somebody reaches for while putting a broken appliance back together.
+// The control plane still holds the whole file to LoadServerConfig when it
+// starts, so nothing goes unchecked — it is checked where acting on it matters.
+func LoadAudit(path string) (Audit, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return Audit{}, err
+	}
+	var c struct {
+		Audit Audit `toml:"audit"`
+	}
+	if _, err := toml.Decode(string(body), &c); err != nil {
+		return Audit{}, fmt.Errorf("%w: %v", ErrBadServerConfig, err)
+	}
+	return c.Audit, nil
 }

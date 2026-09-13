@@ -83,6 +83,17 @@ func SecretKey() string { return filepath.Join(ConfigDir, "secret.key") }
 // docs/specs/07-identity-audit.md §3
 func AuditLog() string { return filepath.Join(LogDir, "audit.jsonl") }
 
+// AuditSinkToken holds the complete Authorization header value a network audit
+// sink presents — "Splunk 8f3…", "Bearer …", "ApiKey …" — rather than a bare
+// token, because the destinations R2-41 names spell the same secret three ways.
+//
+// A file of its own rather than a field in server.toml, for the reason
+// ModeMasterKey gives above: server.toml is read by anyone diagnosing the
+// control plane and pasted into support threads, and a credential that survives
+// one paste is a credential that has leaked. Mode ModeMasterKey, and absent by
+// default — an endpoint needing no credential needs no file.
+func AuditSinkToken() string { return filepath.Join(ConfigDir, "audit-sink.token") }
+
 // Credentials is the CLI's personal-token file, under the invoking user's home
 // directory rather than a system path — it is per-operator, not per-host.
 // docs/specs/07-identity-audit.md §1
