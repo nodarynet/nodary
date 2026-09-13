@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/nodarynet/nodary/internal/paths"
 )
 
 // ServerConfig is /etc/nodary/server.toml (R2-35, docs/specs/01-install.md §12).
@@ -106,12 +108,28 @@ func RenderServerConfig(c ServerConfig) []byte {
 # tls         the certificate served to operators and agents. Left empty, the
 #             self-signed pair generated at install is used, and its fingerprint
 #             is what a node pins with --ca-fingerprint.
+# audit       where committed records are delivered
 
 `)
 	fmt.Fprintf(&b, "bind = %q\ndata_dir = %q\n", c.Bind, c.DataDir)
 	if c.TLS.Certificate != "" {
 		fmt.Fprintf(&b, "\n[tls]\ncertificate = %q\nkey = %q\n", c.TLS.Certificate, c.TLS.Key)
 	}
+	// Written commented rather than omitted. The audit chain's only anchor
+	// outside this machine is a copy that has already left it, and an operator
+	// who never learns the option exists ships nothing off-box — so the file
+	// says how, at the moment they are reading it anyway.
+	fmt.Fprintf(&b, `
+# [audit]
+# sinks      = %q
+# on_failure = "warn"          # or "block": refuse the next mutation while a sink is down
+#
+# sinks is comma-separated: file:PATH, https://host/path, stdout, stderr, or none.
+# A network sink posts NDJSON, one record per line, and never blocks a mutation:
+# a destination that fell behind is re-synced with `+"`nodary audit export --from-seq`"+`.
+# Its Authorization header value — "Splunk …", "Bearer …", "ApiKey …" — goes in
+# %s, not here: this file gets read and pasted while diagnosing things.
+`, "file:"+paths.AuditLog()+",https://siem.example.internal/ingest", paths.AuditSinkToken())
 	return []byte(b.String())
 }
 
