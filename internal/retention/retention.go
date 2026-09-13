@@ -147,17 +147,21 @@ func pruneUsage(ctx context.Context, tx *sql.Tx, r *Removed) error {
 	// The WHERE clause is load-bearing beyond selecting rows: SQLite cannot
 	// tell an upsert's ON from a join's ON in an INSERT ... SELECT without one.
 	//
-	// ponytail: a usage row with a null user or model conflicts with nothing —
-	// SQL treats two nulls as distinct — so a second prune touching the same
-	// day appends a row instead of merging into it. Every reader of usage_daily
-	// sums, so the totals stay right; give the aggregate a non-null sentinel
-	// key if a reader ever needs to address one row.
+	// **coalesce, because usage_daily cannot hold what usage can.** user_id and
+	// model_id are nullable on the raw table and both sit in the aggregate's
+	// primary key, which a STRICT table makes implicitly NOT NULL -- so a
+	// single unattributed request (no principal, or a body naming no model)
+	// failed the whole pass with a constraint error, taking the join tokens and
+	// the chain down with it. An empty string is the aggregate's spelling of
+	// "nobody", and it also makes the upsert work: SQL treats two nulls as
+	// distinct, so null keys would never have merged into one row anyway.
 	rolled, err := tx.ExecContext(ctx, `
 		INSERT INTO usage_daily (day, user_id, model_id, requests, prompt_tokens, completion_tokens)
-		SELECT substr(ts, 1, 10), user_id, model_id, count(*), sum(prompt_tokens), sum(completion_tokens)
+		SELECT substr(ts, 1, 10), coalesce(user_id, ''), coalesce(model_id, ''),
+		       count(*), sum(prompt_tokens), sum(completion_tokens)
 		  FROM usage
 		 WHERE ts < ?
-		 GROUP BY substr(ts, 1, 10), user_id, model_id
+		 GROUP BY substr(ts, 1, 10), coalesce(user_id, ''), coalesce(model_id, '')
 		    ON CONFLICT (day, user_id, model_id) DO UPDATE SET
 		       requests          = requests + excluded.requests,
 		       prompt_tokens     = prompt_tokens + excluded.prompt_tokens,

@@ -155,6 +155,8 @@ func dispatch(e env, args []string) int {
 		return cmdBackup(e, args[1:])
 	case "upgrade":
 		return cmdUpgrade(e, args[1:])
+	case "prune":
+		return cmdPrune(e, args[1:])
 	case "install":
 		return cmdInstall(e, args[1:])
 	case "node":
@@ -225,6 +227,8 @@ Available in this release:
                          restore Put one back, starting nothing
   upgrade              Move this host onto the release this binary is
                          --check reports which pins would move, and changes nothing
+  prune                Apply the retention windows the active policy sets
+                         one audited pass; a systemd timer runs it daily
   model                The catalog
                          register       Weights already on disk (or a manifest) -> a served route
                          enable         Turn a disabled deployment back on

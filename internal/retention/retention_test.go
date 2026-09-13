@@ -307,3 +307,71 @@ func TestAnEmptyDatabasePrunesToNothing(t *testing.T) {
 		t.Errorf("removed %+v from an empty database", r)
 	}
 }
+
+// audit.Log.Act runs the mutation and then appends the record describing it to
+// the same transaction, so the prune's own record lands on a chain this pass
+// has just cut. That record must chain to what survived, not restart at
+// genesis — which is what would happen if the prune had emptied the table, and
+// it would leave the anchor describing a chain that no longer exists.
+//
+// This is the shape internal/cli's `prune` produces, minus the ceremony.
+func TestThePrunesOwnRecordChainsToWhatSurvived(t *testing.T) {
+	db := openDB(t)
+	for _, d := range []int{400, 399, 398, 397} {
+		record(t, db, daysAgo(d))
+	}
+
+	ctx := context.Background()
+	var written audit.Record
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		r, err := Prune(ctx, tx, Window{AuditDays: 90, UsageDays: 90}, now)
+		if err != nil {
+			return err
+		}
+		written, err = audit.AppendTx(tx, audit.Entry{
+			TS:      now,
+			Actor:   audit.Actor{ID: "root", Method: "local"},
+			Source:  audit.Source{Version: "0.0.1-rc1"},
+			Action:  "data.prune",
+			Outcome: audit.OutcomeSuccess,
+			Detail:  map[string]any{"audit_seq_through": r.AuditThrough},
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if written.Seq != 5 {
+		t.Errorf("the prune's record is seq %d, want 5 — it restarted the chain", written.Seq)
+	}
+	res, err := audit.VerifyDB(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() {
+		t.Fatalf("the chain did not verify after pruning and recording it: %v", res.Break)
+	}
+	if !res.Anchored || res.FirstSeq != 4 || res.LastSeq != 5 {
+		t.Errorf("anchored = %t over seq %d-%d, want true over 4-5", res.Anchored, res.FirstSeq, res.LastSeq)
+	}
+}
+
+// usage.user_id and usage.model_id are nullable; usage_daily's are not, because
+// they are its primary key and a STRICT table makes those NOT NULL. One
+// unattributed request used to fail the whole pass on a constraint error,
+// taking the join tokens and the chain down with it.
+func TestUnattributedUsageRollsUpRatherThanFailingThePass(t *testing.T) {
+	db := openDB(t)
+	usageRow(t, db, daysAgo(100), "usr_a", "m", 5, 5)
+	exec(t, db, `INSERT INTO usage (id, ts, prompt_tokens, completion_tokens, status)
+	             VALUES (?, ?, 4, 1, 400)`, nextUsageID(), stamp(daysAgo(100)))
+
+	r := prune(t, db, Window{AuditDays: 1095, UsageDays: 90})
+
+	if r.UsageRows != 2 || r.UsageGroups != 2 {
+		t.Fatalf("removed %d rows into %d groups, want 2 and 2", r.UsageRows, r.UsageGroups)
+	}
+	if tok := count(t, db, `SELECT prompt_tokens FROM usage_daily WHERE user_id = '' AND model_id = ''`); tok != 4 {
+		t.Errorf("the unattributed row landed as %d prompt tokens, want 4", tok)
+	}
+}
