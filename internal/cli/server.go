@@ -223,7 +223,7 @@ func cmdServerInstall(e env, args []string) int {
 		report(e, []install.Step{{Name: "components",
 			Detail: "skipped by --offline; nodes will fetch whatever is already in the mirror"}})
 	} else {
-		fetched = fetchIntoMirror(e, ctx, filepath.Dir(s.db.Path()))
+		fetched = fetchIntoMirror(e, ctx, "server install", filepath.Dir(s.db.Path()))
 	}
 
 	// The control plane runs LiteLLM as a container ([00 §2](../specs/00-overview.md#2-topology),
@@ -634,7 +634,7 @@ func randomToken() string {
 // The platform is this host's. A control plane serving nodes of another
 // architecture needs `components fetch --platform` as well, which is what that
 // verb is for.
-func fetchIntoMirror(e env, ctx context.Context, dataDir string) []components.Fetched {
+func fetchIntoMirror(e env, ctx context.Context, verb, dataDir string) []components.Fetched {
 	m, ok := loadManifest(e)
 	if !ok {
 		return nil
@@ -642,7 +642,7 @@ func fetchIntoMirror(e env, ctx context.Context, dataDir string) []components.Fe
 	plat := resolvePlatform("host")
 	want, err := mirrorComponents(m, plat)
 	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return nil
 	}
 	if len(want) == 0 {
@@ -774,15 +774,30 @@ func writeLiteLLM(e env, dir, master string) int {
 		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "litellm image", err)
 		return ExitOK
 	}
-	envPath := filepath.Join(dir, "litellm.env")
-	prior, _ := os.ReadFile(envPath)
-	if err := os.WriteFile(envPath, []byte("NODARY_LITELLM_IMAGE="+image+"\n"), 0o644); err != nil {
+	step, err := writeLiteLLMImage(dir, image)
+	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
 	}
-	report(e, []install.Step{{Name: "litellm image",
-		Changed: strings.TrimSpace(string(prior)) != "NODARY_LITELLM_IMAGE="+image, Detail: image}})
+	report(e, []install.Step{step})
 	return ExitOK
+}
+
+// writeLiteLLMImage pins the data plane's image in litellm.env.
+//
+// Split out of writeLiteLLM because `nodary upgrade` needs this half and must
+// not have the other: litellm.yaml is `gateway sync`'s file, and rendering a
+// fresh one here would replace a control plane's routes with the empty
+// model_list a first install starts from.
+func writeLiteLLMImage(dir, image string) (install.Step, error) {
+	path := filepath.Join(dir, "litellm.env")
+	body := []byte("NODARY_LITELLM_IMAGE=" + image + "\n")
+	prior, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		return install.Step{}, err
+	}
+	return install.Step{Name: "litellm image",
+		Changed: !bytes.Equal(prior, body), Detail: image}, nil
 }
 
 // imageFor resolves a component's pinned image reference for a platform.

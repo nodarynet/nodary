@@ -172,11 +172,11 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
   - [x] 0.3 README corrected — the editions table, the limits bullet, the policy bullet, and mvp.md §6 promoted onto the front page as two tables
   - [x] 0.4 master key off the command line — R5-28. The test is an allowlist of what a unit may interpolate into `ExecStart=`, which found a second interpolation on its first run
   - [x] 0.5 IPv6 egress drop — R4-39. `disable_ipv6` and `accept_ra=0` on the bridge, plus an `iifname` rule, because there is no v6 subnet to write a `saddr` rule against
-- [ ] Tier 1 — the clock and the fairness
-  - [ ] 1.1 R4-05 certificate renewal
-  - [ ] 1.2 R3-08/09/10 throttling and quota
-  - [ ] 1.3 login throttle, and PBKDF2 out of the write transaction
-  - [ ] 1.4 R2-37 backup and restore
+- [x] Tier 1 — the clock and the fairness
+  - [x] 1.1 R4-05 certificate renewal — the agent renews at two-thirds of lifetime over its existing mTLS connection, so the identity that proves the request is the one being replaced
+  - [x] 1.2 R3-08/09/10 throttling and quota — enforced in the gateway, with a `429` that names the limit and when it clears
+  - [x] 1.3 login throttle, and PBKDF2 out of the write transaction — five failures per user and per address, and a locked-out attempt costs no hash and no write
+  - [x] 1.4 R2-37 backup and restore — one archive carrying the database and the key, refusing a destination other users can read
 - [ ] Tier 2 — operability
   - [ ] 2.1 R5-15 upgrade
   - [ ] 2.2 session principals re-checked

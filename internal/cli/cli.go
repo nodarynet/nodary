@@ -99,7 +99,6 @@ func isTerminal(r io.Reader) bool {
 var planned = map[string]string{
 	"backend":   "backend descriptor registration",
 	"bundle":    "offline bundle creation",
-	"upgrade":   "in-place upgrade",
 	"uninstall": "uninstall",
 	"restart":   "restart local units",
 	"status":    "local status",
@@ -154,6 +153,8 @@ func dispatch(e env, args []string) int {
 		return cmdServer(e, args[1:])
 	case "backup":
 		return cmdBackup(e, args[1:])
+	case "upgrade":
+		return cmdUpgrade(e, args[1:])
 	case "install":
 		return cmdInstall(e, args[1:])
 	case "node":
@@ -177,7 +178,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `upgrade`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -222,6 +223,8 @@ Available in this release:
   backup               The database and the key that unseals it, together
                          create  One archive; refuses a world-readable destination
                          restore Put one back, starting nothing
+  upgrade              Move this host onto the release this binary is
+                         --check reports which pins would move, and changes nothing
   model                The catalog
                          register       Weights already on disk (or a manifest) -> a served route
                          enable         Turn a disabled deployment back on
