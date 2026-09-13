@@ -213,6 +213,34 @@ reaches the audit chain.
     one request. Both are inherent rather than shortcuts: there is no way to charge for
     tokens before they are produced.
 
+## Metering and chargeback
+
+```sh
+sudo nodary usage show --group_by node --from 2026-09-01
+sudo nodary usage show --group_by user --model acme/tiny-31b
+sudo nodary usage show --user alice --format json
+```
+
+One row is written per inference request, carrying the person, the credential, the route, the
+model, the deployment, the node, token counts, latency and status — and **no request or
+response content**. There is no field for it: the schema is closed, and a test fails the build
+if a path from a request body to storage appears.
+
+A route can have several members and LiteLLM is what picks one, so the deployment a request
+actually ran on is knowable only from LiteLLM. `gateway sync` writes each member's deployment
+id into the rendered configuration, and the gateway reads it back off every response — which is
+what makes `--group_by node` a real answer rather than an empty table. From the deployment the
+GPUs follow, so per-GPU chargeback is a join away.
+
+!!! note "A request that cannot be attributed says so"
+    If the response carries no deployment id, the row records none rather than guessing at the
+    route's first member. A number billed against a GPU that did not run the work is worse than
+    a number that names no GPU.
+
+A throttled request is a usage row too, with status `429` and no tokens — refusals are visible
+in the same place as the traffic that caused them. Changing a limit is an audit record, not a
+usage row: one is a thing the system did, the other a thing a person decided.
+
 ## Policy
 
 ```sh

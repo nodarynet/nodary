@@ -181,4 +181,4 @@ Tier 0 is renderers and refusals; Tier 1 adds tables and a renewal path, none in
 - [ ] Tier 2 — operability
   - [x] 2.1 R5-15 upgrade — the control-plane half. `--check` diffs every pin this binary carries against the host; the upgrade backs up first and repins the LiteLLM image, which is the CVE path the review named. The agent half waits on R5-16
   - [x] 2.2 session principals re-checked — a session holds a user id and resolves it on every request, the way the token path always has. A suspension lands on the next request rather than within a week
-  - [ ] 2.3 usage attributed to node and deployment
+  - [x] 2.3 usage attributed to node and deployment — through the deployment id LiteLLM returns, because a route has members and LiteLLM is what picks one. Pinned against the real image, and silent rather than guessing when the header is absent

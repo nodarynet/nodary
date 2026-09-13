@@ -55,10 +55,18 @@ R3's blockers are closed and R5's remaining rows are the upgrade path and the of
 | :--- | :--- | :--- | :--- |
 | 2.1 | No upgrade path, required for CVE response on the pinned LiteLLM (§4.1, §5 item 10) | **Fixed** | R5-15 · `00fcfa3` |
 | 2.2 | Suspending a user does not end their session (§4.3, §5 item 9) | **Fixed** | R2-25 · `cfbded3` |
-| 2.3 | Usage records cannot be attributed to a node or a GPU (§4.3) | **Open** | new |
+| 2.3 | Usage records cannot be attributed to a node or a GPU (§4.3) | **Fixed** | R3-05 · `ce0c54d` |
 
 Username enumeration (§4.3) was fixed with 1.3, as the review predicted it would have to be —
 every authentication failure now returns one envelope, and the timing oracle went with it.
+
+---
+
+**Tier 2 is complete.** Two things the review paired with these remain open and are disclosed
+rather than fixed: agent self-upgrade (R5-16 — `nodary upgrade` moves the control-plane host,
+and a GPU node is upgraded by re-running `install.sh`), and `GET /usage` (R2-32), which is part
+of the remote-administration gap already stated on the front page — the numbers are reachable
+from the CLI on the box and not over the API.
 
 ---
 
