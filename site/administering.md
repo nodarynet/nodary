@@ -386,6 +386,42 @@ same map and would re-hash clean.
     `nodary audit verify --mirror` validates the copy on a machine that has never seen the
     database.
 
+## Retention
+
+`nodary-prune.timer` runs a retention pass daily and the windows come from the active profile —
+`audit_retention_days` (1095 by default) and `usage_retention_days` (90). Nothing is configured
+per host: change the profile and the next pass follows it.
+
+```sh
+sudo nodary prune --dry-run --justify "checking what would go"
+sudo systemctl list-timers nodary-prune.timer
+sudo nodary audit list --action data.prune
+```
+
+`--dry-run` renders the range and changes nothing. Each real pass writes one audit record naming
+what it removed, including a pass that removed nothing — a retention history with gaps in it
+cannot be told from one that was edited.
+
+Raw `usage` rows are **rolled into `usage_daily` before they go**, in the same transaction, so
+per-day totals per user and model survive the rows behind them. Expired join tokens are purged a
+day after they expire. Revisions are kept indefinitely: they are the configuration history and
+they are small.
+
+### Why a pruned chain still verifies
+
+`audit verify` holds a database to a chain starting at seq 1, because a database is supposed to
+hold the whole chain — so a prefix missing from one means records were deleted. A prune therefore
+records **where it cut**, and verification checks the survivors against that instead of against
+genesis. This is the same mechanism a rotated sink file already uses: an anchored fragment proves
+as much as a whole chain from the anchor onwards.
+
+!!! warning "Pruning removes evidence, and nothing on this box can prove what it said"
+    The cut is recorded in the same database, so it defends nothing about the range that is
+    gone — no local record can, once the records are. Retention is exactly when the off-box
+    mirror stops being optional: ship `/var/log/nodary/audit.jsonl` into WORM storage *before*
+    the window closes, and `nodary audit verify --mirror` keeps proving what the pruned range
+    said long after the database stops carrying it.
+
 ## Backups
 
 The database is one file, and it is **useless on its own** — the TOTP seeds and the agent CA
