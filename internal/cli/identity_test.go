@@ -27,6 +27,9 @@ type appliance struct {
 	// seeds remembers what was enrolled, so a test can produce the code an
 	// authenticator would be showing.
 	seeds map[string][]byte
+	// pin is the fingerprint of the control plane servedBy stood up, so a test
+	// can log a second credential in against the same appliance.
+	pin string
 	// licPriv and licID are the key a test license was signed with, kept so a
 	// later one can be signed by the same key.
 	licPriv ed25519.PrivateKey

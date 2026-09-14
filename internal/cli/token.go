@@ -3,8 +3,9 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
-	"strconv"
+	"net/url"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/identity"
-	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/policy"
 )
 
@@ -38,44 +38,6 @@ func cmdToken(e env, args []string) int {
 	}
 }
 
-// defaultLifetime per kind, from docs/specs/02-enrollment.md §4: a service key
-// defaults to a year, a personal token is session-scoped or explicit — ninety
-// days is the explicit default — and a join token lives minutes to hours.
-var defaultLifetime = map[identity.Kind]time.Duration{
-	identity.KindPersonal: 90 * 24 * time.Hour,
-	identity.KindService:  365 * 24 * time.Hour,
-	identity.KindJoin:     time.Hour,
-}
-
-// parseLifetime reads a duration, accepting days and the word "never".
-//
-// Go's own parser stops at hours, and every lifetime an operator thinks in is
-// longer than that. "never" is spelled out rather than given as 0, because a
-// credential that never expires should be typed deliberately.
-func parseLifetime(s string) (time.Duration, error) {
-	switch s {
-	case "":
-		return 0, fmt.Errorf("an empty lifetime is not a duration")
-	case "never":
-		return 0, nil
-	}
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil || n < 0 {
-			return 0, fmt.Errorf("%q is not a number of days", s)
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0, fmt.Errorf("%q is not a duration (try 30d, 12h, or never)", s)
-	}
-	if d < 0 {
-		return 0, fmt.Errorf("%q is a negative lifetime", s)
-	}
-	return d, nil
-}
-
 // cmdTokenCreate mints a credential.
 //
 // It takes no --format. The plaintext goes to stdout on a line of its own and
@@ -87,6 +49,7 @@ func parseLifetime(s string) (time.Duration, error) {
 func cmdTokenCreate(e env, args []string) int {
 	fs := newFlagSet(e, "token create")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	userName := fs.String("user", "", "the user the credential belongs to")
 	kindName := fs.String("kind", string(identity.KindPersonal), "pt (personal) or sk (service)")
@@ -123,13 +86,45 @@ func cmdTokenCreate(e env, args []string) int {
 		return ExitUsage
 	}
 
+	r, code := remoteFor(e, "token create", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		// The lifetime travels as the operator wrote it, not as an instant
+		// this machine computed: the control plane holds the profile that caps
+		// it, and it parses the string with the same parser this verb does.
+		out, applied, code := r.attested(e, "token create",
+			remoteAct{method: "POST", path: "/tokens", body: map[string]any{
+				"user": *userName, "kind": string(kind), "name": *label,
+				"lifetime": *lifetime, "unattended": *unattended}}, cer, "text")
+		if !applied {
+			return code
+		}
+		plain, _ := out.Result["token"].(string)
+		var minted identity.TokenReport
+		if raw, err := json.Marshal(out.Result["credential"]); err == nil {
+			_ = json.Unmarshal(raw, &minted)
+		}
+		reportMinted(e, plain, minted, *userName, audit.Record{Seq: out.AuditSeq})
+		if kind == identity.KindService {
+			fmt.Fprintf(e.stderr,
+				"\nA service key may call only the routes it is granted; `nodary limits show`\n"+
+					"and the route grants are on the control plane.\n")
+		}
+		if *save {
+			return saveCredential(e, "token create", *credsPath, r.base, *userName, plain)
+		}
+		return ExitOK
+	}
+
 	s, ok := openSession(e, "token create", *dbPath, *keyPath, *credsPath)
 	if !ok {
 		return ExitFailure
 	}
 	defer s.Close()
 
-	expires, ok := expiryAt(e, "token create", s.now, *lifetime, defaultLifetime[kind])
+	expires, ok := expiryAt(e, "token create", s.now, kind, *lifetime)
 	if !ok {
 		return ExitUsage
 	}
@@ -188,39 +183,63 @@ func cmdTokenCreate(e env, args []string) int {
 		return code
 	}
 
-	fmt.Fprintln(e.stdout, plain)
-	fmt.Fprintf(e.stderr, "%s for %s, id %s, expires %s.\n",
-		kind, *userName, tok.ID, formatTime(tok.ExpiresAt))
-	fmt.Fprintf(e.stderr, "This is shown once and is stored only as a hash.\n")
-	if tok.Unattended {
-		fmt.Fprintf(e.stderr,
-			"This credential may mutate unattended; the grant is audit record %d.\n", rec.Seq)
-	}
+	reportMinted(e, plain, identity.NewTokenReport(tok, s.now), *userName, rec)
 	if kind == identity.KindService {
 		reportRouteAccess(e, s, *userName)
 	}
-	reportRecord(e, rec)
-
 	if *save {
-		path := *credsPath
-		if path == "" {
-			if path, err = paths.Credentials(); err != nil {
-				fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
-				return ExitFailure
-			}
-		}
-		creds, err := identity.LoadCredentials(path)
-		if err != nil {
-			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
-			return ExitFailure
-		}
-		creds.Set(identity.LocalServer, identity.Credential{Token: plain, User: *userName})
-		if err := creds.Save(path); err != nil {
-			fmt.Fprintf(e.stderr, "nodary token create: %v\n", err)
-			return ExitFailure
-		}
-		fmt.Fprintf(e.stderr, "Saved to %s.\n", path)
+		return saveCredential(e, "token create", *credsPath, identity.LocalServer, *userName, plain)
 	}
+	return ExitOK
+}
+
+// reportMinted prints the credential and then everything about it that will
+// never be printable again.
+//
+// stdout carries the secret alone (docs/specs/10-cli.md §4) and stderr carries
+// the description, so `nodary token create … > f` puts a usable credential in
+// the file and tells the operator what it is on their terminal.
+func reportMinted(e env, plain string, t identity.TokenReport, userName string, rec audit.Record) {
+	fmt.Fprintln(e.stdout, plain)
+	fmt.Fprintf(e.stderr, "%s for %s, id %s, expires %s.\n",
+		t.Kind, userName, t.ID, orDash(t.ExpiresAt))
+	fmt.Fprintf(e.stderr, "This is shown once and is stored only as a hash.\n")
+	if t.Unattended {
+		fmt.Fprintf(e.stderr,
+			"This credential may mutate unattended; the grant is audit record %d.\n", rec.Seq)
+	}
+	reportRecord(e, rec)
+}
+
+// saveCredential writes a freshly minted personal token into the credentials
+// file, under the appliance it belongs to.
+//
+// The target matters: a token minted over --server authenticates against *that*
+// control plane, and filing it under "local" would leave it where a local
+// invocation looks for one and nowhere a --server invocation does.
+func saveCredential(e env, verb, credsPath, target, userName, plain string) int {
+	path, err := credentialsPath(credsPath)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		return ExitFailure
+	}
+	creds, err := identity.LoadCredentials(path)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		return ExitFailure
+	}
+	cred := identity.Credential{Token: plain, User: userName}
+	// The pin is the appliance's, not the credential's, so a token replacing an
+	// older one keeps it rather than un-pinning the target.
+	if old, err := creds.Token(target); err == nil {
+		cred.CAFingerprint = old.CAFingerprint
+	}
+	creds.Set(target, cred)
+	if err := creds.Save(path); err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		return ExitFailure
+	}
+	fmt.Fprintf(e.stderr, "Saved to %s.\n", path)
 	return ExitOK
 }
 
@@ -281,7 +300,7 @@ func cmdTokenJoin(e env, args []string) int {
 	}
 	defer s.Close()
 
-	expires, ok := expiryAt(e, "token join", s.now, *lifetime, defaultLifetime[identity.KindJoin])
+	expires, ok := expiryAt(e, "token join", s.now, identity.KindJoin, *lifetime)
 	if !ok {
 		return ExitUsage
 	}
@@ -349,6 +368,7 @@ func cmdTokenRevoke(e env, args []string) int {
 	fs := newFlagSet(e, "token revoke")
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -360,6 +380,23 @@ func cmdTokenRevoke(e env, args []string) int {
 	if len(rest) != 1 {
 		fmt.Fprintf(e.stderr, "nodary token revoke: expected one token id\n")
 		return ExitUsage
+	}
+
+	r, code := remoteFor(e, "token revoke", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		out, applied, code := r.attested(e, "token revoke",
+			remoteAct{method: "DELETE", path: "/tokens/" + url.PathEscape(rest[0])}, cer, *format)
+		if !applied {
+			return code
+		}
+		var revoked identity.TokenReport
+		if raw, err := json.Marshal(out.Result); err == nil {
+			_ = json.Unmarshal(raw, &revoked)
+		}
+		return writeRevoked(e, *format, revoked, audit.Record{Seq: out.AuditSeq})
 	}
 
 	s, ok := openSession(e, "token revoke", *dbPath, *keyPath, *credsPath)
@@ -397,13 +434,14 @@ func cmdTokenRevoke(e env, args []string) int {
 		return code
 	}
 
-	if *format == "json" {
-		return writeJSON(e, "token revoke", map[string]any{
-			"token": identity.NewTokenReport(tok, time.Now()),
-			"seq":   rec.Seq,
-		})
+	return writeRevoked(e, *format, identity.NewTokenReport(tok, s.now), rec)
+}
+
+func writeRevoked(e env, format string, t identity.TokenReport, rec audit.Record) int {
+	if format == "json" {
+		return writeJSON(e, "token revoke", map[string]any{"token": t, "seq": rec.Seq})
 	}
-	fmt.Fprintf(e.stdout, "%s\trevoked\t%s\n", tok.ID, formatTime(tok.RevokedAt))
+	fmt.Fprintf(e.stdout, "%s\trevoked\t%s\n", t.ID, orDash(t.RevokedAt))
 	reportRecord(e, rec)
 	return ExitOK
 }
@@ -412,6 +450,7 @@ func cmdTokenList(e env, args []string) int {
 	fs := newFlagSet(e, "token list")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	userName := fs.String("user", "", "only this user's credentials")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -419,45 +458,68 @@ func cmdTokenList(e env, args []string) int {
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "token list", path)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "token list", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	ctx := context.Background()
-	userID := ""
-	if *userName != "" {
-		u, err := identity.Get(ctx, db.Read(), *userName)
+	var (
+		tokens []identity.TokenReport
+		joins  []identity.JoinReport
+		err    error
+	)
+	if r != nil {
+		q := url.Values{}
+		if *userName != "" {
+			q.Set("user", *userName)
+		}
+		tokens, err = remoteList[identity.TokenReport](r, "/tokens", "tokens", q)
+		if err == nil && *userName == "" {
+			joins, err = remoteList[identity.JoinReport](r, "/tokens", "join_tokens", nil)
+		}
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
 			return exitFor(err)
 		}
-		userID = u.ID
-	}
+	} else {
+		ctx := context.Background()
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "token list", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
 
-	tokens, err := identity.ListTokens(ctx, db.Read(), userID)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
-		return ExitFailure
-	}
-	joins, err := identity.ListJoinTokens(ctx, db.Read())
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
-		return ExitFailure
-	}
-	if userID != "" {
-		// A join token belongs to nobody, so filtering by user excludes them
-		// rather than showing every operator the whole enrollment set.
-		joins = nil
+		userID := ""
+		if *userName != "" {
+			u, err := identity.Get(ctx, db.Read(), *userName)
+			if err != nil {
+				fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
+				return exitFor(err)
+			}
+			userID = u.ID
+		}
+		live, err := identity.ListTokens(ctx, db.Read(), userID)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
+			return ExitFailure
+		}
+		tokens = identity.TokenReports(live, time.Now())
+		if userID == "" {
+			// A join token belongs to nobody, so filtering by user excludes
+			// them rather than showing every operator the whole enrollment set.
+			outstanding, err := identity.ListJoinTokens(ctx, db.Read())
+			if err != nil {
+				fmt.Fprintf(e.stderr, "nodary token list: %v\n", err)
+				return ExitFailure
+			}
+			joins = identity.JoinReports(outstanding)
+		}
 	}
 
 	if *format == "json" {
 		return writeJSON(e, "token list", map[string]any{
-			"tokens":      identity.TokenReports(tokens, time.Now()),
-			"join_tokens": identity.JoinReports(joins),
+			"tokens": tokens, "join_tokens": joins,
 		})
 	}
 
@@ -465,29 +527,23 @@ func cmdTokenList(e env, args []string) int {
 	fmt.Fprintln(tw, "ID\tKIND\tPREFIX\tNAME\tSTATE\tLAST USED\tEXPIRES")
 	for _, t := range tokens {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			t.ID, t.Kind, t.Prefix, orDash(t.Name), identity.TokenState(t, time.Now()),
-			formatTime(t.LastUsedAt), formatTime(t.ExpiresAt))
+			t.ID, t.Kind, t.Prefix, orDash(t.Name), t.State,
+			orDash(t.LastUsedAt), orDash(t.ExpiresAt))
 	}
 	for _, j := range joins {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d use(s)\t%s\t%s\n",
-			j.ID, identity.KindJoin, j.Prefix, "-", j.UsesLeft, "-", formatTime(j.ExpiresAt))
+			j.ID, identity.KindJoin, j.Prefix, "-", j.UsesLeft, "-", orDash(j.ExpiresAt))
 	}
 	return flush(e, "token list", tw)
 }
 
-// expiryAt turns a lifetime into an instant, applying the per-kind default.
-func expiryAt(e env, verb string, now time.Time, lifetime string,
-	fallback time.Duration) (time.Time, bool) {
-	d := fallback
-	if lifetime != "" {
-		var err error
-		if d, err = parseLifetime(lifetime); err != nil {
-			fmt.Fprintf(e.stderr, "nodary %s: --expires %v\n", verb, err)
-			return time.Time{}, false
-		}
+// expiryAt is identity.ExpiryFor with the CLI's way of reporting a bad flag.
+func expiryAt(e env, verb string, now time.Time, kind identity.Kind,
+	lifetime string) (time.Time, bool) {
+	at, err := identity.ExpiryFor(kind, lifetime, now)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: --expires %v\n", verb, err)
+		return time.Time{}, false
 	}
-	if d == 0 {
-		return time.Time{}, true
-	}
-	return now.Add(d), true
+	return at, true
 }

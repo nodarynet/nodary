@@ -100,6 +100,8 @@ func statusFor(err error) (int, string) {
 		return http.StatusForbidden, "reauthentication_required"
 	case errors.Is(err, attest.ErrUnattendedForbidden):
 		return http.StatusForbidden, "unattended_forbidden"
+	case errors.Is(err, attest.ErrLifetimeTooLong):
+		return http.StatusForbidden, "lifetime_too_long"
 	case errors.Is(err, identity.ErrBadCode):
 		return http.StatusUnauthorized, "reauthentication_failed"
 

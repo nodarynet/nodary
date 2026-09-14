@@ -67,10 +67,10 @@ func (a *appliance) servedBy(t *testing.T, user, role string) (base string) {
 
 	ts := httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(ts.Close)
+	a.pin = agent.Fingerprint(ts.Certificate().Raw)
 
 	if code, _, stderr := runWithStdin(t, token+"\n", "login", "--server", ts.URL,
-		"--ca-fingerprint", agent.Fingerprint(ts.Certificate().Raw),
-		"--credentials", a.creds); code != ExitOK {
+		"--ca-fingerprint", a.pin, "--credentials", a.creds); code != ExitOK {
 		t.Fatalf("login: exit %d, %s", code, stderr)
 	}
 	return ts.URL
@@ -595,5 +595,116 @@ func TestUserVerbsOverServer(t *testing.T) {
 	if code, out, _ = run(t, "user", "list", "--server", base,
 		"--credentials", a.creds); code != ExitOK || !strings.Contains(out, "carol") {
 		t.Errorf("a refused suspension removed the account:\n%s", out)
+	}
+}
+
+// The token verbs over --server, and the loop they close: an administrator on
+// their own machine can now mint the credential the next administrator logs in
+// with, without a shell on the control plane.
+func TestTokenVerbsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+	a.addUser("bob", "operator")
+
+	code, out, stderr := run(t, "token", "create", "--user", "bob", "--name", "laptop",
+		"--expires", "30d", "--server", base, "--credentials", a.creds,
+		"--justify", "bob needs to administer the fleet")
+	if code != ExitOK {
+		t.Fatalf("token create over --server: exit %d, %s", code, stderr)
+	}
+	minted := strings.TrimSpace(out)
+	if !strings.HasPrefix(minted, "nodary_") {
+		t.Fatalf("stdout is not a credential: %q", minted)
+	}
+	// The description an operator cannot ask for afterwards.
+	for _, want := range []string{"bob", "id ", "expires"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("token create does not report %q:\n%s", want, stderr)
+		}
+	}
+
+	// The minted credential works, which is the only test of it that means
+	// anything.
+	other := filepath.Join(t.TempDir(), "credentials")
+	if code, _, stderr = runWithStdin(t, minted+"\n", "login", "--server", base,
+		"--ca-fingerprint", a.pin, "--credentials", other); code != ExitOK {
+		t.Fatalf("logging in with the minted token: exit %d, %s", code, stderr)
+	}
+
+	// The listing carries what the local verb carries: the label and the
+	// expiry, which the endpoint used to omit entirely.
+	code, out, stderr = run(t, "token", "list", "--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("token list: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{"laptop", "active"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("token list does not carry %q:\n%s", want, out)
+		}
+	}
+
+	// `--user` names the account, not its id — the endpoint took an id, so
+	// `?user=bob` used to match nothing and say so with an empty list.
+	code, out, stderr = run(t, "token", "list", "--user", "bob", "--server", base,
+		"--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("token list --user: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "laptop") {
+		t.Errorf("filtering by user name found nothing:\n%s", out)
+	}
+
+	// Revoking ends it, and the credential stops working.
+	id := strings.Fields(strings.Split(out, "\n")[1])[0]
+	if code, _, stderr = run(t, "token", "revoke", id, "--server", base,
+		"--credentials", a.creds, "--justify", "bob left"); code != ExitOK {
+		t.Fatalf("token revoke over --server: exit %d, %s", code, stderr)
+	}
+	if code, _, stderr = run(t, "node", "list", "--server", base,
+		"--credentials", other); code != ExitAuth {
+		t.Errorf("a revoked credential still works: exit %d, %s", code, stderr)
+	}
+}
+
+// A profile that caps how long a credential may live binds both front ends.
+//
+// It bound one. `POST /tokens` hardcoded ninety days, so it ignored what the
+// caller asked for and what the profile allows in the same line — and the
+// comment on the CLI's own check records that this went unread until a review
+// minted a ten-year service key under a profile capping them at one.
+func TestTheProfilesTokenLifetimeCapBindsOverServerToo(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+	a.addUser("bob", "operator")
+
+	// The default profile, whose cap is 3650 days. Not `regulated`: that one
+	// also demands a TOTP code, and the ceremony refusal would fire first and
+	// prove nothing about the lifetime.
+	code, _, stderr := run(t, "token", "create", "--user", "bob", "--expires", "4000d",
+		"--server", base, "--credentials", a.creds, "--justify", "an eleven-year key")
+	if code != ExitPolicy {
+		t.Fatalf("exit = %d, want %d (%s)", code, ExitPolicy, stderr)
+	}
+	if !strings.Contains(stderr, "token_max_ttl_days") {
+		t.Errorf("the refusal does not name the setting that made it: %q", stderr)
+	}
+
+	// And a lifetime inside the cap is honored rather than replaced by the
+	// ninety days this endpoint used to mint whatever was asked for.
+	code, _, stderr = run(t, "token", "create", "--user", "bob", "--expires", "200d",
+		"--server", base, "--credentials", a.creds, "--justify", "a longer key")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want %d (%s)", code, ExitOK, stderr)
+	}
+	code, out, stderr := run(t, "token", "list", "--user", "bob", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("token list: exit %d, %s", code, stderr)
+	}
+	// 200 days out is next year; 90 days is not.
+	want := time.Now().AddDate(0, 0, 200).UTC().Format("2006-01-02")
+	if !strings.Contains(out, want) {
+		t.Errorf("--expires did not reach the control plane; no credential expires %s:\n%s",
+			want, out)
 	}
 }

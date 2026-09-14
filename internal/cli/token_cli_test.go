@@ -283,19 +283,19 @@ func TestParseLifetime(t *testing.T) {
 		{"-12h", 0, true},
 		{"xd", 0, true},
 	} {
-		d, err := parseLifetime(tc.in)
+		d, err := identity.ParseLifetime(tc.in)
 		if tc.bad {
 			if err == nil {
-				t.Errorf("parseLifetime(%q) = %v, want an error", tc.in, d)
+				t.Errorf("identity.ParseLifetime(%q) = %v, want an error", tc.in, d)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("parseLifetime(%q): %v", tc.in, err)
+			t.Errorf("identity.ParseLifetime(%q): %v", tc.in, err)
 			continue
 		}
 		if got := d.Hours(); got != tc.hours {
-			t.Errorf("parseLifetime(%q) = %vh, want %vh", tc.in, got, tc.hours)
+			t.Errorf("identity.ParseLifetime(%q) = %vh, want %vh", tc.in, got, tc.hours)
 		}
 	}
 }

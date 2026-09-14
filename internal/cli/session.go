@@ -344,7 +344,11 @@ func exitFor(err error) int {
 		errors.Is(err, attest.ErrJustification),
 		errors.Is(err, attest.ErrJustificationShort),
 		errors.Is(err, attest.ErrTOTPRequired),
-		errors.Is(err, attest.ErrUnattendedForbidden):
+		errors.Is(err, attest.ErrUnattendedForbidden),
+		// The profile's cap on how long a credential may live. It reached
+		// ExitPolicy only because `token create` returned it at the call site;
+		// anything else that refused for the same reason got exit 1.
+		errors.Is(err, attest.ErrLifetimeTooLong):
 		return ExitPolicy
 	}
 	return ExitFailure

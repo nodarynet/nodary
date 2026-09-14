@@ -375,7 +375,12 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		User, Kind, Name string
-		Unattended       bool
+		// Lifetime is the CLI's --expires: "90d", "12h", "never", or empty for
+		// the per-kind default. It used to be absent and ninety days hardcoded,
+		// which ignored what the caller asked for *and* what the profile
+		// allows.
+		Lifetime   string
+		Unattended bool
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		s.fail(w, r, badRequest("expected {\"user\":…,\"kind\":…}"))
@@ -384,6 +389,11 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	kind, err := identity.ParseKind(orDefault(body.Kind, "pt"))
 	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	expires, err := identity.ExpiryFor(kind, body.Lifetime, s.now())
+	if err != nil {
+		s.fail(w, r, badRequest("lifetime: %v", err))
 		return
 	}
 	var plaintext string
@@ -400,17 +410,25 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		},
 		Apply: func(m audit.Mutation, _ any) error {
 			p, _ := s.principalOf(r)
+			// The profile bounds two things about a credential, and both are
+			// decided here rather than at every later use: how long it may
+			// live, and whether it may act with nobody present. The lifetime
+			// check was on the CLI and not here, so a regulated install's
+			// token_max_ttl_days bound one front end and not the other.
+			active, _, err := policy.Active(r.Context(), s.db.Read())
+			if err != nil {
+				return err
+			}
+			if err := attest.AllowTokenLifetime(active, s.now(), expires); err != nil {
+				return err
+			}
 			if body.Unattended {
-				active, _, err := policy.Active(r.Context(), s.db.Read())
-				if err != nil {
-					return err
-				}
 				if err := attest.AllowUnattendedMint(active); err != nil {
 					return err
 				}
 			}
 			minted, plaintext, err = identity.MintToken(r.Context(), m, p.Role, s.now(),
-				body.User, kind, body.Name, s.now().AddDate(0, 0, 90), body.Unattended)
+				body.User, kind, body.Name, expires, body.Unattended)
 			return err
 		},
 	}, func(core.Outcome) any {

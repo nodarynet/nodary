@@ -414,7 +414,7 @@ func (e *remoteError) exit() int {
 	case "unauthenticated", "forbidden", "too_many_attempts", "reauthentication_failed":
 		return ExitAuth
 	case "reauthentication_required", "justification_required",
-		"justification_too_short", "unattended_forbidden":
+		"justification_too_short", "unattended_forbidden", "lifetime_too_long":
 		return ExitPolicy
 	case "invalid", "bad_request":
 		return ExitUsage

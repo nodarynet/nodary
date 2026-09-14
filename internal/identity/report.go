@@ -1,6 +1,9 @@
 package identity
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
@@ -126,4 +129,66 @@ func JoinReports(js []JoinToken) []JoinReport {
 		}
 	}
 	return out
+}
+
+// DefaultLifetime per kind, from docs/specs/02-enrollment.md §4: a service key
+// defaults to a year, a personal token is session-scoped or explicit — ninety
+// days is the explicit default — and a join token lives minutes to hours.
+var DefaultLifetime = map[Kind]time.Duration{
+	KindPersonal: 90 * 24 * time.Hour,
+	KindService:  365 * 24 * time.Hour,
+	KindJoin:     time.Hour,
+}
+
+// ParseLifetime reads a duration, accepting days and the word "never".
+//
+// Go's own parser stops at hours, and every lifetime an operator thinks in is
+// longer than that. "never" is spelled out rather than given as 0, because a
+// credential that never expires should be typed deliberately.
+func ParseLifetime(s string) (time.Duration, error) {
+	switch s {
+	case "":
+		return 0, fmt.Errorf("an empty lifetime is not a duration")
+	case "never":
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%q is not a number of days", s)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration (try 30d, 12h, or never)", s)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("%q is a negative lifetime", s)
+	}
+	return d, nil
+}
+
+// ExpiryFor turns a requested lifetime into the instant a credential of this
+// kind expires. A zero time means it never does.
+//
+// Both front ends call it, so a credential minted over HTTP lives as long as
+// the same request on the host. `POST /tokens` used to hardcode ninety days,
+// which made it silently wrong in both directions: it ignored `--expires`, and
+// it ignored a profile capping credentials at less — so a regulated install's
+// `token_max_ttl_days` was enforced on the CLI and not on the API beside it.
+// The cap itself is attest.AllowTokenLifetime and still belongs to the caller,
+// because only a caller knows the active profile.
+func ExpiryFor(kind Kind, lifetime string, now time.Time) (time.Time, error) {
+	d := DefaultLifetime[kind]
+	if lifetime != "" {
+		var err error
+		if d, err = ParseLifetime(lifetime); err != nil {
+			return time.Time{}, err
+		}
+	}
+	if d == 0 {
+		return time.Time{}, nil
+	}
+	return now.Add(d), nil
 }
