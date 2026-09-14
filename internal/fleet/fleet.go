@@ -93,6 +93,13 @@ type Deployment struct {
 	Routes    []string `json:"routes"`
 	LastError string   `json:"last_error"`
 	UpdatedAt string   `json:"updated_at"`
+	// Egress is the last verdict this node reached about the deployment's
+	// isolation (docs/specs/03-agent.md §5, R4-29): `compliant`,
+	// `non-compliant`, `inconclusive`, or empty for one that has never run and
+	// so has never been probed. EgressReason is why, when it is not the first.
+	Egress          string `json:"egress"`
+	EgressReason    string `json:"egress_reason"`
+	EgressCheckedAt string `json:"egress_checked_at"`
 }
 
 // Staging is one model's progress onto one node.
@@ -254,7 +261,8 @@ func refusals(ctx context.Context, q config.Querier, node string) ([]Refusal, er
 func deployments(ctx context.Context, q config.Querier, node string) ([]Deployment, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT id, model_id, backend, state, health, coalesce(port, 0),
-		        coalesce(last_error, ''), updated_at
+		        coalesce(last_error, ''), updated_at, coalesce(egress_state, ''),
+		        coalesce(egress_reason, ''), coalesce(egress_checked_at, '')
 		 FROM deployment WHERE node_name = ? ORDER BY id`, node)
 	if err != nil {
 		return nil, err
@@ -265,7 +273,8 @@ func deployments(ctx context.Context, q config.Querier, node string) ([]Deployme
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(&d.ID, &d.ModelID, &d.Backend, &d.State, &d.Health,
-			&d.Port, &d.LastError, &d.UpdatedAt); err != nil {
+			&d.Port, &d.LastError, &d.UpdatedAt, &d.Egress, &d.EgressReason,
+			&d.EgressCheckedAt); err != nil {
 			return nil, err
 		}
 		d.GPUs, d.Routes = []int{}, []string{}
@@ -346,4 +355,52 @@ func staging(ctx context.Context, q config.Querier, node string) ([]Staging, err
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// Egress verdicts, docs/specs/03-agent.md §5. The vocabulary is
+// internal/agent's — it is what the probe produces — and is restated here
+// because this package cannot import that one (internal/agent imports
+// internal/api, which imports this). TestTheFleetEgressVocabularyIsTheAgents
+// in egress_test.go fails if the two ever drift.
+const (
+	EgressCompliant    = "compliant"
+	EgressNonCompliant = "non-compliant"
+	EgressInconclusive = "inconclusive"
+	// EgressUnasserted is the empty verdict: nothing has been probed, because
+	// nothing has run. It is deliberately not a fourth stored value — the
+	// column is simply null — and it exists here so the rule below can name
+	// what it returns.
+	EgressUnasserted = ""
+)
+
+// EgressState is one node's verdict across everything placed on it.
+//
+// The precedence is the conservative one, and it is here rather than in each
+// client because getting it backwards is easy and quiet. One non-compliant
+// deployment makes the node non-compliant however many compliant ones surround
+// it; the node is compliant only when *every* deployment on it is; and
+// anything short of that where something was nonetheless asserted is
+// inconclusive, which is the honest word for a partial answer. A node with
+// nothing asserted — nothing has run, so nothing has been probed — returns the
+// empty verdict rather than being rounded either way.
+func EgressState(deployments []Deployment) string {
+	compliant, asserted := 0, 0
+	for _, d := range deployments {
+		switch d.Egress {
+		case EgressNonCompliant:
+			return EgressNonCompliant
+		case EgressCompliant:
+			compliant++
+			asserted++
+		case EgressInconclusive:
+			asserted++
+		}
+	}
+	switch {
+	case asserted == 0:
+		return EgressUnasserted
+	case compliant == len(deployments):
+		return EgressCompliant
+	}
+	return EgressInconclusive
 }

@@ -182,11 +182,12 @@ func cmdNodeShow(e env, args []string) int {
 	if len(d.Deployments) > 0 {
 		fmt.Fprintln(e.stdout)
 		tw = tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "DEPLOYMENT\tMODEL\tROUTE\tSTATE\tHEALTH\tPORT\tGPUS")
+		fmt.Fprintln(tw, "DEPLOYMENT\tMODEL\tROUTE\tSTATE\tHEALTH\tPORT\tGPUS\tEGRESS")
 		for _, dep := range d.Deployments {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				dep.ID, dep.ModelID, orDash(strings.Join(dep.Routes, ",")),
-				dep.State, dep.Health, portColumn(dep.Port), orDash(joinInts(dep.GPUs)))
+				dep.State, dep.Health, portColumn(dep.Port), orDash(joinInts(dep.GPUs)),
+				orDash(dep.Egress))
 		}
 		if code := flush(e, "node show", tw); code != ExitOK {
 			return code
@@ -201,6 +202,20 @@ func cmdNodeShow(e env, args []string) int {
 			if len(dep.Routes) == 0 {
 				fmt.Fprintf(e.stderr,
 					"\n%s is in no route, so no client can ask for it by name.\n", dep.ID)
+			}
+			// docs/specs/11-failure-modes.md §3 makes a failing assertion a
+			// critical alert, and the column above is a word in a table. This
+			// is the line that says what it means: the isolation §5 requires
+			// is the control keeping a model's weights and a customer's
+			// prompts on this machine.
+			switch dep.Egress {
+			case fleet.EgressNonCompliant:
+				fmt.Fprintf(e.stderr,
+					"\n%s has a way off this box: %s\nIt is still serving. "+
+						"docs/specs/03-agent.md §5 requires it not to.\n", dep.ID, dep.EgressReason)
+			case fleet.EgressInconclusive:
+				fmt.Fprintf(e.stderr,
+					"\n%s could not be shown to be isolated: %s\n", dep.ID, dep.EgressReason)
 			}
 		}
 	}

@@ -94,13 +94,14 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/revisions/{seq}/rollback", s.rollback)
 	h("GET", "/config/export", s.exportConfig)
 
-	// Nodes — R2-26. Reads and the administrative transitions; enrollment and
-	// verify-egress are the agent's, and arrive with R4.
+	// Nodes — R2-26. Reads, the administrative transitions, and the stored
+	// egress verdicts; enrollment is the agent's own path above.
 	h("GET", "/nodes", s.listNodes)
 	h("GET", "/nodes/{name}", s.showNode)
 	h("POST", "/nodes/{name}/approve", s.nodeTransition("approve", "approved"))
 	h("POST", "/nodes/{name}/drain", s.nodeTransition("drain", "draining"))
 	h("POST", "/nodes/{name}/revoke", s.nodeTransition("revoke", "departed"))
+	h("GET", "/nodes/{name}/verify-egress", s.verifyEgress)
 
 	// Models, deployments and routes — R2-28, R2-29, R2-30. Reads now; their
 	// mutations are declarative and go through config apply, which is one
@@ -789,6 +790,48 @@ func (s *Server) showNode(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("%w: no node named %q", identity.ErrNotFound, name)
 		}
 		return detail, err
+	})
+}
+
+// verifyEgress answers docs/specs/03-agent.md §5 for a whole node, from what
+// the node last reported.
+//
+// A **read of a stored verdict, not a probe.** The assertion runs inside a
+// deployment's network namespace on the machine hosting it (R4-29), which is
+// somewhere the control plane cannot reach and must not try to — an endpoint
+// that reached across the network to run it would have to hold a session open
+// for three timeouts per deployment, and would answer "the node is
+// unreachable" for the case an assessor most needs an answer to. The node
+// probes after every start and reports what it found; this says what it said,
+// and when.
+//
+// GET rather than POST for the same reason: nothing here acts.
+func (s *Server) verifyEgress(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		name := r.PathValue("name")
+		detail, err := fleet.Show(r.Context(), d.DB.Read(), name, s.now())
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: no node named %q", identity.ErrNotFound, name)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, dep := range detail.Deployments {
+			out = append(out, map[string]any{
+				"deployment_id": dep.ID, "model_id": dep.ModelID,
+				"state": dep.Egress, "reason": dep.EgressReason,
+				"checked_at": dep.EgressCheckedAt,
+			})
+		}
+		// last_seen travels with the verdicts deliberately: they are as fresh
+		// as the node reporting them, and a stale node's compliant answer is
+		// a statement about a machine nobody has heard from.
+		return map[string]any{
+			"node": detail.Name, "state": fleet.EgressState(detail.Deployments),
+			"last_seen": detail.LastSeen, "stale": detail.Stale,
+			"deployments": out,
+		}, nil
 	})
 }
 
