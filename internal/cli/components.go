@@ -24,7 +24,7 @@ import (
 
 func cmdComponents(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary components: expected a subcommand (list, verify, fetch)\n")
+		fmt.Fprintf(e.stderr, "nodary components: expected a subcommand (list, verify, fetch, apply, show)\n")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -34,8 +34,13 @@ func cmdComponents(e env, args []string) int {
 		return cmdComponentsVerify(e, args[1:])
 	case "fetch":
 		return cmdComponentsFetch(e, args[1:])
+	case "apply":
+		return cmdComponentsApply(e, args[1:])
+	case "show":
+		return cmdComponentsShow(e, args[1:])
 	default:
-		fmt.Fprintf(e.stderr, "nodary components: unknown subcommand %q (want list, verify or fetch)\n", args[0])
+		fmt.Fprintf(e.stderr,
+			"nodary components: unknown subcommand %q (want list, verify, fetch, apply or show)\n", args[0])
 		return ExitUsage
 	}
 }
@@ -43,11 +48,27 @@ func cmdComponents(e env, args []string) int {
 // loadManifest reads the embedded manifest and refuses to proceed if it is
 // structurally invalid. A malformed manifest is a build defect, so it is worth
 // failing loudly rather than acting on half of it.
+// **The one seam.** Every verb that resolves a component reaches the manifest
+// through here, so an applied revision (R5-27, ADR 0007) supersedes the
+// embedded floor everywhere at once rather than in the places somebody
+// remembered. A revision that is present and unusable is reported here for the
+// same reason: the alternative is an operator who applied one, is running the
+// floor, and has nothing telling them so.
+// configDir is paths.ConfigDir, indirected so a test can put a revision
+// somewhere it is allowed to write. The verbs that resolve a manifest take no
+// --config-dir of their own: where an applied revision lives is not an
+// operator's choice, and a flag would be a second answer to it.
+var configDir = paths.ConfigDir
+
 func loadManifest(e env) (*components.Manifest, bool) {
-	m, err := components.Load()
+	m, src, err := components.Effective(configDir)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary components: %v\n", err)
 		return nil, false
+	}
+	if src.Why != "" {
+		fmt.Fprintf(e.stderr, "nodary components: running the embedded manifest (revision %d): %s\n",
+			src.Floor, src.Why)
 	}
 	if errs := m.Validate(); len(errs) > 0 {
 		fmt.Fprintf(e.stderr, "nodary components: embedded manifest is invalid\n")

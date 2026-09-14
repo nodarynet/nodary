@@ -84,9 +84,14 @@ type Component struct {
 
 // Manifest is the embedded document.
 type Manifest struct {
-	Schema        int         `json:"schema"`
-	NodaryVersion string      `json:"nodary_version"`
-	Components    []Component `json:"components"`
+	Schema        int    `json:"schema"`
+	NodaryVersion string `json:"nodary_version"`
+	// Revision is a monotonic counter independent of NodaryVersion (ADR 0007).
+	// The embedded document's value is the floor a signed revision must beat;
+	// an absent one is 0, which is what every manifest written before this
+	// field existed means.
+	Revision   int         `json:"revision,omitempty"`
+	Components []Component `json:"components"`
 }
 
 // SchemaVersion is the manifest schema this binary understands.
