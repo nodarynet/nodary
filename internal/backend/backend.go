@@ -53,11 +53,10 @@ var ErrUnknown = errors.New("unknown backend")
 //
 // Descriptor is docs/specs/04-backends.md §6.
 //
-// `derive` is absent. It is R6-08, and a field parsed but not honoured is
-// worse than one that is refused: an operator who writes `[backend.derive]`
-// and sees it accepted believes an image will be built. Unknown keys are
-// rejected, so writing one is an error today and becomes a feature later
-// without the intervening lie. `prepare` was in that position until R6-06.
+// `derive` is R6-08 and is now a feature rather than a refused key — the
+// promise `prepare` was kept to before R6-06, kept here too: it was refused
+// while it did nothing, so no operator ever wrote one and saw it accepted
+// believing an image would be built.
 type Descriptor struct {
 	Backend Backend `json:"backend" toml:"backend"`
 }
@@ -108,6 +107,12 @@ type Backend struct {
 	Metrics Metrics           `json:"metrics" toml:"metrics"`
 	// Prepare is nil for a backend that serves what was staged. R6-06.
 	Prepare *Prepare `json:"prepare,omitempty" toml:"prepare"`
+	// Inherits names the built-in this descriptor varies. Non-empty makes this
+	// a derive (R6-08, docs/specs/04-backends.md §5), which is validated
+	// instead of the ordinary form rather than in addition to it.
+	Inherits string `json:"inherits,omitempty" toml:"inherits"`
+	// Derive is the recipe. Present exactly when Inherits is.
+	Derive *Derive `json:"derive,omitempty" toml:"derive"`
 }
 
 type Capabilities struct {
@@ -249,8 +254,8 @@ var (
 // Parse reads one descriptor.
 //
 // Unknown keys are refused, as everywhere else nodary reads a file a human
-// wrote. Here it does double duty: it is also what makes the absence of
-// `[backend.derive]` honest rather than silent.
+// wrote — which is what let `[backend.derive]` be added later without any
+// descriptor having silently carried one in the meantime.
 func Parse(body []byte) (Descriptor, error) {
 	var d Descriptor
 	md, err := toml.Decode(string(body), &d)
@@ -271,9 +276,16 @@ func Parse(body []byte) (Descriptor, error) {
 // Validate refuses a descriptor that would fail later and less clearly.
 func (d Descriptor) Validate() error {
 	b := d.Backend
-	switch {
-	case strings.TrimSpace(b.Name) == "":
+	if strings.TrimSpace(b.Name) == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalid)
+	}
+	// A derive carries a name, an `inherits` and a recipe. Everything the
+	// ordinary form requires below is something it inherits, so it is validated
+	// instead of this rather than as well.
+	if b.Inherits != "" || b.Derive != nil {
+		return d.validateDerive()
+	}
+	switch {
 	case !contains(apis, b.API):
 		return fmt.Errorf("%w: %s: api must be one of %s", ErrInvalid, b.Name, strings.Join(apis, ", "))
 	case !contains(layouts, b.WeightsLayout):
