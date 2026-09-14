@@ -712,7 +712,18 @@ func BackendReports(ctx context.Context, q Querier) ([]backend.Report, error) {
 		}
 		out = append(out, backend.NewReport(d, backend.SourceRegistered, sum))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	built, err := builtImages(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Built = built[out[i].Name]
+		out[i].Built.Staleness(out[i].Recipe)
+	}
+	return out, nil
 }
 
 // BackendReport is one of them.
@@ -737,7 +748,12 @@ func BackendReport(ctx context.Context, q Querier, name string) (backend.Report,
 	if d, err = backend.Resolve(d); err != nil {
 		return backend.Report{}, err
 	}
-	return backend.NewReport(d, backend.SourceRegistered, sum), nil
+	r := backend.NewReport(d, backend.SourceRegistered, sum)
+	if r.Built, err = BuiltImage(ctx, q, name); err != nil {
+		return backend.Report{}, err
+	}
+	r.Built.Staleness(r.Recipe)
+	return r, nil
 }
 
 // builtins and builtinNames are the compiled-in set, tolerating the error: a
@@ -1074,4 +1090,45 @@ func SetDisabled(snap *Snapshot, modelID, node string, disabled bool) (matched i
 		matched++
 	}
 	return matched
+}
+
+// BuiltImage is what `nodary backend build` left for one derive, nil if nothing
+// has been built for it.
+//
+// In this package rather than internal/backend for BackendFor's reason: the
+// record is a table, and a descriptor parser with a schema is a descriptor
+// parser that cannot be tested without one.
+func BuiltImage(ctx context.Context, q Querier, name string) (*backend.Built, error) {
+	var b backend.Built
+	err := q.QueryRowContext(ctx, `SELECT image, digest, base_digest, recipe_sha256,
+		built_at, built_by FROM derived_image WHERE name = ?`, name).
+		Scan(&b.Image, &b.Digest, &b.BaseDigest, &b.RecipeSHA256, &b.BuiltAt, &b.BuiltBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// builtImages is every one of them, for the listing.
+func builtImages(ctx context.Context, q Querier) (map[string]*backend.Built, error) {
+	rows, err := q.QueryContext(ctx, `SELECT name, image, digest, base_digest, recipe_sha256,
+		built_at, built_by FROM derived_image`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]*backend.Built{}
+	for rows.Next() {
+		var name string
+		var b backend.Built
+		if err := rows.Scan(&name, &b.Image, &b.Digest, &b.BaseDigest, &b.RecipeSHA256,
+			&b.BuiltAt, &b.BuiltBy); err != nil {
+			return nil, err
+		}
+		out[name] = &b
+	}
+	return out, rows.Err()
 }

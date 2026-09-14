@@ -55,6 +55,7 @@ type Report struct {
 // Built is one derive's current image, as `backend show` reports it.
 type Built struct {
 	Image        string `json:"image"`
+	Digest       string `json:"digest"`
 	BaseDigest   string `json:"base_digest"`
 	RecipeSHA256 string `json:"recipe_sha256"`
 	BuiltAt      string `json:"built_at"`

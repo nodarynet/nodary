@@ -237,7 +237,7 @@ func cmdModelRegister(e env, args []string) int {
 
 	pinned := *image
 	if pinned == "" {
-		if pinned, ok = pinnedImage(e, *backendName); !ok {
+		if pinned, ok = pinnedImage(e, rem, *dbPath, *backendName); !ok {
 			return ExitFailure
 		}
 	}
@@ -395,7 +395,23 @@ func readRemoteManifest(e env, path string) (sum, body string, ok bool) {
 // Pinned rather than left to the descriptor's default, which is a *tag*: the
 // manifest's entry is the version this release was tested against, and on a new
 // GPU generation the difference between them is the whole run.
-func pinnedImage(e env, backend string) (string, bool) {
+func pinnedImage(e env, rem *remote, dbPath, backend string) (string, bool) {
+	// **A derive's image is whatever its build produced**, so it is not in the
+	// component manifest and never will be — the manifest pins what a release
+	// ships, and this was made on this site. Read through the report so the
+	// answer is the same over --server, where there is no database to ask.
+	if b, ok := backendReport(e, rem, dbPath, backend); ok && b.Recipe != nil {
+		if b.Built == nil {
+			fmt.Fprintf(e.stderr, "nodary model register: %s is a derived image and nothing "+
+				"has been built for it yet.\n  Run `nodary backend build %s` first, or pass "+
+				"--image to name one yourself.\n", backend, backend)
+			return "", false
+		}
+		// The digest and not the tag: a rebuild may reuse the tag, and a
+		// deployment that followed it would move to an image nobody approved
+		// for it. §5 has deployments on the previous digest keep serving.
+		return b.Built.Digest, true
+	}
 	m, ok := loadManifest(e)
 	if !ok {
 		return "", false

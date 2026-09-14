@@ -25,7 +25,8 @@ import (
 // config.applyBackends, where `config apply -f` meets them too.
 func cmdBackend(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary backend: expected a subcommand (list, show, register, remove)\n")
+		fmt.Fprintf(e.stderr,
+			"nodary backend: expected a subcommand (list, show, register, remove, build, rebuild)\n")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -38,17 +39,11 @@ func cmdBackend(e env, args []string) int {
 	case "remove":
 		return cmdBackendRemove(e, args[1:])
 	case "build", "rebuild":
-		// Named rather than falling through to "unknown subcommand": 10 §1
-		// lists both, so an operator who reads the spec and types one is
-		// waiting, not filing a bug.
-		fmt.Fprintf(e.stderr,
-			"nodary backend %s: derived images are not implemented in this release (%s).\n"+
-				"  A backend descriptor names an image; building one from a recipe is R6-10.\n",
-			args[0], versionString())
-		return ExitFailure
+		return cmdBackendBuild(e, args[1:], args[0])
 	}
 	fmt.Fprintf(e.stderr,
-		"nodary backend: unknown subcommand %q (want list, show, register or remove)\n", args[0])
+		"nodary backend: unknown subcommand %q (want list, show, register, remove, build or rebuild)\n",
+		args[0])
 	return ExitUsage
 }
 
@@ -217,11 +212,11 @@ func cmdBackendList(e env, args []string) int {
 	if *format == "json" {
 		return writeJSON(e, "backend list", map[string]any{"backends": reports})
 	}
-	fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-9s %s\n",
+	fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-17s %s\n",
 		"NAME", "API", "LAYOUT", "SOURCE", "CAPABILITIES")
 	for _, b := range reports {
-		fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-9s %s\n",
-			b.Name, b.API, b.WeightsLayout, b.Source, capabilityLine(b))
+		fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-17s %s\n",
+			b.Name, b.API, b.WeightsLayout, sourceLine(b), capabilityLine(b))
 	}
 	return ExitOK
 }
@@ -276,6 +271,15 @@ func cmdBackendShow(e env, args []string) int {
 	fmt.Fprintf(e.stdout, "  api            %s\n", b.API)
 	fmt.Fprintf(e.stdout, "  weights        %s at %s\n", b.WeightsLayout, orElse(b.MountPath, "—"))
 	fmt.Fprintf(e.stdout, "  image          %s\n", orElse(b.ImageDefault, "—"))
+	// Only for a derive. "recipe —" against vLLM would put a build phase in
+	// front of an operator that vLLM has not got, the way "prepare —" would.
+	if r := b.Recipe; r != nil {
+		fmt.Fprintf(e.stdout, "  derives from   %s\n", r.From)
+		fmt.Fprintf(e.stdout, "  recipe         %s, up to %s\n",
+			strings.Join(r.Steps, "; "), humanSeconds(r.TimeoutS))
+		fmt.Fprintf(e.stdout, "  index          %s\n", orElse(r.IndexURL, "— (no egress)"))
+		fmt.Fprintf(e.stdout, "  built          %s\n", builtLine(b.Built))
+	}
 	fmt.Fprintf(e.stdout, "  port           %d\n", b.ContainerPort)
 	fmt.Fprintf(e.stdout, "  capabilities   %s\n", capabilityLine(b))
 	// The two lists stay two lists: a name in `params` is translated and means

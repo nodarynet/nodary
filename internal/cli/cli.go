@@ -188,7 +188,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show|register|remove`, `bundle create|show|open`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show|register|remove|build|rebuild`, `bundle create|show|open`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
