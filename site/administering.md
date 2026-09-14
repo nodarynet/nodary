@@ -487,7 +487,7 @@ machine you are standing on. These do, today:
 | :--- | :--- |
 | Fleet | `node list`, `node show`, `node approve\|drain\|revoke` |
 | Models and routing | `model enable\|disable\|restart`, `route list\|show\|set`, `limits show\|set` |
-| Accounts | `user add\|list\|delete`, `token list\|create\|revoke` |
+| Accounts | `user add\|list\|show\|suspend\|delete`, `token list\|create\|revoke` |
 | Records | `audit list`, `usage show` |
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
 
@@ -515,9 +515,8 @@ One difference worth knowing: the gateway's rendering is a file on the control-p
 a route change applied from here goes live when that host's sync timer next runs — within a
 minute — rather than immediately. The command says so when it happens.
 
-What is still a shell on the control plane: `model register` and the staging verbs, `user
-suspend` and `user show`, `backup`, `policy apply`, and everything that installs or diagnoses
-a host. `nodary logout --server …` forgets one appliance's credential;
+What is still a shell on the control plane: `model register` and the staging verbs, `backup`,
+`policy apply`, and everything that installs or diagnoses a host. `nodary logout --server …` forgets one appliance's credential;
 the token itself stays valid until somebody runs `nodary token revoke`, which is the audited
 act that ends it for everyone.
 
