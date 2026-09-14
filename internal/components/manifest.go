@@ -95,6 +95,14 @@ const SchemaVersion = 1
 // Load returns the manifest embedded in this binary.
 func Load() (*Manifest, error) { return parse(embedded) }
 
+// Document is the embedded manifest's own bytes.
+//
+// An offline bundle carries it so the receiving site can read what the sending
+// binary pinned, which is not necessarily what the receiving binary pins — two
+// releases may differ, and an operator staring at a digest mismatch needs to
+// see both sides rather than only the half they are standing on.
+func Document() []byte { return embedded }
+
 // parse decodes and schema-checks a manifest document. Unknown fields are
 // rejected so a manifest written by a newer release cannot be silently
 // half-understood by an older binary.

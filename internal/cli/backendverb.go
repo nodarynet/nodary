@@ -37,6 +37,15 @@ func cmdBackend(e env, args []string) int {
 		return cmdBackendRegister(e, args[1:])
 	case "remove":
 		return cmdBackendRemove(e, args[1:])
+	case "build", "rebuild":
+		// Named rather than falling through to "unknown subcommand": 10 §1
+		// lists both, so an operator who reads the spec and types one is
+		// waiting, not filing a bug.
+		fmt.Fprintf(e.stderr,
+			"nodary backend %s: derived images are not implemented in this release (%s).\n"+
+				"  A backend descriptor names an image; building one from a recipe is R6-10.\n",
+			args[0], versionString())
+		return ExitFailure
 	}
 	fmt.Fprintf(e.stderr,
 		"nodary backend: unknown subcommand %q (want list, show, register or remove)\n", args[0])

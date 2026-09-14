@@ -83,8 +83,15 @@ func TestPlannedVerbsFailAsUnimplementedNotUnknown(t *testing.T) {
 	// Iterating `planned` rather than a copy of it: the two lists drifted the
 	// first time a planned verb was implemented, and a test that has to be
 	// edited when the code is correct is a test that will be edited wrongly.
+	//
+	// **Empty is the goal state, not a broken test.** This used to fail on an
+	// empty map, on the reasoning that it would then assert nothing — which
+	// was right while verbs were outstanding and wrong the moment the last one
+	// landed, because it turned finishing the CLI surface into a red build.
+	// TestUnknownVerbIsUsageError holds the other half of the distinction
+	// either way, so an empty list costs no coverage of what a typo does.
 	if len(planned) == 0 {
-		t.Fatal("no planned verbs, so this asserts nothing")
+		t.Skip("every verb docs/specs/10-cli.md names is implemented")
 	}
 	for verb := range planned {
 		t.Run(verb, func(t *testing.T) {
