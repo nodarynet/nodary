@@ -161,6 +161,28 @@ func TestPlainHTTPIsNotForwarded(t *testing.T) {
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", resp.StatusCode)
 	}
+
+	// **The host here is the allowed one**, so this must not be reported as
+	// reaching outside the index. Measured on hardware: busybox `wget` sends
+	// an absolute-URI GET even for an https URL, so a step that used it
+	// against its own index failed with a message telling the operator to add
+	// a host that was already named — which is a fix that cannot work.
+	if refused := p.Refused(); len(refused) != 0 {
+		t.Errorf("an allowed host was recorded as reached outside the index: %v", refused)
+	}
+	if un := p.Untunneled(); len(un) != 1 {
+		t.Errorf("untunneled = %v, want the one request that did not tunnel", un)
+	}
+	err = p.RefusalError()
+	if err == nil {
+		t.Fatal("a build whose step never tunnelled was not failed")
+	}
+	if strings.Contains(err.Error(), "does not name") {
+		t.Errorf("the failure blames the allowlist for a client that did not tunnel: %v", err)
+	}
+	if !strings.Contains(err.Error(), "CONNECT") {
+		t.Errorf("the failure does not say what the step has to do instead: %v", err)
+	}
 }
 
 // The port is part of the allowlist: "the package index" is a service, not a

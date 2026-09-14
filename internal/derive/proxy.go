@@ -70,8 +70,18 @@ type Proxy struct {
 	// what it wanted rather than only that it failed. §5's whole claim is that
 	// a build reaching outside its index fails instead of quietly succeeding
 	// with something unexpected — which is unreadable without this.
-	refused  []string
-	allowedN int
+	refused []string
+	// untunneled is a client that spoke plain HTTP to the proxy instead of
+	// CONNECT, whatever host it named.
+	//
+	// **A separate list, because it is a separate failure.** Measured on real
+	// hardware: busybox `wget` does not tunnel — it sends an absolute-URI GET
+	// even for an https URL — so it lands here rather than on the host check.
+	// Folding the two together made a step that used a non-tunneling client
+	// against its *own* index fail with "which its recipe does not name",
+	// sending an operator to add a host that is already there.
+	untunneled []string
+	allowedN   int
 }
 
 // fromAllowedPeer reports whether a client may use this proxy at all.
@@ -132,6 +142,13 @@ func AllowedFrom(indexURL string) (string, error) {
 	return net.JoinHostPort(u.Hostname(), port), nil
 }
 
+// Untunneled is what spoke plain HTTP to this proxy, in order.
+func (p *Proxy) Untunneled() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.untunneled...)
+}
+
 // Refused is what this build reached for and was not allowed, in order.
 func (p *Proxy) Refused() []string {
 	p.mu.Lock()
@@ -159,7 +176,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodConnect {
 		// An absolute-URI request is plain HTTP through the proxy. Refused
 		// rather than forwarded: see the type comment.
-		p.note(r.Host)
+		p.noteUntunneled(r.Host)
 		http.Error(w, "this proxy tunnels https to the build's index and forwards nothing",
 			http.StatusMethodNotAllowed)
 		return
@@ -209,6 +226,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	<-done
 }
 
+func (p *Proxy) noteUntunneled(host string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.untunneled = append(p.untunneled, host)
+}
+
 func (p *Proxy) note(host string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -226,11 +249,18 @@ func (p *Proxy) note(host string) {
 // RefusalError turns what was refused into the failure §5 asks for: a build
 // that reached outside its index fails, and says where it went.
 func (p *Proxy) RefusalError() error {
-	refused := p.Refused()
-	if len(refused) == 0 {
-		return nil
+	if refused := p.Refused(); len(refused) > 0 {
+		return fmt.Errorf("%w: it reached %s, which its recipe does not name. A derive may "+
+			"reach its index_url and nothing else; add the host to index_url if it is part "+
+			"of the index", ErrRefused, strings.Join(refused, ", "))
 	}
-	return fmt.Errorf("%w: it reached %s, which its recipe does not name. A derive may reach "+
-		"its index_url and nothing else; add the host to index_url if it is part of the index",
-		ErrRefused, strings.Join(refused, ", "))
+	// Reported second and worded differently, because the fix is a different
+	// one: the host may well be the index, and what is wrong is the client.
+	if un := p.Untunneled(); len(un) > 0 {
+		return fmt.Errorf("%w: it asked this proxy to fetch %s in cleartext instead of "+
+			"tunnelling to it. A build reaches its index over a tunnel that nodary cannot "+
+			"read, so a step has to use a client that speaks CONNECT — busybox wget does "+
+			"not, where apk, pip and curl do", ErrRefused, strings.Join(un, ", "))
+	}
+	return nil
 }
