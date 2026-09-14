@@ -91,6 +91,16 @@ func cmdNodeList(e env, args []string) int {
 				"\n%s is pending and will receive no work until\n  nodary node approve %s\n",
 				n.Name, n.Name)
 		case n.State == "departed":
+		// Before the staleness line, because an incompatible node is *not*
+		// stale — it keeps heartbeating throughout — and because it explains
+		// the thing an operator would otherwise investigate: the node is up,
+		// the agent is running, and nothing it is told to do is happening.
+		case n.Incompatible:
+			fmt.Fprintf(e.stderr,
+				"\n%s speaks protocol %d and this control plane accepts %d-%d.\n"+
+					"  It has stopped reconciling and is still running whatever was already up.\n"+
+					"  On that host: nodary upgrade\n",
+				n.Name, n.Protocol, fleet.ProtocolMin, fleet.ProtocolMax)
 		case n.Stale:
 			fmt.Fprintf(e.stderr,
 				"\n%s has not reported in %s. On that host: systemctl status nodary-agent\n",
@@ -350,6 +360,10 @@ func agentDetail(d fleet.Detail) string {
 	}
 	if d.Protocol == 0 {
 		return d.AgentVersion
+	}
+	if d.Incompatible {
+		return fmt.Sprintf("%s, protocol %d — INCOMPATIBLE, this control plane accepts %d-%d",
+			d.AgentVersion, d.Protocol, fleet.ProtocolMin, fleet.ProtocolMax)
 	}
 	return fmt.Sprintf("%s, protocol %d", d.AgentVersion, d.Protocol)
 }

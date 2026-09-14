@@ -243,14 +243,39 @@ func (d *Daemon) poll(ctx context.Context) (api.Desired, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		return doc, err
 	}
-	if doc.Protocol != 0 && doc.Protocol != api.Protocol {
-		// R4-11: an agent outside the range stops reconciling and does not
-		// guess. Returning an error here keeps whatever is running running,
-		// because nothing stops a unit on this path.
-		return doc, fmt.Errorf("the control plane speaks protocol %d and this agent speaks %d",
-			doc.Protocol, api.Protocol)
+	// R4-11: an agent outside the range stops reconciling and does not guess.
+	// Returning an error here keeps whatever is running running, because
+	// nothing stops a unit on this path — and the heartbeat is a separate
+	// goroutine, so the node stays visible to the control plane throughout
+	// rather than going quiet at the moment somebody needs to see it.
+	if err := compatible(doc); err != nil {
+		return doc, err
 	}
 	return doc, nil
+}
+
+// compatible checks this agent against the range the control plane advertises.
+//
+// **The range, not the number.** docs/specs/03-agent.md §4 has the server
+// advertise a supported range precisely so that a rollout can happen: comparing
+// against `doc.Protocol` alone would have every node in the fleet stop
+// reconciling the moment the control plane was upgraded to a version that still
+// accepts them. A control plane old enough to advertise no range is compared
+// the old way, which is the only thing that can be done with what it said.
+func compatible(doc api.Desired) error {
+	if doc.ProtocolMax > 0 {
+		if api.Protocol < doc.ProtocolMin || api.Protocol > doc.ProtocolMax {
+			return fmt.Errorf("this agent speaks protocol %d and the control plane accepts %d-%d; "+
+				"it is not reconciling and whatever is running stays running. Upgrade this node: "+
+				"`nodary upgrade`", api.Protocol, doc.ProtocolMin, doc.ProtocolMax)
+		}
+		return nil
+	}
+	if doc.Protocol != 0 && doc.Protocol != api.Protocol {
+		return fmt.Errorf("the control plane speaks protocol %d and this agent speaks %d",
+			doc.Protocol, api.Protocol)
+	}
+	return nil
 }
 
 // heartbeatLoop reports inventory, unit states and health on a fixed cadence.

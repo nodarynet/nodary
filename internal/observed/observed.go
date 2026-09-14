@@ -276,3 +276,35 @@ func TouchToken(ctx context.Context, db *store.DB, id string, now time.Time) err
 		return nil
 	})
 }
+
+// Seen records that a node checked in, and nothing else about it.
+//
+// It is the heartbeat of an agent whose protocol this control plane does not
+// support (docs/specs/03-agent.md §4). Heartbeat cannot be used for one: the
+// report's *shape* is what a protocol version governs, so a document from a
+// version this build does not know is a document whose inventory, unit states
+// and staging progress it cannot honestly claim to have read. Writing them
+// anyway would put guesses in the fleet view.
+//
+// Refusing the request instead — which is what this replaces — was worse in the
+// one way that matters: the node then went `stale` after sixty seconds, and a
+// silent node and an incompatible one are the same picture from the control
+// plane while being completely different problems. An operator mid-upgrade
+// needs to see which of their fleet has not caught up, which means those nodes
+// have to stay visible and say why.
+//
+// The three columns it does write are the only ones whose meaning cannot move
+// between protocol versions, because they are what the versions are negotiated
+// with: when we heard from it, what it says it is, and which protocol it
+// speaks. `state` is absent from here as from everything else in this package.
+func Seen(ctx context.Context, db *store.DB, name, agentVersion string, protocol int, seen time.Time) error {
+	stamp := seen.UTC().Format(audit.TimeFormat)
+	return db.WriteTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE node SET last_seen = ?, agent_version = ?, protocol = ? WHERE name = ?`,
+			stamp, agentVersion, protocol, name); err != nil {
+			return fmt.Errorf("recording contact from %s: %w", name, err)
+		}
+		return nil
+	})
+}

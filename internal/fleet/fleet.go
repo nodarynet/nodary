@@ -40,6 +40,36 @@ import (
 // (docs/plans/R4a-agent-protocol.md §5).
 const StaleAfter = 60 * time.Second
 
+// The agent protocol, docs/specs/03-agent.md §4.
+//
+// Protocol is what this build speaks; ProtocolMin and ProtocolMax are the range
+// it accepts from an agent. Server and agent are the same binary and share a
+// version, so skew happens only mid-upgrade and is bounded — but the range is
+// what makes an upgrade possible at all: a control plane that accepted only its
+// own number would refuse every node in the fleet for as long as the rollout
+// took.
+//
+// Here rather than in internal/api for the reason StaleAfter is here: this is a
+// rule about a fleet row, and `nodary node list` has to apply it without
+// importing the HTTP surface. internal/api re-exports Protocol under its own
+// name, which is where the wire is documented.
+const (
+	Protocol    = 1
+	ProtocolMin = 1
+	ProtocolMax = 1
+)
+
+// ProtocolSupported reports whether this control plane will act on a document
+// from an agent speaking v.
+//
+// Zero is supported: it is what a report carrying no protocol field looks like,
+// and refusing those would refuse an agent too old to have sent one — which is
+// precisely the agent an operator needs to still see in the fleet in order to
+// upgrade it.
+func ProtocolSupported(v int) bool {
+	return v == 0 || (v >= ProtocolMin && v <= ProtocolMax)
+}
+
 // Stale reports whether a last_seen timestamp is older than the threshold.
 func Stale(lastSeen string, now time.Time) bool {
 	if lastSeen == "" {
@@ -66,8 +96,16 @@ type Node struct {
 	DriverVersion string `json:"driver_version"`
 	RebootPolicy  string `json:"reboot_policy"`
 	CertExpiresAt string `json:"cert_expires_at"`
-	ApprovedBy    string `json:"approved_by"`
-	ApprovedAt    string `json:"approved_at"`
+	// Incompatible is docs/specs/03-agent.md §4's verdict about this node's
+	// agent: it speaks a protocol outside what this control plane accepts, so
+	// it has stopped reconciling and is running whatever was already up.
+	//
+	// Derived at read time from the protocol it last reported, the same as
+	// Stale and for the same reason: it is true whether or not anything wrote
+	// it down, and a stored flag needs clearing by whoever remembers to.
+	Incompatible bool   `json:"incompatible"`
+	ApprovedBy   string `json:"approved_by"`
+	ApprovedAt   string `json:"approved_at"`
 
 	// GPUs is what the driver reported; Offer is what the node's own
 	// guardrails let the control plane place on. They are different documents
@@ -155,6 +193,7 @@ func scanNode(s interface{ Scan(...any) error }, n *Node, now time.Time) error {
 		return err
 	}
 	n.Stale = Stale(n.LastSeen, now)
+	n.Incompatible = !ProtocolSupported(n.Protocol)
 	n.GPUs = json.RawMessage(gpus)
 	n.Offer = json.RawMessage(offer)
 	n.Constraints = json.RawMessage(constraints)

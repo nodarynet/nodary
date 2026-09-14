@@ -37,8 +37,15 @@ const (
 // Desired is docs/specs/03-agent.md §2's document: the complete intended state
 // of one node, with no imperative commands anywhere in it.
 type Desired struct {
-	Rev         int64               `json:"rev"`
-	Protocol    int                 `json:"protocol"`
+	Rev      int64 `json:"rev"`
+	Protocol int   `json:"protocol"`
+	// ProtocolMin and ProtocolMax are the range this control plane accepts,
+	// which docs/specs/03-agent.md §4 requires it to advertise. An agent
+	// outside the range stops reconciling and keeps running what is up; one
+	// that compared only against Protocol would stop for a server that speaks
+	// 2 and still accepts 1, which is every server mid-upgrade.
+	ProtocolMin int                 `json:"protocol_min"`
+	ProtocolMax int                 `json:"protocol_max"`
 	Node        string              `json:"node"`
 	Deployments []DesiredDeployment `json:"deployments"`
 	Staging     []DesiredStaging    `json:"staging"`
@@ -202,7 +209,8 @@ func (s *Server) waitForRevision(ctx context.Context, since int64, wait bool) (i
 // waiting state visible rather than silent.
 func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, error) {
 	doc := Desired{
-		Rev: seq, Protocol: Protocol, Node: n.name,
+		Rev: seq, Protocol: Protocol, ProtocolMin: ProtocolMin, ProtocolMax: ProtocolMax,
+		Node:        n.name,
 		Deployments: []DesiredDeployment{}, Staging: []DesiredStaging{},
 		Agent: DesiredAgent{TargetVersion: s.agentTargetVersion()},
 	}

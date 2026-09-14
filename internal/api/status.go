@@ -2,13 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/fleet"
-	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/observed"
 )
 
@@ -99,14 +97,34 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, badRequest("expected a status report"))
 		return
 	}
-	if body.Protocol != 0 && body.Protocol != Protocol {
-		s.fail(w, r, fmt.Errorf("%w: this control plane speaks protocol %d, the agent speaks %d",
-			identity.ErrBadName, Protocol, body.Protocol))
+	// R4-11, docs/specs/03-agent.md §4. An agent outside the supported range is
+	// **recorded as having checked in and nothing more**, rather than refused.
+	//
+	// Refusing was the wrong answer in the one way that matters: the node then
+	// went `stale` after sixty seconds, and from the control plane a silent
+	// node and an incompatible one look identical while being completely
+	// different problems. The protocol version governs the report's *shape*, so
+	// the rest of the body is not read — writing an inventory this build cannot
+	// claim to understand would put guesses in the fleet view.
+	if !fleet.ProtocolSupported(body.Protocol) {
+		if err := observed.Seen(r.Context(), s.db, n.name,
+			body.AgentVersion, body.Protocol, s.now()); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"node": n.name, "state": n.state, "incompatible": true,
+			"protocol": Protocol, "protocol_min": ProtocolMin, "protocol_max": ProtocolMax,
+		})
 		return
 	}
 
 	report := observed.NodeReport{
-		AgentVersion: body.AgentVersion, Protocol: Protocol,
+		// The agent's protocol, not this build's. The column answers "what does
+		// that node speak", and filling it with our own number made every node
+		// in the fleet report as current — including one that sent no protocol
+		// field at all, which is an agent old enough that saying so matters.
+		AgentVersion: body.AgentVersion, Protocol: body.Protocol,
 		Arch: body.Inventory.Arch, OS: body.Inventory.OS,
 		DriverVersion: body.Inventory.DriverVersion,
 		GPUsJSON:      rawOrDefault(body.Inventory.GPUs, "[]"),

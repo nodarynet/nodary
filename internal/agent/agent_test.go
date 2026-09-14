@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nodarynet/nodary/internal/api"
 )
 
 // The pin is the whole of a node's trust decision, so both directions matter:
@@ -94,6 +96,58 @@ func TestAgentConfigRoundTripsAndRefusesWhatItShould(t *testing.T) {
 		}
 		if _, err := LoadConfig(path); !errors.Is(err, ErrBadConfig) {
 			t.Errorf("%s: error = %v, want a refusal", tc.what, err)
+		}
+	}
+}
+
+// R4-11 on the agent's side: it compares itself against the range the control
+// plane advertises, not against the single number that plane speaks.
+//
+// The difference is the whole of why §4 asks for a range. A control plane
+// upgraded to protocol 2 that still accepts 1 is every control plane
+// mid-rollout; an agent comparing against `doc.Protocol` would stop reconciling
+// on all of them, which turns a routine upgrade into a fleet-wide outage of
+// exactly the kind this check exists to avoid.
+func TestAnAgentComparesItselfAgainstTheAdvertisedRange(t *testing.T) {
+	for _, c := range []struct {
+		what         string
+		doc          api.Desired
+		wantIncompat bool
+	}{
+		{"inside a wider range",
+			api.Desired{Protocol: api.Protocol + 1, ProtocolMin: api.Protocol, ProtocolMax: api.Protocol + 1}, false},
+		{"exactly at the floor",
+			api.Desired{Protocol: api.Protocol, ProtocolMin: api.Protocol, ProtocolMax: api.Protocol}, false},
+		{"below the range",
+			api.Desired{Protocol: api.Protocol + 3, ProtocolMin: api.Protocol + 2, ProtocolMax: api.Protocol + 3}, true},
+		// A control plane old enough to advertise no range is compared the only
+		// way what it said permits.
+		{"no range, same number", api.Desired{Protocol: api.Protocol}, false},
+		{"no range, different number", api.Desired{Protocol: api.Protocol + 1}, true},
+		{"nothing said at all", api.Desired{}, false},
+	} {
+		err := compatible(c.doc)
+		if c.wantIncompat && err == nil {
+			t.Errorf("%s: reconciled against a control plane it cannot talk to", c.what)
+		}
+		if !c.wantIncompat && err != nil {
+			t.Errorf("%s: %v", c.what, err)
+		}
+	}
+}
+
+// The refusal has to say what to do. An agent that stops reconciling and says
+// only "protocol mismatch" leaves an operator with a node that is up, an agent
+// that is running, and nothing happening.
+func TestTheProtocolRefusalNamesTheFixAndWhatKeepsRunning(t *testing.T) {
+	err := compatible(api.Desired{
+		Protocol: api.Protocol + 3, ProtocolMin: api.Protocol + 2, ProtocolMax: api.Protocol + 3})
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	for _, want := range []string{"nodary upgrade", "stays running"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
 		}
 	}
 }

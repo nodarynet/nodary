@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -228,6 +229,67 @@ func setNodeGPUs(t *testing.T, dbPath, node, gpus, offer string) {
 	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(context.Background(),
 			`UPDATE node SET gpus_json = ?, offer_json = ? WHERE name = ?`, gpus, offer, node)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// R4-11: an incompatible node keeps heartbeating, so it is *not* stale — and
+// from a listing that only reports staleness it looks perfectly healthy while
+// nothing it is told to do is happening. `node list` has to say so, and say
+// what to run.
+func TestNodeListFlagsAnAgentOutsideTheProtocolRange(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	setNodeProtocol(t, a.db, "fractal", fleet.ProtocolMax+1)
+
+	code, _, stderr := a.run("node", "list")
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s", code, stderr)
+	}
+	for _, want := range []string{"fractal", "protocol", "nodary upgrade"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("node list does not say %q:\n%s", want, stderr)
+		}
+	}
+
+	_, stdout, _ := a.run("node", "show", "fractal")
+	if !strings.Contains(stdout, "INCOMPATIBLE") {
+		t.Errorf("node show does not flag it:\n%s", stdout)
+	}
+}
+
+// A node speaking a protocol this build accepts is not flagged, and neither is
+// one that has never said which it speaks — that is an agent old enough that an
+// operator most needs to keep seeing it in order to upgrade it.
+func TestASupportedAgentIsNotFlagged(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	for _, p := range []int{0, fleet.Protocol} {
+		setNodeProtocol(t, a.db, "fractal", p)
+		_, stdout, stderr := a.run("node", "list")
+		if strings.Contains(stderr, "accepts") || strings.Contains(stdout, "INCOMPATIBLE") {
+			t.Errorf("protocol %d was flagged:\n%s\n%s", p, stdout, stderr)
+		}
+	}
+}
+
+func setNodeProtocol(t *testing.T, dbPath, node string, protocol int) {
+	t.Helper()
+	db, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(),
+			// Approved and just-seen, because that is the node this is about:
+			// one the fleet expects to be working. A pending node is reported
+			// as pending first, which is the more actionable line.
+			`UPDATE node SET protocol = ?, agent_version = '0.0.1', state = 'approved',
+			                 last_seen = strftime('%Y-%m-%dT%H:%M:%f000Z','now')
+			 WHERE name = ?`, protocol, node)
 		return err
 	}); err != nil {
 		t.Fatal(err)

@@ -12,13 +12,25 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
-// Protocol is the agent protocol this build speaks
-// (docs/specs/03-agent.md §4). Server and agent are the same binary, so skew
-// happens only mid-upgrade.
-const Protocol = 1
+// The agent protocol of docs/specs/03-agent.md §4.
+//
+// Protocol is what this build speaks. ProtocolMin and ProtocolMax are the range
+// it accepts, which §4 requires the server to advertise: an agent outside it
+// stops reconciling, keeps running whatever is already up, and reports
+// `incompatible`.
+//
+// Defined in internal/fleet and re-exported here, the same as StaleAfter. The
+// wire is documented here; the rule has to be applicable by `nodary node list`,
+// which must not import the HTTP surface to answer what it already reads.
+const (
+	Protocol    = fleet.Protocol
+	ProtocolMin = fleet.ProtocolMin
+	ProtocolMax = fleet.ProtocolMax
+)
 
 // nodeNamePattern is stricter than a user name, and deliberately so: a node
 // name becomes a certificate common name, a systemd instance after `%i`, a
