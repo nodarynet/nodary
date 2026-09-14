@@ -16,6 +16,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/core"
@@ -99,6 +100,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/audit", s.listAudit)
 	h("GET", "/audit/verify", s.verifyAudit)
 	h("GET", "/audit/export", s.exportAudit)
+	h("GET", "/backends", s.listBackends)
+	h("GET", "/backends/{name}", s.showBackend)
 	h("GET", "/policy", s.showPolicy)
 	h("GET", "/policy/diff", s.diffPolicy)
 	h("POST", "/policy/apply", s.applyPolicy)
@@ -589,6 +592,35 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 			body["break"] = res.Break.String()
 		}
 		return body, nil
+	})
+}
+
+// listBackends and showBackend are docs/specs/04-backends.md §9's reads.
+//
+// PermStateRead, like the policy: a descriptor holds no secret, and an operator
+// deciding which backend to register a model against needs to see the argument
+// vocabulary and the capabilities before they write `params`. The projection
+// lives in internal/backend so that this and the CLI cannot drift.
+func (s *Server) listBackends(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, string(identity.PermStateRead), func(core.Deps) (any, error) {
+		all, err := backend.Builtins()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"backends": backend.Reports(all)}, nil
+	})
+}
+
+func (s *Server) showBackend(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, string(identity.PermStateRead), func(core.Deps) (any, error) {
+		d, err := backend.Get(r.PathValue("name"))
+		if err != nil {
+			// backend.ErrUnknown is in neither error table, so it would reach
+			// a client as a 500 with the message withheld. Named as what it
+			// is: the thing does not exist.
+			return nil, fmt.Errorf("%w: %s", identity.ErrNotFound, err)
+		}
+		return backend.NewReport(d, backend.SourceBuiltIn, ""), nil
 	})
 }
 

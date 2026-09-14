@@ -561,6 +561,7 @@ machine you are standing on. These do, today:
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
 | Policy | `policy show\|diff\|apply` |
 | Backup | `backup create` |
+| Backends | `backend list\|show` |
 
 So the loop closes: an administrator with a credential can mint the next administrator's,
 without anybody opening a shell on the control plane.

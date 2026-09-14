@@ -42,6 +42,14 @@ var ErrUnsupported = errors.New("the backend does not support this")
 // ErrUnknown is a backend nothing has registered.
 var ErrUnknown = errors.New("unknown backend")
 
+// The json tags are the same words as the toml ones, deliberately.
+// `--format json` is a schema a script reads (docs/specs/10-cli.md §4), and
+// untagged fields come back as Go names — `TensorParallel` rather than
+// `tensor_parallel` — which an operator has no way to connect to the key they
+// write in a descriptor. Safe to add because a descriptor is not in a
+// revision's hash preimage: a deployment stores its backend's *name*, and a
+// registered descriptor is stored as the TOML bytes themselves.
+//
 // Descriptor is docs/specs/04-backends.md §6.
 //
 // `prepare` and `derive` are absent. They are R6-06 and R6-08, and a field
@@ -50,18 +58,18 @@ var ErrUnknown = errors.New("unknown backend")
 // run. Unknown keys are rejected, so writing one is an error today and becomes
 // a feature later without the intervening lie.
 type Descriptor struct {
-	Backend Backend `toml:"backend"`
+	Backend Backend `json:"backend" toml:"backend"`
 }
 
 type Backend struct {
-	Name          string            `toml:"name"`
-	API           string            `toml:"api"`
-	WeightsLayout string            `toml:"weights_layout"`
-	MountPath     string            `toml:"mount_path"`
-	ContainerPort int               `toml:"container_port"`
-	ImageDefault  string            `toml:"image_default"`
-	Capabilities  Capabilities      `toml:"capabilities"`
-	Args          map[string]string `toml:"args"`
+	Name          string            `json:"name" toml:"name"`
+	API           string            `json:"api" toml:"api"`
+	WeightsLayout string            `json:"weights_layout" toml:"weights_layout"`
+	MountPath     string            `json:"mount_path" toml:"mount_path"`
+	ContainerPort int               `json:"container_port" toml:"container_port"`
+	ImageDefault  string            `json:"image_default" toml:"image_default"`
+	Capabilities  Capabilities      `json:"capabilities" toml:"capabilities"`
+	Args          map[string]string `json:"args" toml:"args"`
 	// Extra is backend-specific options surfaced as named ones
 	// (docs/specs/04-backends.md §6): llama.cpp's `gpu_layers = "-ngl {v}"`
 	// has no equivalent anywhere else, and there is no canonical parameter for
@@ -78,9 +86,9 @@ type Backend struct {
 	// It is still named, unlike extra_args: an operator writes
 	// `gpu_layers: 33` and the descriptor knows the spelling, so a typo is
 	// refused instead of reaching the container as an argument nobody wrote.
-	Extra map[string]string `toml:"extra"`
+	Extra map[string]string `json:"extra" toml:"extra"`
 	// Env is applied to every container this backend runs.
-	Env map[string]string `toml:"env"`
+	Env map[string]string `json:"env" toml:"env"`
 	// EnvWSL2 is applied only on a WSL2 host.
 	//
 	// Backend knowledge belongs in the descriptor, which is
@@ -93,32 +101,32 @@ type Backend struct {
 	// One condition, not a condition engine. A second one can generalise this;
 	// inventing the general form for a single case would be a mechanism nobody
 	// has exercised.
-	EnvWSL2 map[string]string `toml:"env_wsl2"`
-	GPU     GPU               `toml:"gpu"`
-	Probe   Probe             `toml:"probe"`
-	Metrics Metrics           `toml:"metrics"`
+	EnvWSL2 map[string]string `json:"env_wsl2" toml:"env_wsl2"`
+	GPU     GPU               `json:"gpu" toml:"gpu"`
+	Probe   Probe             `json:"probe" toml:"probe"`
+	Metrics Metrics           `json:"metrics" toml:"metrics"`
 }
 
 type Capabilities struct {
-	TensorParallel bool     `toml:"tensor_parallel"`
-	ExpertParallel bool     `toml:"expert_parallel"`
-	Quantization   []string `toml:"quantization"`
-	LoRA           bool     `toml:"lora"`
-	CPUOffload     bool     `toml:"cpu_offload"`
+	TensorParallel bool     `json:"tensor_parallel" toml:"tensor_parallel"`
+	ExpertParallel bool     `json:"expert_parallel" toml:"expert_parallel"`
+	Quantization   []string `json:"quantization" toml:"quantization"`
+	LoRA           bool     `json:"lora" toml:"lora"`
+	CPUOffload     bool     `json:"cpu_offload" toml:"cpu_offload"`
 }
 
 type GPU struct {
-	Mechanism string `toml:"mechanism"`
+	Mechanism string `json:"mechanism" toml:"mechanism"`
 }
 
 type Probe struct {
-	Health        string `toml:"health"`
-	Ready         string `toml:"ready"`
-	ReadyTimeoutS int    `toml:"ready_timeout_s"`
+	Health        string `json:"health" toml:"health"`
+	Ready         string `json:"ready" toml:"ready"`
+	ReadyTimeoutS int    `json:"ready_timeout_s" toml:"ready_timeout_s"`
 }
 
 type Metrics struct {
-	Path string `toml:"path"`
+	Path string `json:"path" toml:"path"`
 }
 
 // Closed vocabularies. Each is a value the agent or the gateway switches on, so

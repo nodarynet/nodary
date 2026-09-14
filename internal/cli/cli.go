@@ -97,8 +97,7 @@ func isTerminal(r io.Reader) bool {
 // error says "not in this release" instead of "unknown command", which is the
 // difference between a user waiting and a user filing a bug.
 var planned = map[string]string{
-	"backend": "backend descriptor registration",
-	"bundle":  "offline bundle creation",
+	"bundle": "offline bundle creation",
 }
 
 // Main runs one invocation and returns its exit code.
@@ -168,6 +167,8 @@ func dispatch(e env, args []string) int {
 		return cmdModel(e, args[1:])
 	case "route":
 		return cmdRoute(e, args[1:])
+	case "backend":
+		return cmdBackend(e, args[1:])
 	case "agent":
 		return cmdAgent(e, args[1:])
 	case "gateway":
@@ -187,7 +188,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -257,6 +258,8 @@ Available in this release:
                          revoke         Eject it: its certificate is refused from now on
                          leave          Run on the node: stop everything, destroy its credentials
                          verify-egress  Assert a deployment has no way off-box
+  backend              Backend descriptors
+                         list | show
   agent                The node-side agent
                          plan    Show what this node would do, and do none of it
                          run     Reconcile this node against its desired state

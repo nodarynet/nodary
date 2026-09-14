@@ -1574,3 +1574,55 @@ func TestBackupRestoreRefusesServerWithAReason(t *testing.T) {
 		t.Errorf("the refusal does not say what to do instead:\n%s", stderr)
 	}
 }
+
+// The backend reads over --server. The projection lives in internal/backend so
+// the two front ends render one thing; this is what holds them to it.
+func TestBackendReadsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "viewer")
+
+	for _, c := range []struct {
+		what string
+		args []string
+	}{
+		{"list", []string{"backend", "list", "--format", "json"}},
+		{"show", []string{"backend", "show", "llama-cpp", "--format", "json"}},
+	} {
+		localCode, local, localErr := run(t, append(append([]string{}, c.args...), "--db", a.db)...)
+		remoteCode, remote, remoteErr := run(t, append(append([]string{}, c.args...),
+			"--server", base, "--credentials", a.creds)...)
+		if localCode != ExitOK || remoteCode != ExitOK {
+			t.Fatalf("backend %s: local %d (%s), remote %d (%s)",
+				c.what, localCode, localErr, remoteCode, remoteErr)
+		}
+		if local != remote {
+			t.Errorf("backend %s differs between the two roads:\n  local  %s\n  remote %s",
+				c.what, local, remote)
+		}
+	}
+}
+
+// A backend that does not exist is a 404 with its reason, not a 500 with the
+// message withheld — backend.ErrUnknown is in neither error table, so it had
+// to be named as what it is on the way out.
+func TestAnUnknownBackendIsRefusedOverServerToo(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "viewer")
+
+	local, _, localErr := run(t, "backend", "show", "nonesuch", "--db", a.db)
+	remote, _, remoteErr := run(t, "backend", "show", "nonesuch",
+		"--server", base, "--credentials", a.creds)
+	if local == ExitOK || remote == ExitOK {
+		t.Fatalf("an unknown backend was shown: local %d, remote %d", local, remote)
+	}
+	if local != remote {
+		t.Errorf("exit %d locally and %d over --server\n  local  %s  remote %s",
+			local, remote, localErr, remoteErr)
+	}
+	if strings.Contains(remoteErr, "the server failed to handle this request") {
+		t.Errorf("the refusal arrived as an unhandled server error:\n%s", remoteErr)
+	}
+	if !strings.Contains(remoteErr, "nonesuch") {
+		t.Errorf("the refusal does not name what was asked for:\n%s", remoteErr)
+	}
+}
