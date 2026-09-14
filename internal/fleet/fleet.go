@@ -138,6 +138,12 @@ type Deployment struct {
 	Egress          string `json:"egress"`
 	EgressReason    string `json:"egress_reason"`
 	EgressCheckedAt string `json:"egress_checked_at"`
+	// Disabled is `nodary model disable`: the configuration says this must not
+	// run. Without it here, the verb that turns a deployment off had no verb
+	// that showed it was off — the state settles on `stopped`, which is also
+	// what an operator's own `systemctl stop` produces and what a node that has
+	// not polled yet still reports as `ready`.
+	Disabled bool `json:"disabled"`
 }
 
 // Staging is one model's progress onto one node.
@@ -301,7 +307,7 @@ func deployments(ctx context.Context, q config.Querier, node string) ([]Deployme
 	rows, err := q.QueryContext(ctx,
 		`SELECT id, model_id, backend, state, health, coalesce(port, 0),
 		        coalesce(last_error, ''), updated_at, coalesce(egress_state, ''),
-		        coalesce(egress_reason, ''), coalesce(egress_checked_at, '')
+		        coalesce(egress_reason, ''), coalesce(egress_checked_at, ''), disabled
 		 FROM deployment WHERE node_name = ? ORDER BY id`, node)
 	if err != nil {
 		return nil, err
@@ -313,7 +319,7 @@ func deployments(ctx context.Context, q config.Querier, node string) ([]Deployme
 		var d Deployment
 		if err := rows.Scan(&d.ID, &d.ModelID, &d.Backend, &d.State, &d.Health,
 			&d.Port, &d.LastError, &d.UpdatedAt, &d.Egress, &d.EgressReason,
-			&d.EgressCheckedAt); err != nil {
+			&d.EgressCheckedAt, &d.Disabled); err != nil {
 			return nil, err
 		}
 		d.GPUs, d.Routes = []int{}, []string{}

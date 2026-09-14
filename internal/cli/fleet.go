@@ -239,7 +239,7 @@ func cmdNodeShow(e env, args []string) int {
 		for _, dep := range d.Deployments {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				dep.ID, dep.ModelID, orDash(strings.Join(dep.Routes, ",")),
-				dep.State, dep.Health, portColumn(dep.Port), orDash(joinInts(dep.GPUs)),
+				stateColumn(dep), dep.Health, portColumn(dep.Port), orDash(joinInts(dep.GPUs)),
 				orDash(dep.Egress))
 		}
 		if code := flush(e, "node show", tw); code != ExitOK {
@@ -252,9 +252,20 @@ func cmdNodeShow(e env, args []string) int {
 			// A deployment nothing routes to is reachable by nobody: LiteLLM
 			// serves route names, so a ready container with no route is a model
 			// that answers 404 to every client asking for it by any name.
-			if len(dep.Routes) == 0 {
+			if len(dep.Routes) == 0 && !dep.Disabled {
 				fmt.Fprintf(e.stderr,
 					"\n%s is in no route, so no client can ask for it by name.\n", dep.ID)
+			}
+			// Disabling stops the unit; it does not give the card back. The
+			// deployment_gpu row stays, and 0006_fleet.sql's unique index means
+			// nothing else can be placed on that index while it does — so an
+			// operator who disabled a model to free a GPU is looking at a card
+			// that is idle and still spoken for.
+			if dep.Disabled && len(dep.GPUs) > 0 {
+				fmt.Fprintf(e.stderr,
+					"\n%s is disabled and still holds %s %s; `nodary model enable %s` "+
+						"restarts it, and removing the deployment is what frees the card.\n",
+					dep.ID, pluralCard(dep.GPUs), joinInts(dep.GPUs), dep.ModelID)
 			}
 			// docs/specs/11-failure-modes.md §3 makes a failing assertion a
 			// critical alert, and the column above is a word in a table. This
@@ -518,6 +529,20 @@ func gpuColumn(n fleet.Node) string {
 		return fmt.Sprintf("%d of %d", offered, present)
 	}
 	return strconv.Itoa(offered)
+}
+
+// stateColumn says why a deployment is stopped when the configuration is the
+// reason.
+//
+// `stopped` alone is ambiguous in the way that matters: it is also what an
+// operator's own `systemctl stop` produces and what a node that has not polled
+// since the change still reports, so a deployment somebody turned off and one
+// that fell over look the same in the one table they are both listed in.
+func stateColumn(d fleet.Deployment) string {
+	if d.Disabled {
+		return d.State + " (disabled)"
+	}
+	return d.State
 }
 
 func deploymentColumn(n fleet.Node) string {
