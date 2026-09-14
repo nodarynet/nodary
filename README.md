@@ -131,7 +131,7 @@ front page rather than only in a plan.
 | :--- | :--- |
 | The offline bundle | [R5-13/14](docs/tasks/R5-install.md) |
 | Agent self-upgrade — `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it | [R5-16](docs/tasks/R5-install.md) |
-| Remote administration for **every** verb. `nodary login` and `--server` are built, and the fleet, model, route, limit, account and record verbs act on a control plane over the network as the person holding the credential. What still needs root on that host is `model register` and staging, `config apply`, `policy apply`, `backup`, and anything that installs or diagnoses a machine — and a verb that has not been converted refuses `--server` rather than quietly acting locally | [R2-44](docs/tasks/R2-control-plane.md) |
+| Remote administration for **every** verb. `nodary login` and `--server` are built, and the fleet, model, route, limit, account and record verbs act on a control plane over the network as the person holding the credential. What still needs root on that host is `model register` and staging, `policy apply`, `backup`, and anything that installs or diagnoses a machine — and a verb that has not been converted refuses `--server` rather than quietly acting locally | [R2-44](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
 | A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
 | OIDC, and backends beyond vLLM, SGLang and llama.cpp — TensorRT-LLM needs the `prepare` phase | [R6-06](docs/tasks/R6-backends.md) |

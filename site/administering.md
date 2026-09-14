@@ -489,6 +489,7 @@ machine you are standing on. These do, today:
 | Models and routing | `model enable\|disable\|restart`, `route list\|show\|set`, `limits show\|set` |
 | Accounts | `user add\|list\|delete`, `token list\|create\|revoke` |
 | Records | `audit list`, `usage show` |
+| Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
 
 So the loop closes: an administrator with a credential can mint the next administrator's,
 without anybody opening a shell on the control plane.
@@ -499,9 +500,24 @@ nodary token create --user bob --name laptop --expires 30d \
   --justify "bob is joining the platform team"
 ```
 
-What is still a shell on the control plane: `model register` and the staging verbs, `config
-apply`, `user suspend` and `user show`, `backup`, `policy apply`, and everything that
-installs or diagnoses a host. `nodary logout --server …` forgets one appliance's credential;
+So a site that keeps its configuration in version control applies it from wherever that
+lives:
+
+```sh
+nodary config diff -f fleet.toml --server https://nodary.example.internal:8443
+nodary config apply -f fleet.toml --server https://nodary.example.internal:8443 \
+  --justify "OPS-4131: second replica for gemma"
+```
+
+The file itself is what crosses the wire, so the control plane parses the document it is
+about to apply and the preview you approve is its reading of your file, not your machine's.
+One difference worth knowing: the gateway's rendering is a file on the control-plane host, so
+a route change applied from here goes live when that host's sync timer next runs — within a
+minute — rather than immediately. The command says so when it happens.
+
+What is still a shell on the control plane: `model register` and the staging verbs, `user
+suspend` and `user show`, `backup`, `policy apply`, and everything that installs or diagnoses
+a host. `nodary logout --server …` forgets one appliance's credential;
 the token itself stays valid until somebody runs `nodary token revoke`, which is the audited
 act that ends it for everyone.
 
