@@ -49,8 +49,18 @@ test: ## Run the Go test suite
 # dropping -race — the control plane, the agent and the audit writer are all
 # concurrent, and a data race in the chain writer is exactly the defect that
 # survives review and reproduces once a quarter in production.
+#
+# -d=checkptr=0 is not a weakening of the race detector. `checkptr` is a
+# separate check Go switches on alongside -race: it validates unsafe.Pointer
+# conversions. This module contains no unsafe at all, so the only code it ever
+# instruments is modernc.org/sqlite -- a transpilation of C, and therefore
+# nothing but pointer arithmetic. Measured: it cost 29% of internal/cli and 17%
+# of internal/api, to check a dependency for a class of bug we could not fix
+# and would not act on. Drop the flag if this module ever imports unsafe.
+CHECKPTR := -gcflags=all=-d=checkptr=0
+
 test-race: ## Run the test suite under the race detector
-	$(GO) test -race ./...
+	$(GO) test -race $(CHECKPTR) ./...
 
 fmt: ## Format all Go source
 	gofmt -w .
