@@ -224,7 +224,7 @@ Available in this release:
                          apply | show
   evidence             The signed evidence bundle (commercial)
                          export
-  advisory             Published advisories against the digests this build pins
+  advisory             Published advisories against the digests this build pins, and the decision on each
                          check
   config               Configuration revisions
                          show | list | diff | export | apply | rollback | verify

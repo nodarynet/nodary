@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nodarynet/nodary/ee/license"
 	"github.com/nodarynet/nodary/internal/advisory"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/components"
@@ -274,5 +275,126 @@ func TestAnOverdueFindingIsMarkedInJSON(t *testing.T) {
 	}
 	if len(out.Known) != 1 || !out.Known[0].POAM || out.Known[0].Days < 44 {
 		t.Errorf("a 45-day-old finding is not marked: %+v", out.Known)
+	}
+}
+
+// R9-17 through the verb: the decision is an ordinary attested mutation, and
+// the chain is the remediation record — no parallel workflow, no second log.
+func TestADecisionIsAnAuditedMutationThatClosesTheClock(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	feed := signedFeed(t, pinnedAdvisory(t, "CVE-2026-9101"))
+
+	if code, _, stderr := a.run("advisory", "check", "--feed", feed,
+		"--platform", "linux/amd64"); code != ExitOK {
+		t.Fatalf("seeding: %s", stderr)
+	}
+	a.execSQL(`UPDATE advisory_finding SET first_seen_at = '` +
+		time.Now().AddDate(0, 0, -45).UTC().Format(audit.TimeFormat) + `'`)
+
+	code, _, stderr := a.run("advisory", "decide", "CVE-2026-9101",
+		"--decision", "accept", "--yes",
+		"--justify", "no default route, no DNS, loopback only; verify-egress asserts it")
+	if code != ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+
+	// The chain carries it, which is what "no parallel workflow" means.
+	code, stdout, _ := a.run("audit", "list", "--format", "json")
+	if code != ExitOK || !strings.Contains(stdout, "advisory.decide") {
+		t.Errorf("the decision is not in the chain:\n%s", stdout)
+	}
+
+	// And the clock is closed: a 45-day-old finding under a 30-day interval was
+	// a POA&M item a moment ago.
+	code, stdout, stderr = a.run("advisory", "check", "--feed", feed,
+		"--platform", "linux/amd64", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("recheck: %s", stderr)
+	}
+	var out struct {
+		Known []struct {
+			POAM     bool   `json:"poam"`
+			Open     bool   `json:"open"`
+			Decision string `json:"decision"`
+		} `json:"known"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	if len(out.Known) != 1 || out.Known[0].POAM || out.Known[0].Open {
+		t.Errorf("the decision did not close the clock: %+v", out.Known)
+	}
+	if out.Known[0].Decision != "accept" {
+		t.Errorf("the decision was not carried back: %+v", out.Known)
+	}
+}
+
+// The justification is what the decision *is*. The default profile sets
+// require_justification = false, and this verb requires one anyway: a
+// remediation row with an empty justification records nothing an assessor can
+// read, and "accept with a compensating control" that names no control is not a
+// decision.
+func TestADecisionDemandsAJustificationWhateverThePolicySays(t *testing.T) {
+	a := newAppliance(t)
+	feed := signedFeed(t, pinnedAdvisory(t, "CVE-2026-9102"))
+	if code, _, stderr := a.run("advisory", "check", "--feed", feed,
+		"--platform", "linux/amd64"); code != ExitOK {
+		t.Fatalf("seeding: %s", stderr)
+	}
+
+	code, _, stderr := a.run("advisory", "decide", "CVE-2026-9102",
+		"--decision", "accept", "--yes")
+	if code == ExitOK {
+		t.Fatal("a decision with no justification was recorded")
+	}
+	if !strings.Contains(stderr, "--justify is required") {
+		t.Errorf("the refusal does not say why: %s", stderr)
+	}
+
+	// A deferral additionally needs the date it comes back.
+	code, _, stderr = a.run("advisory", "decide", "CVE-2026-9102",
+		"--decision", "defer", "--yes", "--justify", "upstream has published no fix")
+	if code == ExitOK {
+		t.Fatal("an open-ended deferral was recorded")
+	}
+	if !strings.Contains(stderr, "acceptance that did not say so") {
+		t.Errorf("the refusal does not explain the difference: %s", stderr)
+	}
+}
+
+// R9-13's member, finally carrying rows: what was known, decided, by whom, with
+// what justification. Undecided findings are in it too — a plan of action is
+// mostly the things nobody has got to yet.
+func TestTheEvidenceBundleCarriesTheRemediationRecord(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
+	feed := signedFeed(t, pinnedAdvisory(t, "CVE-2026-9103"))
+
+	if code, _, stderr := a.run("advisory", "check", "--feed", feed,
+		"--platform", "linux/amd64"); code != ExitOK {
+		t.Fatalf("seeding: %s", stderr)
+	}
+	if code, _, stderr := a.run("advisory", "decide", "CVE-2026-9103",
+		"--decision", "accept", "--yes",
+		"--justify", "isolated: no default route, no DNS, loopback only"); code != ExitOK {
+		t.Fatalf("deciding: %s", stderr)
+	}
+
+	out := filepath.Join(a.dir, "bundle.tar.gz")
+	if code, _, stderr := a.run("evidence", "export", "--out", out); code != ExitOK {
+		t.Fatalf("export: %s", stderr)
+	}
+	members := extractBundle(t, out, t.TempDir())
+	body := members["remediation.jsonl"]
+	if strings.Contains(body, `"status": "pending"`) || strings.Contains(body, `"status":"pending"`) {
+		t.Fatalf("a decided finding left the member pending:\n%s", body)
+	}
+	for _, want := range []string{"CVE-2026-9103", `"decision":"accept"`,
+		"no default route", `"open":false`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("remediation.jsonl does not carry %s:\n%s", want, body)
+		}
 	}
 }

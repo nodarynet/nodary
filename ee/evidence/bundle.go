@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/advisory"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/minisign"
@@ -103,11 +104,16 @@ func Build(ctx context.Context, m audit.Mutation, db *store.DB, k *secret.Key,
 	b.add(MemberControls, controls)
 	b.add(MemberControlsMD, controlsMD)
 
-	// Three members whose producers are R2, R4 and R9's remediation half. They
+	// Two members whose producers are R2's and R4's halves of the bundle. They
 	// are written empty with a status that names why, per 13 §2.
 	b.add(MemberRevisions, pending("revision", "configuration revisions arrive with the control plane"))
 	b.add(MemberNodes, pendingJSON("nodes", "node approval records arrive with the agent"))
-	b.add(MemberRemediation, pending("remediation", "flaw-remediation decisions arrive with the advisory feed"))
+
+	remediation, err := remediationSegment(ctx, db, now)
+	if err != nil {
+		return nil, err
+	}
+	b.add(MemberRemediation, remediation)
 
 	b.add(MemberPublicKey, []byte(minisign.EncodePublicKey(key.pub)))
 	b.add(MemberREADME, readme(opt, active.Name))
@@ -265,6 +271,60 @@ func identitySegment(ctx context.Context, db *store.DB) ([]byte, error) {
 			"prefix": t.Prefix, "unattended": t.Unattended, "revoked": t.Revoked(),
 			"created_at": t.CreatedAt.UTC().Format(time.RFC3339),
 		})
+		if err != nil {
+			return nil, err
+		}
+		out.Write(append(line, '\n'))
+	}
+	return out.Bytes(), nil
+}
+
+// remediationSegment is R9-13's member: what was known, decided, by whom, with
+// what justification.
+//
+// **Undecided findings are in it too**, and that is the point rather than an
+// omission — a plan of action is mostly the things nobody has got to yet, and a
+// member listing only the closed ones would be the flattering half. `open` is
+// derived here rather than stored, so a deferral whose review date has passed
+// appears as what it is.
+//
+// An install that has never run `advisory check` has no findings, and says so
+// in one object. A missing file is a question; this is an answer.
+func remediationSegment(ctx context.Context, db *store.DB, now time.Time) ([]byte, error) {
+	found, err := advisory.All(ctx, db.Read())
+	if err != nil {
+		return nil, fmt.Errorf("listing findings: %w", err)
+	}
+	if len(found) == 0 {
+		return pending("remediation",
+			"no advisory feed revision has been checked on this install"), nil
+	}
+
+	var out bytes.Buffer
+	for _, f := range found {
+		row := map[string]any{
+			"kind": "remediation", "advisory_id": f.AdvisoryID, "component": f.Component,
+			"platform": f.Platform, "digest": f.Digest,
+			"known_since":   f.FirstSeen.UTC().Format(time.RFC3339),
+			"feed_revision": f.FeedRevision,
+			"open":          f.Open(now),
+		}
+		if f.Decision != "" {
+			row["decision"] = f.Decision
+			row["justification"] = f.Justification
+			// Absent for a local principal, which 07 §1 makes a real principal
+			// without a user row. The chain carries who either way.
+			if f.DecidedBy != "" {
+				row["decided_by"] = f.DecidedBy
+			}
+			if f.DecidedAt != nil {
+				row["decided_at"] = f.DecidedAt.UTC().Format(time.RFC3339)
+			}
+			if f.ReviewAt != nil {
+				row["review_at"] = f.ReviewAt.Format(time.DateOnly)
+			}
+		}
+		line, err := json.Marshal(row)
 		if err != nil {
 			return nil, err
 		}

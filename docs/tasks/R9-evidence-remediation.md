@@ -64,7 +64,7 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 - [x] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
   - *deps:* R2-11, R9-05
 - [x] **R9-13** `remediation.jsonl` — what was known, decided, by whom, with what justification, and applied when
-  - *done:* the member and its schema ship; the rows arrive with R9-17. It is written as one object saying the category exists and this install has nothing in it, which is an answer where a missing file is a question
+  - *done:* the rows arrive with R9-17 and now do. An install that has never checked a feed revision still gets one object saying the category exists and holds nothing here, which is an answer where a missing file is a question
   - *deps:* R9-05, R9-17
 
 ## Flaw remediation
@@ -90,9 +90,15 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
   - the digest is part of the key: an advisory against a digest the site has since moved off is a different finding from the same advisory against the one it runs now, and upgrading a component must not inherit the old artifact's overdue status. It is normalized before it is stored for the same reason `Match` normalizes before it compares
   - **`advisory check` writes, and `internal/advisory` is on the audit seam's exemption list for it.** A sighting is an observation in the sense `internal/observed` already carries — nobody decided anything by looking — and a chain record per run would bury a month of administration under a verb meant to be run on a whim. The alternative was exempting `internal/cli`, which is precisely what that test's own comment warns against. The decision that closes the clock is R9-17's and goes through `audit.Log.Act` like every other act
   - a check with no control plane still reports the findings and **says there is no clock**, because a report with no clock and a clock that found nothing overdue read identically otherwise
-- [ ] **R9-17** The decision — patch, defer with justification, or accept with a compensating control — as an audited mutation
+- [x] **R9-17** The decision — patch, defer with justification, or accept with a compensating control — as an audited mutation
   - *done:* no parallel workflow exists, because the chain already is the remediation record
   - *deps:* R1-12, R9-16
+  - **a deferral takes a review date and is refused without one.** A `defer` that never comes back is an acceptance that did not say so, and the difference between those two is exactly what these rows are read for. When it comes back the clock resumes **from the original sighting**, not from the deferral: the months spent deferring are months the finding was known, and an assessor counts them
+  - **`--justify` is required here whatever the policy says.** `require_justification` is off in the `default` profile, and a remediation row with an empty justification records nothing — "accept with a compensating control" that names no control is not a decision. It is the *ceremony's* justification rather than a field of its own, because two justification fields would be two answers to one question and a reader would find whichever was blank
+  - one advisory id names a **set**, not a row: a CVE reaches every platform whose pinned digest it matches, and deciding per platform by hand is a way to leave one undecided. `--platform` narrows it when that is genuinely meant, and a decision about a finding this install has never seen is **refused rather than silently ignored** — an operator who mistypes a CVE id would otherwise believe a row exists that an assessor will not find
+  - **no column points at the chain record.** `audit.Log.Act` runs the mutation before it appends, so the sequence does not exist while the row is written, and filling it with a second write after the commit would be a link that is absent exactly when the commit was what failed
+  - **not gated by a permission**, and that is a decision rather than an oversight: [07 §1](../specs/07-identity-audit.md#1-users-and-roles)'s vocabulary has no entry for a remediation decision, and quietly extending that table from a task would put a claim in the spec nobody agreed to. It sits where `limits set` sits; role-gating writes is fleet-wide and its own task
+  - R9-13's `remediation.jsonl` carries rows from here, **undecided findings included** — a plan of action is mostly the things nobody has got to yet, and a member listing only the closed ones would be the flattering half
 - [x] **R9-18** Offline sites receive feed revisions through `nodary bundle create`
   - *deps:* R5-13, R9-14
   - *done:* the bundle carries the revision and its detached signature and **verifies neither**. `advisory check` verifies the signature on every read, unconditionally and with no unsigned mode, and that is the verification that means something — a second one in the bundle would either duplicate it or, worse, look like the one that counted. The bundle's own digest covers the transfer; the signature covers the content

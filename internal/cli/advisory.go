@@ -2,12 +2,15 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/advisory"
+	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/policy"
@@ -17,14 +20,17 @@ import (
 
 func cmdAdvisory(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary advisory: expected a subcommand (check)\n")
+		fmt.Fprintf(e.stderr, "nodary advisory: expected a subcommand (check, decide)\n")
 		return ExitUsage
 	}
-	if args[0] != "check" {
-		fmt.Fprintf(e.stderr, "nodary advisory: unknown subcommand %q (want check)\n", args[0])
-		return ExitUsage
+	switch args[0] {
+	case "check":
+		return cmdAdvisoryCheck(e, args[1:])
+	case "decide":
+		return cmdAdvisoryDecide(e, args[1:])
 	}
-	return cmdAdvisoryCheck(e, args[1:])
+	fmt.Fprintf(e.stderr, "nodary advisory: unknown subcommand %q (want check or decide)\n", args[0])
+	return ExitUsage
 }
 
 // FeedPath is where a revision is installed. Beside the other configuration,
@@ -150,6 +156,22 @@ func cmdAdvisoryCheck(e env, args []string) int {
 				detail += fmt.Sprintf(" — no decision after %d; this is a POA&M item", interval)
 			}
 			fmt.Fprintf(e.stdout, "    clock   %s\n", detail)
+			if d := k.Decided; d.Decision != "" {
+				line := d.Decision
+				if d.ReviewAt != nil {
+					// A deferral that has come back is open again, and saying
+					// only "defer" would read as closed.
+					word := "review"
+					if !d.Open(now) {
+						word = "until"
+					}
+					line += fmt.Sprintf(", %s %s", word, d.ReviewAt.Format(time.DateOnly))
+				}
+				if d.Justification != "" {
+					line += " — " + d.Justification
+				}
+				fmt.Fprintf(e.stdout, "    decided %s\n", line)
+			}
 		}
 		if fi.Advisory.Summary != "" {
 			fmt.Fprintf(e.stdout, "    %s\n", fi.Advisory.Summary)
@@ -163,7 +185,8 @@ func cmdAdvisoryCheck(e env, args []string) int {
 	if overdue > 0 {
 		fmt.Fprintf(e.stderr, "\n%d finding(s) have gone %d day(s) with no decision recorded.\n"+
 			"  A decision is patch, defer with justification, or accept with a compensating\n"+
-			"  control — all three close the clock; none of them is doing nothing.\n",
+			"  control — all three close the clock; none of them is doing nothing:\n"+
+			"    nodary advisory decide <id> --decision accept --justify \"...\"\n",
 			overdue, interval)
 	}
 
@@ -256,7 +279,127 @@ func knownJSON(known []advisory.Known, now time.Time, interval int) []map[string
 			"feed_revision": k.FeedRevision,
 			"days_known":    k.Days(now),
 			"poam":          k.POAM(now, interval),
+			"decision":      k.Decided.Decision,
+			"open":          k.Decided.Open(now),
 		})
+	}
+	return out
+}
+
+// cmdAdvisoryDecide is R9-17: the decision, as an audited mutation.
+//
+// **There is no parallel workflow and no approval queue**, because the chain
+// already is the remediation record — the same act, the same ceremony and the
+// same record as every other mutation in the product. The justification is the
+// ceremony's rather than a field of its own: two justification fields would be
+// two answers to one question, and an assessor would read whichever was blank.
+//
+// It is not gated by a permission, which is not an oversight. The vocabulary in
+// docs/specs/07-identity-audit.md §1 has no entry for a remediation decision,
+// and quietly extending that table from here would put a claim in the spec that
+// nothing agreed to. It sits where `limits set` sits, and the fleet-wide
+// question of role-gating writes is its own task.
+func cmdAdvisoryDecide(e env, args []string) int {
+	fs := newFlagSet(e, "advisory decide")
+	dbPath, keyPath, credsPath := stateFlags(fs)
+	cer := attestFlags(fs)
+	format := formatFlag(fs)
+	decision := fs.String("decision", "",
+		"patch, defer or accept — doing nothing is not one of them")
+	platform := fs.String("platform", "",
+		"decide only this platform's finding (default: every platform the advisory reaches)")
+	until := fs.String("until", "",
+		"YYYY-MM-DD a deferral comes back for review; required with --decision defer")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if !checkFormat(e, *format) {
+		return ExitUsage
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintf(e.stderr, "nodary advisory decide: expected one advisory id\n")
+		return ExitUsage
+	}
+	id := fs.Arg(0)
+
+	var review *time.Time
+	if *until != "" {
+		at, err := time.Parse(time.DateOnly, *until)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary advisory decide: --until wants YYYY-MM-DD: %v\n", err)
+			return ExitUsage
+		}
+		review = &at
+	}
+	if err := advisory.ValidDecision(*decision, review); err != nil {
+		fmt.Fprintf(e.stderr, "nodary advisory decide: %v\n", err)
+		return ExitUsage
+	}
+	// **Required here regardless of policy.** `require_justification` is off in
+	// the default profile, and a remediation row whose justification is empty
+	// is the one thing this record exists to carry — "accept with a
+	// compensating control" with no control named is not a decision.
+	if strings.TrimSpace(*cer.justify) == "" {
+		fmt.Fprintf(e.stderr, "nodary advisory decide: --justify is required here whatever the "+
+			"policy says;\n  the justification is what the decision *is*, and a row without one "+
+			"records nothing\n")
+		return ExitUsage
+	}
+
+	s, ok := openSession(e, "advisory decide", *dbPath, *keyPath, *credsPath)
+	if !ok {
+		return ExitFailure
+	}
+	defer s.Close()
+
+	var covered int
+	rec, applied, code := s.attested(e, "advisory decide", change{
+		action: "advisory.decide",
+		target: &audit.Target{Kind: "advisory", ID: id},
+		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			found, err := advisory.Matching(ctx, tx, id, *platform, s.now)
+			if err != nil {
+				return nil, err
+			}
+			return decidePreview(id, *decision, review, found), nil
+		},
+		apply: func(m audit.Mutation, _ any) error {
+			var err error
+			covered, err = advisory.Decide(context.Background(), m, s.now, id, *platform,
+				*decision, *cer.justify, s.who.User.ID, review)
+			return err
+		},
+	}, cer, *format)
+	if !applied {
+		return code
+	}
+
+	fmt.Fprintf(e.stderr, "advisory %s: %s, %d finding(s)\n", id, *decision, covered)
+	if *decision == advisory.DecisionDefer {
+		fmt.Fprintf(e.stderr, "  It comes back on %s, and its clock runs from the first sighting,\n"+
+			"  not from today: the time spent deferring is time it was known.\n",
+			review.Format(time.DateOnly))
+	}
+	reportRecord(e, rec)
+	return ExitOK
+}
+
+// decidePreview is what the operator approves, and therefore what intent_hash
+// binds. It names every finding the decision covers, because one advisory id
+// reaches every platform whose pinned digest it matches and an operator
+// deciding "this CVE" should see how many rows that is.
+func decidePreview(id, decision string, review *time.Time, found []advisory.Decision) map[string]any {
+	covers := make([]map[string]any, 0, len(found))
+	for _, f := range found {
+		covers = append(covers, map[string]any{
+			"component": f.Component, "platform": f.Platform, "digest": f.Digest,
+			"known_since": f.FirstSeen.UTC().Format(time.RFC3339),
+			"was":         orDash(f.Decision),
+		})
+	}
+	out := map[string]any{"advisory": id, "decision": decision, "findings": covers}
+	if review != nil {
+		out["review_at"] = review.Format(time.DateOnly)
 	}
 	return out
 }

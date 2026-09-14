@@ -28,6 +28,8 @@ type Known struct {
 	FirstSeen time.Time `json:"first_seen"`
 	// FeedRevision is the revision that first carried it here.
 	FeedRevision int `json:"feed_revision"`
+	// Decided is the choice recorded against it, zero when there is none.
+	Decided Decision `json:"decided"`
 }
 
 // Days is how long this finding has been known here, rounded down.
@@ -48,7 +50,7 @@ func (k Known) Days(now time.Time) int {
 // the reporting off rather than making everything overdue on sight, which is
 // what a site that has not configured one should get.
 func (k Known) POAM(now time.Time, afterDays int) bool {
-	return afterDays > 0 && k.Days(now) >= afterDays
+	return afterDays > 0 && k.Decided.Open(now) && k.Days(now) >= afterDays
 }
 
 // Record notes each finding as seen, and returns them with their clocks.
@@ -100,21 +102,35 @@ func record(ctx context.Context, tx *sql.Tx, now time.Time, revision int,
 			return nil, fmt.Errorf("recording %s: %w", f.Advisory.ID, err)
 		}
 
+		// Read back rather than assumed: the row may predate this run by a
+		// month, and it may already carry a decision that closes the clock.
 		var seen string
 		var rev int
+		var decision, justification, by, at, review sql.NullString
 		if err := tx.QueryRowContext(ctx,
-			`SELECT first_seen_at, feed_revision FROM advisory_finding
+			`SELECT first_seen_at, feed_revision, decision, justification, decided_by,
+			        decided_at, review_at
+			   FROM advisory_finding
 			  WHERE advisory_id = ? AND component = ? AND platform = ? AND digest = ?`,
 			f.Advisory.ID, f.Advisory.Component, f.Platform, digest,
-		).Scan(&seen, &rev); err != nil {
+		).Scan(&seen, &rev, &decision, &justification, &by, &at, &review); err != nil {
 			return nil, fmt.Errorf("reading %s: %w", f.Advisory.ID, err)
 		}
-		at, err := time.Parse(audit.TimeFormat, seen)
+		first, err := time.Parse(audit.TimeFormat, seen)
 		if err != nil {
 			return nil, fmt.Errorf("%s has an unreadable first_seen_at %q: %w",
 				f.Advisory.ID, seen, err)
 		}
-		out = append(out, Known{Finding: f, FirstSeen: at, FeedRevision: rev})
+		d := Decision{AdvisoryID: f.Advisory.ID, Component: f.Advisory.Component,
+			Platform: f.Platform, Digest: digest, FirstSeen: first, FeedRevision: rev,
+			Decision: decision.String, Justification: justification.String, DecidedBy: by.String}
+		if d.DecidedAt, err = optTime(at, audit.TimeFormat); err != nil {
+			return nil, err
+		}
+		if d.ReviewAt, err = optTime(review, time.DateOnly); err != nil {
+			return nil, err
+		}
+		out = append(out, Known{Finding: f, FirstSeen: first, FeedRevision: rev, Decided: d})
 	}
 	return out, nil
 }
