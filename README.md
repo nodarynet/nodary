@@ -145,7 +145,7 @@ front page rather than only in a plan.
 | **R4** Agent | 43 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer |
 | **R5** Install | 22 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, and the offline bundle an air-gapped site installs from |
 | **R6** Backends | 9 of 16 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it, the `api` dialect governing what may join a route, and the stage → prepare → serve lifecycle for backends that compile an engine before they can answer |
-| **R9** Evidence | 18 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check`, the offline route a site with no network receives revisions by, the decision clock that makes an undecided advisory a POA&M item, and the decision itself as an audited act |
+| **R9** Evidence | 17 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check`, the offline route a site with no network receives revisions by, the decision clock that makes an undecided advisory a POA&M item, and the decision itself as an audited act |
 
 ```sh
 make check           # gofmt, vet, tests

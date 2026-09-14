@@ -22,6 +22,9 @@ R9 also has a route through it that is not the whole milestone:
 [MVP §4](../plans/mvp.md#4-the-route) takes R9-01 – R9-09 and R9-12 in full, ships
 R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 
+**R9-12 did not land in full.** It shipped one member of three and was marked done anyway;
+see its row. The plan above is what was intended, not what is built.
+
 ## License and editions
 
 - [x] **R9-01** `ee/` under a commercial license, with a pointer from the root `LICENSE`; everything outside it stays Apache 2.0 · [pivot §2.3](../plans/pivot-cmmc.md#23-one-binary-an-ee-directory-a-signed-license-key)
@@ -61,8 +64,10 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 - [ ] **R9-11** `narratives/` — parameterized SSP text per practice, filled with this install's values
   - *done:* the parameters resolve from the install's real configuration, so a narrative naming a value nodary does not hold fails to render rather than emitting a placeholder into a deliverable
   - *deps:* R9-05, R9-19
-- [x] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
+- [ ] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
   - *deps:* R2-11, R9-05
+  - **one member of three, and this row was marked done in the commit that wrote the other two as placeholders** (`01f5a9b`). `identity.jsonl` carries real users and tokens; `revisions.jsonl` and `nodes.json` emit `{"status":"pending"}` unconditionally, whatever the database holds, and `internal/cli/evidence_test.go` pins them that way. Found while building R9-17, which fills the third member beside them
+  - the producers exist — `config.Read` walks the revision chain and `fleet` holds the approval records with their offers — so this is wiring rather than a missing capability. It is a correctness problem in a *deliverable an assessor consumes*: a bundle that says "pending" for configuration history on an install with two years of revisions understates the customer's own evidence
 - [x] **R9-13** `remediation.jsonl` — what was known, decided, by whom, with what justification, and applied when
   - *done:* the rows arrive with R9-17 and now do. An install that has never checked a feed revision still gets one object saying the category exists and holds nothing here, which is an answer where a missing file is a question
   - *deps:* R9-05, R9-17
