@@ -171,7 +171,10 @@ func TestOneApplianceIsOneKeyHoweverItIsWritten(t *testing.T) {
 // not a poor message: it is an operator believing they acted on an appliance
 // across the room while the command edited this host's database.
 func TestAVerbThatDoesNotSpeakToAServerRefusesRatherThanActingLocally(t *testing.T) {
-	code, out, errb := run(t, "audit", "list", "--server", "https://host:8443")
+	// `doctor` diagnoses the host it runs on, so it will never take --server —
+	// which makes it a stable example. A verb merely waiting to be converted
+	// would make this test fail on the day somebody converted it.
+	code, out, errb := run(t, "doctor", "--server", "https://host:8443")
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d\n%s%s", code, ExitUsage, out, errb)
 	}

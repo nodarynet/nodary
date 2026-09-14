@@ -104,7 +104,11 @@ func Query(ctx context.Context, q Querier, f Filter) ([]Row, error) {
 		return nil, fmt.Errorf("reading usage: %w", err)
 	}
 	defer rows.Close()
-	var out []Row
+	// Empty rather than nil. Both front ends render this straight into
+	// `--format json`, which docs/specs/10-cli.md §2 calls a stable schema, and
+	// a nil slice marshals as `null` where a script reading "no usage yet"
+	// expects `[]`.
+	out := []Row{}
 	for rows.Next() {
 		var r Row
 		if err := rows.Scan(&r.Subject, &r.Requests, &r.Prompt, &r.Completion); err != nil {

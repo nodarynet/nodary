@@ -231,6 +231,7 @@ func cmdUsageShow(e env, args []string) int {
 	fs := newFlagSet(e, "usage show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	user := fs.String("user", "", "only this user")
 	model := fs.String("model", "", "only this model")
 	node := fs.String("node", "", "only this node")
@@ -248,16 +249,15 @@ func cmdUsageShow(e env, args []string) int {
 		return ExitUsage
 	}
 
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "usage show", path)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "usage show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
 	// The same bound parser `audit list` uses, so `--from 2026-09-01` means the
-	// same thing on both surfaces. It returns the stored format directly, which
-	// is what the comparison below wants.
+	// same thing on both surfaces. Parsed here even for a --server invocation,
+	// so a malformed date is a usage error on this machine rather than a round
+	// trip that comes back as one.
 	lower, err := audit.ParseBound(*from, false)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary usage show: %v\n", err)
@@ -269,13 +269,35 @@ func cmdUsageShow(e env, args []string) int {
 		return ExitUsage
 	}
 
-	rows, err := metering.Query(context.Background(), db.Read(), metering.Filter{
-		User: *user, Model: *model, Node: *node, Group: *groupBy,
-		From: lower, To: upper,
-	})
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary usage show: %v\n", err)
-		return ExitFailure
+	var rows []metering.Row
+	if r != nil {
+		q := url.Values{}
+		for k, v := range map[string]string{"user": *user, "model": *model,
+			"node": *node, "group_by": *groupBy, "from": *from, "to": *to} {
+			if v != "" {
+				q.Set(k, v)
+			}
+		}
+		if rows, err = remoteList[metering.Row](r, "/usage", "usage", q); err != nil {
+			fmt.Fprintf(e.stderr, "nodary usage show: %v\n", err)
+			return exitFor(err)
+		}
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "usage show", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+
+		rows, err = metering.Query(context.Background(), db.Read(), metering.Filter{
+			User: *user, Model: *model, Node: *node, Group: *groupBy,
+			From: lower, To: upper,
+		})
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary usage show: %v\n", err)
+			return ExitFailure
+		}
 	}
 
 	if *format == "json" {

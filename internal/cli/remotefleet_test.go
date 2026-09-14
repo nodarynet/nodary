@@ -708,3 +708,65 @@ func TestTheProfilesTokenLifetimeCapBindsOverServerToo(t *testing.T) {
 			want, out)
 	}
 }
+
+// The chain read over the network is the chain. An assessor asking "who
+// approved this node" should not need a shell on the machine holding it.
+func TestAuditAndUsageReadOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	base := a.servedBy(t, "alice", "admin")
+	if code, _, stderr := run(t, "node", "approve", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--justify", "approving over the network"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+
+	code, local, stderr := a.run("audit", "list", "--action", "node.approve", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list locally: exit %d, %s", code, stderr)
+	}
+	code, remote, stderr := run(t, "audit", "list", "--action", "node.approve",
+		"--server", base, "--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list over --server: exit %d, %s", code, stderr)
+	}
+	if remote != local {
+		t.Errorf("the chain reads differently over --server:\n  local  %s\n  remote %s",
+			local, remote)
+	}
+	if !strings.Contains(remote, "approving over the network") {
+		t.Errorf("the justification is not in the record:\n%s", remote)
+	}
+
+	// --limit means "the newest N" and must not be turned into "follow the
+	// cursor to the end of the chain" by the paging the endpoint offers.
+	code, out, stderr := run(t, "audit", "list", "--limit", "1",
+		"--server", base, "--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list --limit: exit %d, %s", code, stderr)
+	}
+	var listing struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(out), &listing); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(listing.Records) != 1 {
+		t.Errorf("--limit 1 returned %d records", len(listing.Records))
+	}
+
+	// Nothing has been served, so the honest answer is an empty report rather
+	// than a failure.
+	code, local, stderr = run(t, "usage", "show", "--db", a.db, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("usage show locally: exit %d, %s", code, stderr)
+	}
+	code, remote, stderr = run(t, "usage", "show", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("usage show over --server: exit %d, %s", code, stderr)
+	}
+	if remote != local {
+		t.Errorf("usage reads differently over --server:\n  local  %s\n  remote %s",
+			local, remote)
+	}
+}

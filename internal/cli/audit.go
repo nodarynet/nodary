@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -345,6 +346,7 @@ func cmdAuditList(e env, args []string) int {
 	fs := newFlagSet(e, "audit list")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	from := fs.String("from", "", "earliest record: a date (2006-01-02) or an RFC3339 instant")
 	to := fs.String("to", "", "latest record; a bare date covers the whole day")
 	actor := fs.String("actor", "", "match this actor id exactly")
@@ -371,21 +373,48 @@ func cmdAuditList(e env, args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "audit list", path)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "audit list", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	records, err := audit.List(context.Background(), db, filter)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary audit list: %v\n", err)
-		if errors.Is(err, audit.ErrBadFilter) {
-			return ExitUsage
+	var records []audit.Record
+	var err error
+	if r != nil {
+		// One page rather than the cursor followed to the end, because
+		// --limit means "the newest N" here and both caps are 500. Following
+		// it would quietly return the whole chain to somebody who asked for
+		// fifty records.
+		q := url.Values{"limit": {strconv.Itoa(*limit)}}
+		for k, v := range map[string]string{
+			"from": *from, "to": *to, "actor": *actor, "action": *action} {
+			if v != "" {
+				q.Set(k, v)
+			}
 		}
-		return ExitFailure
+		var body struct {
+			Records []audit.Record `json:"records"`
+		}
+		if err = r.do("GET", "/audit?"+q.Encode(), nil, &body); err != nil {
+			fmt.Fprintf(e.stderr, "nodary audit list: %v\n", err)
+			return exitFor(err)
+		}
+		records = body.Records
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "audit list", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+
+		if records, err = audit.List(context.Background(), db, filter); err != nil {
+			fmt.Fprintf(e.stderr, "nodary audit list: %v\n", err)
+			if errors.Is(err, audit.ErrBadFilter) {
+				return ExitUsage
+			}
+			return ExitFailure
+		}
 	}
 
 	if *format == "json" {

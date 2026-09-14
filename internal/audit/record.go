@@ -246,6 +246,75 @@ func (r Record) Line() ([]byte, error) {
 // caller may legitimately be holding — Act returns one when a mutation failed.
 func (r Record) MarshalJSON() ([]byte, error) { return json.Marshal(r.members()) }
 
+// UnmarshalJSON reads back what MarshalJSON wrote.
+//
+// A marshaler without one is a silent, one-directional lie, and this was one:
+// encoding/json matches an untagged field by name, so `action`, `seq` and
+// `hash` came back and `intent_hash` and `prev_hash` — the two whose names have
+// two words — did not. **prev_hash is the chain.** A copy of the records read
+// from `GET /api/v1/audit` therefore had no links between them and no binding
+// between an approved preview and what was applied, while looking complete; and
+// a chain whose prev_hash is empty does not read as "incomplete export", it
+// reads as tampering.
+//
+// The names are members()' names because that is the whole point of having one
+// set of them. record_test.go holds the two to each other by round trip rather
+// than by review: a member added above and forgotten here fails it.
+func (r *Record) UnmarshalJSON(b []byte) error {
+	var in struct {
+		V       int    `json:"v"`
+		Install string `json:"install"`
+		Seq     int64  `json:"seq"`
+		TS      string `json:"ts"`
+		Actor   struct {
+			ID      string `json:"id"`
+			Method  string `json:"method"`
+			Session string `json:"session"`
+		} `json:"actor"`
+		Source struct {
+			IP      string `json:"ip"`
+			Version string `json:"version"`
+		} `json:"source"`
+		Action string `json:"action"`
+		Target *struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+		} `json:"target"`
+		IntentHash    string         `json:"intent_hash"`
+		Justification string         `json:"justification"`
+		Outcome       string         `json:"outcome"`
+		Detail        map[string]any `json:"detail"`
+		PrevHash      string         `json:"prev_hash"`
+		Hash          string         `json:"hash"`
+	}
+	if err := json.Unmarshal(b, &in); err != nil {
+		return err
+	}
+	*r = Record{
+		V: in.V, Install: in.Install, Seq: in.Seq,
+		Actor:         Actor{ID: in.Actor.ID, Method: in.Actor.Method, Session: in.Actor.Session},
+		Source:        Source{IP: in.Source.IP, Version: in.Source.Version},
+		Action:        in.Action,
+		IntentHash:    in.IntentHash,
+		Justification: in.Justification,
+		Outcome:       Outcome(in.Outcome),
+		Detail:        in.Detail,
+		PrevHash:      in.PrevHash,
+		Hash:          in.Hash,
+	}
+	if in.Target != nil {
+		r.Target = &Target{Kind: in.Target.Kind, ID: in.Target.ID}
+	}
+	if in.TS != "" {
+		ts, err := time.Parse(TimeFormat, in.TS)
+		if err != nil {
+			return fmt.Errorf("record %d has an unreadable ts %q: %w", in.Seq, in.TS, err)
+		}
+		r.TS = ts
+	}
+	return nil
+}
+
 // ErrInvalidRecord is returned by Validate.
 var ErrInvalidRecord = errors.New("audit record is not well formed")
 
