@@ -47,6 +47,13 @@ printf 'signing\n'
 "$root/hack/release-key.sh" sign "$work/key.key" "$work/releases/$version/$asset" 2>/dev/null
 pass "signed with a throwaway key"
 
+# An Ed25519 signature beside the binary. Its *contents* do not matter here:
+# install.sh verifies with openssl and never reads this one — its whole job is
+# to keep it, because a node has no egress and the copy installed beside the
+# binary is the only one it will ever be shown (R5-16). Whether the bytes
+# verify is internal/release's question, and is tested there.
+printf 'a throwaway minisign signature\n' > "$work/releases/$version/$asset.minisig"
+
 # Build the installer the way the release pipeline does, stamping in both the
 # version and the key. Testing the stamped artifact rather than the repository
 # copy is the point: the stamped one is what users receive, and it is the only
@@ -96,6 +103,13 @@ pass "installed binary runs and reports $version"
 
 grep -q 'sha256:' "$work/install.log" || fail "install.sh did not print the digest"
 pass "digest printed before proceeding"
+
+# R5-16: a control plane can only serve what install.sh retained. This used to
+# be downloaded into a temp directory and deleted with it, so there was nothing
+# to publish and the failure appeared much later, on a node.
+[ -s "$prefix/current/nodary.minisig" ] \
+    || fail "the release signature was not kept beside the binary; a node could never verify an upgrade"
+pass "release signature kept for the fleet"
 
 printf 'tamper detection\n'
 printf 'x' >> "$work/releases/$version/$asset"

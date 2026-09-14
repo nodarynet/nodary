@@ -119,6 +119,26 @@ See docs/specs/01-install.md §8 for supported platforms."
 # working names with an underscore. Without that, `fetch` assigning to `url`
 # silently rewrites the caller's `url` and the next fetch asks for the wrong
 # artifact.
+# fetch_optional is fetch for a file whose absence is not a failure. It leaves
+# nothing behind when the download does not succeed, so the caller can test for
+# the file rather than for an exit status it did not see.
+fetch_optional() {
+    _url="$1"; _out="$2"
+
+    _proto="--proto =https --tlsv1.2"
+    case "$NODARY_BASE_URL" in
+        https://*) ;;
+        *) _proto="" ;;
+    esac
+
+    if command -v curl >/dev/null 2>&1; then
+        # shellcheck disable=SC2086 # _proto is intentionally word-split
+        curl -fsSL $_proto -o "$_out" "$_url" 2>/dev/null || rm -f "$_out"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$_out" "$_url" 2>/dev/null || rm -f "$_out"
+    fi
+}
+
 fetch() {
     _url="$1"; _out="$2"
 
@@ -285,7 +305,14 @@ main() {
     # beside the binary is the only one it will ever be shown — R5-16. It used
     # to be documented in the help text above and never downloaded, so a
     # control plane had nothing to serve.
-    fetch "$url.minisig"  "$tmp/nodary.minisig"
+    #
+    # **Optional, deliberately.** This script's job is to install, and it
+    # verifies with the `.sig` above. Making a download that serves a different
+    # feature into a hard dependency of installing would trade this script's
+    # reliability for that feature's convenience; a host without it is reported
+    # by `nodary upgrade` as having no signature to publish, which is the right
+    # place for that to surface.
+    fetch_optional "$url.minisig" "$tmp/nodary.minisig"
 
     step "verifying signature"
     verify_signature "$tmp/nodary" "$tmp/nodary.sig" "$tmp/release.pem"
@@ -302,7 +329,7 @@ main() {
     chmod 0755 "$tmp/nodary"
     as_root mkdir -p "$dest"
     as_root cp "$tmp/nodary" "$dest/nodary"
-    as_root cp "$tmp/nodary.minisig" "$dest/nodary.minisig"
+    [ -s "$tmp/nodary.minisig" ] && as_root cp "$tmp/nodary.minisig" "$dest/nodary.minisig"
     as_root ln -sfn "$dest" "${NODARY_PREFIX}/current"
 
     if [ -d "$NODARY_BIN_DIR" ]; then
