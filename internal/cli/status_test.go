@@ -98,9 +98,15 @@ func TestAStoppedApplianceIsNotASuccessfulStatus(t *testing.T) {
 		{"never installed", []install.UnitStatus{
 			{Unit: "nodary-server.service", Active: "active", Enabled: "enabled"},
 			{Unit: "nodary-agent.service", Active: "inactive", Enabled: ""}}, ExitOK},
-		{"the prune oneshot between runs", []install.UnitStatus{
+		{"the oneshots between runs", []install.UnitStatus{
 			{Unit: "nodary-prune.timer", Active: "active", Enabled: "enabled"},
-			{Unit: "nodary-prune.service", Active: "inactive", Enabled: "static"}}, ExitOK},
+			{Unit: "nodary-prune.service", Active: "inactive", Enabled: "static"},
+			{Unit: "nodary-gateway-sync.timer", Active: "active", Enabled: "enabled"},
+			{Unit: "nodary-gateway-sync.service", Active: "inactive", Enabled: "static"}}, ExitOK},
+		// A stopped timer is not: a data-plane sync that has quietly stopped
+		// happening is a fleet whose routes freeze at whatever they were.
+		{"a stopped timer", []install.UnitStatus{
+			{Unit: "nodary-gateway-sync.timer", Active: "inactive", Enabled: "enabled"}}, ExitFailure},
 	} {
 		if got := statusExit(c.units); got != c.want {
 			t.Errorf("%s: exit %d, want %d", c.name, got, c.want)

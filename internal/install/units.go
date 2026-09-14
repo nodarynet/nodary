@@ -318,6 +318,64 @@ Persistent=true
 WantedBy=timers.target
 `
 
+// gatewaySyncUnit re-renders the data plane from what the fleet currently
+// reports, so route membership follows readiness without somebody running a
+// command (R3-14).
+//
+// **It runs as root, and that is the whole reason it is a separate unit.**
+// `gateway sync` writes /etc/nodary/litellm.yaml and restarts
+// nodary-litellm.service. nodary-server holds the routes and deliberately
+// cannot do either — `ProtectSystem=strict` with `ReadOnlyPaths=/etc/nodary` —
+// because widening the network-facing process until it could rewrite the data
+// plane's configuration and restart services is exactly the capability worth
+// withholding. So the process that knows asks nobody, and a small periodic act
+// that knows nothing does the writing.
+//
+// `ProtectSystem=full` rather than strict: /usr and /boot stay read-only and
+// /etc does not, because /etc/nodary is what this writes.
+//
+// It is cheap when nothing moved. `gateway sync` compares the rendered file
+// against what the running LiteLLM was started with and restarts only when they
+// differ, so the ordinary tick writes nothing and restarts nothing.
+const gatewaySyncUnit = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=nodary data plane sync
+After=nodary-server.service
+
+[Service]
+Type=oneshot
+ExecStart=%[1]s gateway sync
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+`
+
+// gatewaySyncTimer is how often membership catches up with readiness.
+//
+// A minute, and the latency is deliberate rather than a limitation to apologize
+// for. A model takes minutes to load, so a deployment joining its route within
+// sixty seconds of reporting ready is not the constraint on anything; and the
+// case that has to be fast — a replica that stops answering mid-request — is
+// handled on the request path by the router's own cooldown (see
+// internal/gateway's router_settings), which needs no restart at all. Polling
+// faster would buy latency nobody is waiting on and pay for it in data-plane
+// restarts, which drop live requests.
+//
+// No Persistent=: this catches up with the present rather than running a pass
+// it missed, and a boot starts LiteLLM from the current file anyway.
+const gatewaySyncTimer = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=nodary data plane sync
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
+`
+
 // Units are what an install writes, by role.
 func Units(role string) map[string]string {
 	switch role {
@@ -327,12 +385,14 @@ func Units(role string) map[string]string {
 			// container, so the runtime is not a node-only concern. Its unit is
 			// upstream's, placed by nodary, because the release tarball ships
 			// none — see containerdUnit.
-			"containerd.service":     containerdUnit,
-			"nodary-server.service":  serverUnit,
-			"nodary-gateway.service": gatewayUnit,
-			"nodary-litellm.service": litellmUnit,
-			"nodary-prune.service":   pruneUnit,
-			"nodary-prune.timer":     pruneTimer,
+			"containerd.service":          containerdUnit,
+			"nodary-server.service":       serverUnit,
+			"nodary-gateway.service":      gatewayUnit,
+			"nodary-litellm.service":      litellmUnit,
+			"nodary-prune.service":        pruneUnit,
+			"nodary-prune.timer":          pruneTimer,
+			"nodary-gateway-sync.service": gatewaySyncUnit,
+			"nodary-gateway-sync.timer":   gatewaySyncTimer,
 		}
 	case "node":
 		return map[string]string{

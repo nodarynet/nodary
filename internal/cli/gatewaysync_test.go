@@ -9,6 +9,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/gateway"
 )
 
 // TestOnlyDeploymentsThisHostCanReachAreServed is the honest half of a design
@@ -46,7 +47,7 @@ func TestOnlyDeploymentsThisHostCanReachAreServed(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, dir)
+	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, allReady(snap), dir)
 
 	if len(models) != 1 || models[0].Name != "llama" {
 		t.Fatalf("served %+v, want only the local route", models)
@@ -98,7 +99,7 @@ func TestADrainedOrRevokedNodeLeavesItsRoutes(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, dir)
+	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, allReady(snap), dir)
 
 	if len(models) != 1 || models[0].Name != "llama" {
 		t.Fatalf("served %+v, want only the route on the serving node", models)
@@ -128,7 +129,7 @@ func TestAControlPlaneThatIsNotANodeServesEveryRoute(t *testing.T) {
 		Routes:      []config.Route{{Name: "m", Members: []config.RouteMember{{DeploymentID: "d1"}}}},
 	}
 	var out bytes.Buffer
-	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, dir)
+	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, allReady(snap), dir)
 	if len(models) != 1 || skipped != 0 {
 		t.Errorf("served %d and skipped %d; want every route served", len(models), skipped)
 	}
@@ -213,5 +214,79 @@ func TestSyncRestartsWhenTheRunningConfigurationIsStale(t *testing.T) {
 	}
 	if again, err := os.ReadFile(marker); err != nil || string(again) != string(first) {
 		t.Errorf("the marker was not restored: %q, %v", again, err)
+	}
+}
+
+// allReady marks every deployment in a snapshot as serving, which is what the
+// tests above assume: they are about topology and node state, not about whether
+// a container has come up.
+func allReady(snap *config.Snapshot) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range snap.Deployments {
+		out[d.ID] = true
+	}
+	return out
+}
+
+// R3-14, docs/specs/05-catalog.md §5: round-robin across **ready** members.
+//
+// Before this, every member of a route was rendered whatever its state, so
+// LiteLLM kept an api_base pointed at a deployment the operator had disabled, at
+// one whose card had left the bus, and at one that had never started. The client
+// symptom is a connection refused from inside the data plane rather than the
+// 503 with a Retry-After that 06 §5 specifies for a route with no ready member.
+func TestOnlyReadyMembersAreServed(t *testing.T) {
+	snap := &config.Snapshot{
+		Deployments: []config.Deployment{
+			{ID: "d-ready", NodeName: "here", Port: 8001},
+			{ID: "d-starting", NodeName: "here", Port: 8002},
+			{ID: "d-off", NodeName: "here", Port: 8003, Disabled: true},
+		},
+		Routes: []config.Route{
+			{Name: "ready", Members: []config.RouteMember{{DeploymentID: "d-ready"}}},
+			{Name: "starting", Members: []config.RouteMember{{DeploymentID: "d-starting"}}},
+			{Name: "off", Members: []config.RouteMember{{DeploymentID: "d-off"}}},
+		},
+	}
+	// Only the first is reported ready by its node; the disabled one is
+	// deliberately *also* reported ready, because a decision an operator made
+	// must not wait on the node getting around to reporting the stop.
+	ready := map[string]bool{"d-ready": true, "d-off": true}
+
+	var out bytes.Buffer
+	models, skipped := routeModels(env{stdout: &out, stderr: &out}, snap, ready, t.TempDir())
+
+	if len(models) != 1 || models[0].Name != "ready" {
+		t.Fatalf("served %+v, want only the ready member", models)
+	}
+	if skipped != 2 {
+		t.Errorf("skipped %d, want 2", skipped)
+	}
+	// Named rather than silently dropped, and for different reasons, because
+	// the operator's next step differs: wait, or re-enable.
+	for _, want := range []string{"d-starting is not ready", "d-off is disabled"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output does not say %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// A route whose only member is not ready renders no model at all rather than a
+// model pointing at nothing. LiteLLM refuses a configuration with no model_list,
+// which is why Render writes an empty list rather than omitting the key — a
+// control plane whose deployments are all still starting is an ordinary state.
+func TestARouteWithNoReadyMemberIsNotRendered(t *testing.T) {
+	snap := &config.Snapshot{
+		Deployments: []config.Deployment{{ID: "d1", NodeName: "here", Port: 8001}},
+		Routes:      []config.Route{{Name: "llama", Members: []config.RouteMember{{DeploymentID: "d1"}}}},
+	}
+	var out bytes.Buffer
+	models, _ := routeModels(env{stdout: &out, stderr: &out}, snap, map[string]bool{}, t.TempDir())
+	if len(models) != 0 {
+		t.Fatalf("served %+v, want nothing", models)
+	}
+	body := gateway.LiteLLMConfig{Models: models, MasterKey: "k"}.Render()
+	if !strings.Contains(string(body), "model_list:\n  []") {
+		t.Errorf("an empty model_list was not rendered as one:\n%s", body)
 	}
 }

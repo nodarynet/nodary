@@ -192,7 +192,7 @@ func stoppableUnits(roles []string) []string {
 	// The timer's oneshot is not in startedUnits — nothing enables it directly
 	// — but it is written, so it is stopped.
 	if slices.Contains(roles, "server") {
-		out = append(out, "nodary-prune.service")
+		out = append(out, "nodary-prune.service", "nodary-gateway-sync.service")
 	}
 	return out
 }

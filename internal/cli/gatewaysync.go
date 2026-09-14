@@ -71,7 +71,16 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 	if code != ExitOK {
 		return code
 	}
-	models, skipped := routeModels(e, snap, dir)
+	// The deployment states, read separately because they are deliberately not
+	// in the configuration snapshot: they are observations, and a heartbeat
+	// that moved one would otherwise read as a configuration change
+	// (docs/plans/R4a-agent-protocol.md §4).
+	ready, err := readyDeployments(ctx, db.Read())
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
+		return ExitFailure
+	}
+	models, skipped := routeModels(e, snap, ready, dir)
 
 	// Named, not counted. "3 route(s) would be served" leaves an operator
 	// unable to answer the one question they have after applying a
@@ -175,7 +184,31 @@ func digestOf(b []byte) string {
 // and it is not papered over: a deployment on another node is skipped and named,
 // so a single-box install works and a fleet is told what is missing instead of
 // being handed a configuration pointing at an address that answers nothing.
-func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMModel, int) {
+// readyDeployments is every deployment whose node reports it as serving.
+//
+// docs/specs/05-catalog.md §5 round-robins across **ready** members, and `ready`
+// already folds in health: internal/agent's observedState calls a unit `ready`
+// only when it is active *and* its health probe answers, so a replica that goes
+// unhealthy drops back to `starting` and leaves its route here. That is what
+// makes this health-driven without this file knowing what a health probe is.
+func readyDeployments(ctx context.Context, q config.Querier) (map[string]bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id FROM deployment WHERE state = 'ready'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string) ([]gateway.LiteLLMModel, int) {
 	byID := map[string]config.Deployment{}
 	for _, d := range snap.Deployments {
 		byID[d.ID] = d
@@ -222,6 +255,31 @@ func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMMod
 					mark(preflight.LevelWarn), "route", r.Name, d.ID, d.NodeName, state[d.NodeName])
 				continue
 			}
+			// R3-14: only members that are actually serving. Without this a
+			// route kept pointing at a deployment the operator had disabled,
+			// one whose card had left the bus, and one that had never started
+			// — so a client got a connection refused from a data plane that
+			// believed it was routing correctly, rather than the 503 with a
+			// Retry-After that 06 §5 specifies for a route with no ready
+			// member.
+			//
+			// Disabled is checked separately from the state map because it is a
+			// *decision* and it is in the snapshot: an operator who runs
+			// `model disable` has said so, and a route still naming it should
+			// not depend on whether the node has got around to reporting the
+			// stop yet.
+			if d.Disabled {
+				skipped++
+				fmt.Fprintf(e.stdout, "%s %-18s %s: %s is disabled\n",
+					mark(preflight.LevelWarn), "route", r.Name, d.ID)
+				continue
+			}
+			if !ready[d.ID] {
+				skipped++
+				fmt.Fprintf(e.stdout, "%s %-18s %s: %s is not ready, so it is not in the route yet\n",
+					mark(preflight.LevelWarn), "route", r.Name, d.ID)
+				continue
+			}
 			if local != "" && d.NodeName != local {
 				skipped++
 				fmt.Fprintf(e.stdout, "%s %-18s %s: %s runs on %q and publishes on that host's loopback, "+
@@ -233,6 +291,7 @@ func routeModels(e env, snap *config.Snapshot, dir string) ([]gateway.LiteLLMMod
 				Name:    r.Name,
 				Model:   r.Name,
 				APIBase: fmt.Sprintf("http://127.0.0.1:%d/v1", d.Port),
+				Weight:  m.Weight,
 				// So a usage row can say which member of this route served the
 				// request, and therefore which node and which GPU.
 				ID: d.ID,

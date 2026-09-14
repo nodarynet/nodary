@@ -910,7 +910,10 @@ func startedUnits(role string) []string {
 			// The timer, not the oneshot it triggers: enabling a Type=oneshot
 			// directly runs it now and never again, which is the opposite of
 			// what it is for.
-			"nodary-prune.timer"}
+			"nodary-prune.timer",
+			// R3-14: route membership follows readiness. The timer, not the
+			// oneshot, for the reason the prune pair gives above.
+			"nodary-gateway-sync.timer"}
 	case "node":
 		return []string{"containerd.service", "nodary-agent.service"}
 	}

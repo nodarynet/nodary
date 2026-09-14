@@ -21,6 +21,14 @@ type LiteLLMModel struct {
 	Name    string
 	APIBase string
 	Model   string
+	// Weight is the route member's share of the traffic across a route's
+	// members. Zero means "not stated", and LiteLLM's own default applies.
+	//
+	// config.RouteMember has carried this since routes existed and nothing
+	// rendered it, so `nodary route set --add` wrote a weight that changed
+	// nothing — a configuration field an operator can set and the product
+	// ignores is worse than one that does not exist.
+	Weight int
 	// ID is the deployment's id, written into model_info so that LiteLLM
 	// hands it back on every response as x-litellm-model-id.
 	//
@@ -86,6 +94,9 @@ model_list:
 		// OpenAI without authentication of their own; nodary is what
 		// authenticated the caller.
 		b.WriteString("      api_key: \"nodary-unused\"\n")
+		if m.Weight > 0 {
+			fmt.Fprintf(&b, "      weight: %d\n", m.Weight)
+		}
 		if m.ID != "" {
 			b.WriteString("    model_info:\n")
 			fmt.Fprintf(&b, "      id: %q\n", m.ID)
@@ -97,6 +108,35 @@ model_list:
 		// deployments is an ordinary state, not a broken one.
 		b.WriteString("  []\n")
 	}
+
+	// docs/specs/05-catalog.md §5 spreads requests across a route's ready
+	// members, and these are what make that happen *between* syncs.
+	//
+	// **This is the live half of health-driven membership.** nodary removes a
+	// deployment from the file when its node stops reporting it ready, which is
+	// bookkeeping on the order of a heartbeat; a replica that stops answering
+	// mid-request has to leave the rotation in the time it takes to notice, and
+	// that is the router's job — LiteLLM owns routing, retries and fallbacks
+	// (06 §1), and doing it here would mean a data-plane restart per health
+	// blip, which drops live requests to fix a replica that is already being
+	// routed around.
+	//
+	// Written explicitly rather than inherited, the same discipline pinnedOff
+	// follows: a setting this product depends on must not be whatever a future
+	// LiteLLM release defaults it to.
+	//
+	// `simple-shuffle` is a weighted spread, not a strict rotation — LiteLLM
+	// offers no strategy named round-robin — so §5's "round-robin" is honoured
+	// as "spread across ready members", with RouteMember.Weight as the share.
+	// Naming the discrepancy is cheaper than a rotation nodary would have to
+	// implement itself in front of a router that already spreads.
+	b.WriteString(`
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2            # a failed member is retried on another, not returned to the client
+  allowed_fails: 3          # 03 §7's three consecutive failures, applied on the request path
+  cooldown_time: 30         # seconds out of rotation; the next sync decides whether it stays
+`)
 
 	b.WriteString("\ngeneral_settings:\n")
 	fmt.Fprintf(&b, "  master_key: %q\n", c.MasterKey)

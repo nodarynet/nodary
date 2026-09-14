@@ -135,7 +135,7 @@ func hostUnits(roles []string) []string {
 		// The timer's oneshot: `active` is the wrong question for a Type=oneshot
 		// — it is inactive between runs and that is correct — but "installed"
 		// is worth seeing beside the timer that triggers it.
-		out = append(out, "nodary-prune.service")
+		out = append(out, "nodary-prune.service", "nodary-gateway-sync.service")
 	}
 	return out
 }
@@ -146,11 +146,13 @@ func hostUnits(roles []string) []string {
 // installs, and on a staged tree — or a half-finished install — asking systemd
 // about a unit that was never written answers "not installed", which is
 // reported in the table rather than called a failure of the running system.
-// `nodary-prune.service` is a Type=oneshot triggered by a timer, so it is
-// inactive between runs by design.
+// A `Type=oneshot` triggered by a timer is inactive between runs by design, so
+// the oneshots are skipped and the timers that drive them are not: a stopped
+// timer is a retention pass or a data-plane sync that has quietly stopped
+// happening, which is exactly what this verb is for.
 func unitsOK(units []install.UnitStatus) bool {
 	for _, u := range units {
-		if !u.Installed() || u.Unit == "nodary-prune.service" {
+		if !u.Installed() || oneshot(u.Unit) {
 			continue
 		}
 		if u.Active != "active" {
@@ -158,6 +160,11 @@ func unitsOK(units []install.UnitStatus) bool {
 		}
 	}
 	return true
+}
+
+// oneshot names the units a timer triggers, which finish and go inactive.
+func oneshot(unit string) bool {
+	return unit == "nodary-prune.service" || unit == "nodary-gateway-sync.service"
 }
 
 // statusExit follows `systemctl is-active`'s contract, which is the one an
