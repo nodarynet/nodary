@@ -14,10 +14,11 @@ import (
 // at parse if set to anything else, and the mechanisms behind them run
 // unconditionally. Nothing reads those fields because nothing needs to.
 //
-// A third, `token_max_ttl_days`, was genuinely unenforced and is now enforced
-// (R1-37), which leaves eight that can vary with nothing acting on them. That
-// is the number the display has to carry, and the arithmetic here is the point:
-// these counts move only when somebody deliberately moves them.
+// The rest were genuinely unenforced and have been enforced one task at a time
+// since -- `token_max_ttl_days` by R1-37, `allow_custom_backends` by R6-07 --
+// which leaves three that can vary with nothing acting on them. That is the
+// number the display has to carry, and the arithmetic here is the point: these
+// counts move only when somebody deliberately moves them.
 func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 	var enforcedN, invariantN int
 	for _, f := range fields {
@@ -37,11 +38,11 @@ func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 			t.Errorf("%s carries an unrecognized standing %q", f.name, f.standing)
 		}
 	}
-	if got := len(Unenforced()); got != 4 {
-		t.Errorf("%d settings are unenforced, the display and the README say 4: %v", got, Unenforced())
+	if got := len(Unenforced()); got != 3 {
+		t.Errorf("%d settings are unenforced, the display and the README say 3: %v", got, Unenforced())
 	}
-	if enforcedN != 10 || invariantN != 2 {
-		t.Errorf("enforced = %d, invariant = %d; want 10 and 2", enforcedN, invariantN)
+	if enforcedN != 11 || invariantN != 2 {
+		t.Errorf("enforced = %d, invariant = %d; want 11 and 2", enforcedN, invariantN)
 	}
 }
 
@@ -73,8 +74,8 @@ func TestTheMarkingSurvivesEveryRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 	standing, lines := Standing(), Describe(p)
-	if len(standing) != 6 {
-		t.Errorf("Standing() carries %d annotations, want 6 (4 unenforced + 2 invariants)", len(standing))
+	if len(standing) != 5 {
+		t.Errorf("Standing() carries %d annotations, want 5 (3 unenforced + 2 invariants)", len(standing))
 	}
 	for name, note := range standing {
 		var found bool

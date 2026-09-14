@@ -117,7 +117,7 @@ var fields = []field{
 	{"min_justification_length", showInt(func(p Profile) int { return p.MinJustificationLength }), lowerLoosens(func(p Profile) int { return p.MinJustificationLength }), enforced},
 	{"require_signed_artifacts", showBool(func(p Profile) bool { return p.RequireSignedArtifacts }), requireLoosens(func(p Profile) bool { return p.RequireSignedArtifacts }), invariant + "refused if false; digests are checked unconditionally"},
 	{"allow_unattended_tokens", showBool(func(p Profile) bool { return p.AllowUnattendedTokens }), allowLoosens(func(p Profile) bool { return p.AllowUnattendedTokens }), enforced},
-	{"allow_custom_backends", showBool(func(p Profile) bool { return p.AllowCustomBackends }), allowLoosens(func(p Profile) bool { return p.AllowCustomBackends }), pending + "R6-07"},
+	{"allow_custom_backends", showBool(func(p Profile) bool { return p.AllowCustomBackends }), allowLoosens(func(p Profile) bool { return p.AllowCustomBackends }), enforced},
 	{"allow_derived_images", showBool(func(p Profile) bool { return p.AllowDerivedImages }), allowLoosens(func(p Profile) bool { return p.AllowDerivedImages }), pending + "R6-08"},
 	{"require_pinned_derives", showBool(func(p Profile) bool { return p.RequirePinnedDerives }), requireLoosens(func(p Profile) bool { return p.RequirePinnedDerives }), pending + "R6-11"},
 	{"egress_default", func(p Profile) string { return p.EgressDefault }, func(a, b Profile) bool { return false }, invariant + `refused if not "deny"; isolation is unconditional`},
