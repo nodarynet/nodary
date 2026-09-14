@@ -97,12 +97,21 @@ signs:
       - "${signature}"
       - "${artifact}"
 
-  # Ed25519, for out-of-band verification by anyone who has minisign.
+  # Ed25519, for out-of-band verification by anyone who has minisign — and,
+  # since R5-16, for the node that verifies a binary its control plane served.
+  #
+  # **`-l` is not optional and is not the default.** Stock `minisign -S`
+  # produces a *prehashed* `ED` signature; internal/minisign verifies only the
+  # legacy `Ed` form and refuses the other by name. Measured against the real
+  # tool rather than read off a man page: without `-l` the signature this
+  # pipeline produces is one nodary itself cannot check, so a control plane
+  # would refuse to publish its own binary at the first real release and the
+  # reason would look like a corrupt artifact.
   - id: minisign
     artifacts: binary
     signature: "${artifact}.minisig"
     cmd: minisign
-    args: ["-S", "-s", "{{ .Env.NODARY_MINISIGN_KEY }}", "-m", "${artifact}", "-x", "${signature}"]
+    args: ["-S", "-l", "-s", "{{ .Env.NODARY_MINISIGN_KEY }}", "-m", "${artifact}", "-x", "${signature}"]
 
 # **A cask, and therefore macOS only** (R5-23, ADR 0004).
 #

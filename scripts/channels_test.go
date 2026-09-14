@@ -146,6 +146,34 @@ func TestTheShippedBinaryIsTheFIPSBuild(t *testing.T) {
 	}
 }
 
+// **`minisign -S` without `-l` produces a signature nodary cannot verify.**
+// Stock minisign prehashes by default and emits `ED`; internal/minisign accepts
+// only the legacy `Ed` form and refuses the other by name. Measured against the
+// real tool: without `-l` a control plane refuses to publish its own binary at
+// the first real release (R5-16), and the reason reads like a corrupt artifact.
+//
+// `goreleaser check` validates the schema and has nothing to say about a
+// signer's arguments, so nothing else here would notice.
+func TestTheReleaseSignsLegacyMinisign(t *testing.T) {
+	body, err := os.ReadFile(repoFile(t, ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	i := strings.Index(src, "cmd: minisign")
+	if i < 0 {
+		t.Fatal("no minisign signer: a node has nothing to verify an upgrade against")
+	}
+	args := src[i:]
+	if end := strings.Index(args, "\n\n"); end > 0 {
+		args = args[:end]
+	}
+	if !strings.Contains(args, `"-l"`) {
+		t.Error("the minisign signer omits -l, so it produces a prehashed signature " +
+			"that internal/minisign refuses")
+	}
+}
+
 // R5-23: the Homebrew channel is a macOS cask, and two of its properties are
 // invisible to `goreleaser check` — which validates the schema and has nothing
 // to say about whether the values make sense together.

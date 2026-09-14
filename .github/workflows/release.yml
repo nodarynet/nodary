@@ -104,7 +104,7 @@ jobs:
       # there means a signature cannot be lifted onto a different release.
       - name: Sign the stamped install.sh
         run: |
-          minisign -S -s "$NODARY_MINISIGN_KEY" \
+          minisign -S -l -s "$NODARY_MINISIGN_KEY" \
               -m build/install.sh -x build/install.sh.minisig \
               -c "nodary installer" \
               -t "nodary ${{ steps.version.outputs.version }} install.sh"
