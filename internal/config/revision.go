@@ -380,3 +380,36 @@ func LatestSeq(ctx context.Context, q Querier) (int64, error) {
 	}
 	return seq, nil
 }
+
+// RevisionReport is the stable shape of a revision in a listing.
+//
+// It lives here for the reason identity.UserReport does: both front ends render
+// it, and while each held its own map literal they were one rename apart from
+// disagreeing. The snapshot is not in it — a listing of fifty revisions would
+// carry fifty whole configurations — so `GET /revisions/{seq}` and `config show
+// --rev` are what fetch one.
+type RevisionReport struct {
+	Seq           int64  `json:"seq"`
+	TS            string `json:"ts"`
+	Actor         string `json:"actor"`
+	Justification string `json:"justification"`
+	Hash          string `json:"hash"`
+}
+
+func NewRevisionReport(r Revision) RevisionReport {
+	return RevisionReport{
+		Seq:           r.Seq,
+		TS:            r.TS.Format(audit.TimeFormat),
+		Actor:         r.Actor,
+		Justification: r.Justification,
+		Hash:          r.Hash,
+	}
+}
+
+func RevisionReports(revs []Revision) []RevisionReport {
+	out := make([]RevisionReport, len(revs))
+	for i, r := range revs {
+		out[i] = NewRevisionReport(r)
+	}
+	return out
+}

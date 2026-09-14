@@ -93,6 +93,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/revisions/{seq}", s.showRevision)
 	h("POST", "/revisions/{seq}/rollback", s.rollback)
 	h("GET", "/config/export", s.exportConfig)
+	h("GET", "/config/verify", s.verifyConfig)
 
 	// Nodes — R2-26. Reads, the administrative transitions, and the stored
 	// egress verdicts; enrollment is the agent's own path above.
@@ -606,12 +607,7 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request) {
 			revs = revs[:p.limit]
 			next = strconv.FormatInt(revs[len(revs)-1].Seq, 10)
 		}
-		out := make([]map[string]any, len(revs))
-		for i, rev := range revs {
-			out[i] = map[string]any{"seq": rev.Seq, "ts": rev.TS.Format(audit.TimeFormat),
-				"actor": rev.Actor, "justification": rev.Justification, "hash": rev.Hash}
-		}
-		return listBody("revisions", out, next), nil
+		return listBody("revisions", config.RevisionReports(revs), next), nil
 	})
 }
 
@@ -625,8 +621,32 @@ func (s *Server) showRevision(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"seq": rev.Seq, "actor": rev.Actor, "hash": rev.Hash,
+		// The listing's fields and the snapshot, rather than three of the
+		// first: `config show --rev` renders the configuration and the line
+		// above it, and `ts` and `justification` were not in the answer at all.
+		return map[string]any{"revision": config.NewRevisionReport(rev),
 			"snapshot": rev.Snapshot}, nil
+	})
+}
+
+// verifyConfig walks the revision chain, the way verifyAudit walks the audit
+// chain.
+//
+// The walk belongs on the machine holding the revisions: every one carries a
+// whole configuration snapshot, so verifying from outside would mean shipping
+// the entire history to do arithmetic the control plane can do in place. It
+// answers the same two things `nodary config verify` prints — how many
+// verified, and what broke.
+func (s *Server) verifyConfig(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		n, err := config.Verify(r.Context(), d.DB.Read())
+		out := map[string]any{"revisions": n, "ok": err == nil}
+		if err != nil {
+			out["break"] = err.Error()
+		}
+		// A broken chain is a true answer, not a failed request: 200 with
+		// ok:false, exactly as GET /audit/verify reports one.
+		return out, nil
 	})
 }
 

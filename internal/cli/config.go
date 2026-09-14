@@ -71,6 +71,7 @@ func cmdConfigShow(e env, args []string) int {
 	fs := newFlagSet(e, "config show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	rev := fs.Int64("rev", 0, "show this revision instead of the live configuration")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -78,15 +79,27 @@ func cmdConfigShow(e env, args []string) int {
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	db, ok := openConfigRead(e, "config show", *dbPath)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "config show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	s, ok := revisionAt(e, "config show", db, *rev)
-	if !ok {
-		return ExitFailure
+	var s *config.Snapshot
+	if r != nil {
+		var err error
+		if s, err = remoteSnapshot(r, *rev); err != nil {
+			fmt.Fprintf(e.stderr, "nodary config show: %v\n", err)
+			return exitFor(err)
+		}
+	} else {
+		db, ok := openConfigRead(e, "config show", *dbPath)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		if s, ok = revisionAt(e, "config show", db, *rev); !ok {
+			return ExitFailure
+		}
 	}
 	if *format == "json" {
 		return writeJSON(e, "config show", s)
@@ -105,20 +118,31 @@ func cmdConfigExport(e env, args []string) int {
 	// docs/specs/08-data-model.md §2 says it emits the file `apply -f` reads.
 	fs := newFlagSet(e, "config export")
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	out := fs.String("out", "", "write here instead of stdout")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
-	db, ok := openConfigRead(e, "config export", *dbPath)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "config export", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	s, err := config.Read(context.Background(), db.Read())
+	var s *config.Snapshot
+	var err error
+	if r != nil {
+		s, err = remoteSnapshot(r, 0)
+	} else {
+		db, ok := openConfigRead(e, "config export", *dbPath)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		s, err = config.Read(context.Background(), db.Read())
+	}
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary config export: %v\n", err)
-		return ExitFailure
+		return exitFor(err)
 	}
 	body, err := config.RenderTOML(s)
 	if err != nil {
@@ -141,6 +165,7 @@ func cmdConfigList(e env, args []string) int {
 	fs := newFlagSet(e, "config list")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	limit := fs.Int("limit", 50, "how many revisions to show")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -148,61 +173,135 @@ func cmdConfigList(e env, args []string) int {
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	db, ok := openConfigRead(e, "config list", *dbPath)
-	if !ok {
-		return ExitFailure
+	rem, code := remoteFor(e, "config list", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	revs, err := config.List(context.Background(), db.Read(), *limit, 0)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary config list: %v\n", err)
-		return ExitFailure
-	}
-	if *format == "json" {
-		out := make([]map[string]any, len(revs))
-		for i, r := range revs {
-			out[i] = map[string]any{"seq": r.Seq, "ts": r.TS.Format(audit.TimeFormat),
-				"actor": r.Actor, "justification": r.Justification, "hash": r.Hash}
+	var reports []config.RevisionReport
+	if rem != nil {
+		// One page of exactly --limit, not the cursor followed to the end: the
+		// flag means "the newest N", as it does for `audit list`.
+		var body struct {
+			Revisions []config.RevisionReport `json:"revisions"`
 		}
-		return writeJSON(e, "config list", out)
+		if err := rem.do("GET", "/revisions?limit="+strconv.Itoa(*limit), nil, &body); err != nil {
+			fmt.Fprintf(e.stderr, "nodary config list: %v\n", err)
+			return exitFor(err)
+		}
+		reports = body.Revisions
+	} else {
+		db, ok := openConfigRead(e, "config list", *dbPath)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		revs, err := config.List(context.Background(), db.Read(), *limit, 0)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary config list: %v\n", err)
+			return ExitFailure
+		}
+		reports = config.RevisionReports(revs)
 	}
-	for _, r := range revs {
-		fmt.Fprintf(e.stdout, "%d\t%s\t%s\t%s\n", r.Seq, r.TS.Format(audit.TimeFormat), r.Actor, r.Justification)
+
+	if *format == "json" {
+		return writeJSON(e, "config list", reports)
+	}
+	for _, r := range reports {
+		fmt.Fprintf(e.stdout, "%d\t%s\t%s\t%s\n", r.Seq, r.TS, r.Actor, r.Justification)
 	}
 	return ExitOK
+}
+
+// remoteSnapshot fetches the live configuration, or one revision's.
+//
+// Two endpoints because they are two questions: the live configuration is not a
+// revision — nothing has recorded it yet when it is read — and a revision
+// carries a snapshot that was.
+func remoteSnapshot(r *remote, rev int64) (*config.Snapshot, error) {
+	if rev == 0 {
+		var live config.Snapshot
+		if err := r.do("GET", "/config/export", nil, &live); err != nil {
+			return nil, err
+		}
+		return &live, nil
+	}
+	var body struct {
+		Snapshot *config.Snapshot `json:"snapshot"`
+	}
+	if err := r.do("GET", "/revisions/"+strconv.FormatInt(rev, 10), nil, &body); err != nil {
+		return nil, err
+	}
+	if body.Snapshot == nil {
+		return nil, fmt.Errorf("revision %d carries no configuration", rev)
+	}
+	return body.Snapshot, nil
 }
 
 func cmdConfigVerify(e env, args []string) int {
 	fs := newFlagSet(e, "config verify")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	db, ok := openConfigRead(e, "config verify", *dbPath)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "config verify", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	n, err := config.Verify(context.Background(), db.Read())
-	if *format == "json" {
-		doc := map[string]any{"revisions": n, "ok": err == nil}
+	var (
+		n      int64
+		broken string
+		err    error
+	)
+	if r != nil {
+		// The walk runs where the revisions are. Every one carries a whole
+		// configuration snapshot, so verifying from here would mean shipping
+		// the entire history across the network to do arithmetic the control
+		// plane can do in place.
+		var body struct {
+			Revisions int64  `json:"revisions"`
+			OK        bool   `json:"ok"`
+			Break     string `json:"break"`
+		}
+		if callErr := r.do("GET", "/config/verify", nil, &body); callErr != nil {
+			fmt.Fprintf(e.stderr, "nodary config verify: %v\n", callErr)
+			return exitFor(callErr)
+		}
+		n, broken = body.Revisions, body.Break
+		if !body.OK && broken == "" {
+			broken = "the chain does not verify"
+		}
+	} else {
+		db, ok := openConfigRead(e, "config verify", *dbPath)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		n, err = config.Verify(context.Background(), db.Read())
 		if err != nil {
-			doc["break"] = err.Error()
+			broken = err.Error()
+		}
+	}
+
+	if *format == "json" {
+		doc := map[string]any{"revisions": n, "ok": broken == ""}
+		if broken != "" {
+			doc["break"] = broken
 		}
 		code := writeJSON(e, "config verify", doc)
-		if err != nil {
+		if broken != "" {
 			return ExitFailure
 		}
 		return code
 	}
-	if err != nil {
-		fmt.Fprintf(e.stdout, "%d revisions verified, then: %v\n", n, err)
+	if broken != "" {
+		fmt.Fprintf(e.stdout, "%d revisions verified, then: %s\n", n, broken)
 		return ExitFailure
 	}
 	fmt.Fprintf(e.stdout, "%d revisions verified\n", n)
@@ -213,6 +312,7 @@ func cmdConfigDiff(e env, args []string) int {
 	fs := newFlagSet(e, "config diff")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	file := fs.String("f", "", "compare the live configuration against this file")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -220,16 +320,41 @@ func cmdConfigDiff(e env, args []string) int {
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	db, ok := openConfigRead(e, "config diff", *dbPath)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "config diff", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
+
+	// **The comparison stays here even over --server.** config.Changes is a
+	// pure function of two snapshots, so a diff endpoint would be a second
+	// implementation of it reachable by one caller — and `-f FILE` compares
+	// against a file on *this* machine, which the control plane cannot read.
+	// What crosses the network is the snapshots.
+	var db *store.DB
+	if r == nil {
+		var ok bool
+		if db, ok = openConfigRead(e, "config diff", *dbPath); !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+	}
+	at := func(rev int64) (*config.Snapshot, bool) {
+		if r != nil {
+			s, err := remoteSnapshot(r, rev)
+			if err != nil {
+				fmt.Fprintf(e.stderr, "nodary config diff: %v\n", err)
+				return nil, false
+			}
+			return s, true
+		}
+		return revisionAt(e, "config diff", db, rev)
+	}
 
 	var from, to *config.Snapshot
+	var ok bool
 	switch {
 	case *file != "":
-		if from, ok = revisionAt(e, "config diff", db, 0); !ok {
+		if from, ok = at(0); !ok {
 			return ExitFailure
 		}
 		body, err := os.ReadFile(*file)
@@ -248,10 +373,10 @@ func cmdConfigDiff(e env, args []string) int {
 			fmt.Fprintf(e.stderr, "nodary config diff: revisions are numbers\n")
 			return ExitUsage
 		}
-		if from, ok = revisionAt(e, "config diff", db, a); !ok {
+		if from, ok = at(a); !ok {
 			return ExitFailure
 		}
-		if to, ok = revisionAt(e, "config diff", db, b); !ok {
+		if to, ok = at(b); !ok {
 			return ExitFailure
 		}
 	default:

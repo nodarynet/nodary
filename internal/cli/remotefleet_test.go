@@ -770,3 +770,60 @@ func TestAuditAndUsageReadOverServer(t *testing.T) {
 			local, remote)
 	}
 }
+
+// The configuration reads over --server. `config show` and `config export`
+// render the same TOML an operator would feed back to `config apply`, so a
+// difference here is a document that would not round trip.
+func TestConfigReadsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	for _, c := range []struct {
+		what string
+		args []string
+	}{
+		{"config export", []string{"config", "export"}},
+		{"config show", []string{"config", "show"}},
+		{"config show --rev 1", []string{"config", "show", "--rev", "1"}},
+		{"config list", []string{"config", "list", "--format", "json"}},
+		{"config verify", []string{"config", "verify", "--format", "json"}},
+		{"config diff 1 2", []string{"config", "diff", "1", "2"}},
+	} {
+		local, out, stderr := run(t, append(append([]string{}, c.args...), "--db", a.db)...)
+		if local != ExitOK {
+			t.Fatalf("%s locally: exit %d, %s", c.what, local, stderr)
+		}
+		remote, remoteOut, stderr := run(t, append(append([]string{}, c.args...),
+			"--server", base, "--credentials", a.creds)...)
+		if remote != ExitOK {
+			t.Fatalf("%s over --server: exit %d, %s", c.what, remote, stderr)
+		}
+		if remoteOut != out {
+			t.Errorf("%s differs between the two routes:\n  local  %s\n  remote %s",
+				c.what, out, remoteOut)
+		}
+	}
+
+	// `-f FILE` reads a file on this machine, which the control plane cannot
+	// see — so the comparison has to happen here whichever road the live
+	// configuration came down.
+	exported := filepath.Join(t.TempDir(), "config.toml")
+	if code, _, stderr := run(t, "config", "export", "--server", base,
+		"--credentials", a.creds, "--out", exported); code != ExitOK {
+		t.Fatalf("config export --out: exit %d, %s", code, stderr)
+	}
+	code, out, stderr := run(t, "config", "diff", "-f", exported, "--server", base,
+		"--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("config diff -f: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "no change") {
+		t.Errorf("a configuration exported and diffed against itself is not identical:\n%s", out)
+	}
+}
