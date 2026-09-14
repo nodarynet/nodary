@@ -309,3 +309,45 @@ func contains(all []string, want string) bool {
 	}
 	return false
 }
+
+// A backend and the last deployment using it have to be removable in one
+// document. Checking "still used" beside the registrations meant the check ran
+// before the deployment prune did, so the only way out of a custom backend was
+// two applies in the right order — and the refusal said the deployment was
+// there when the document plainly removed it.
+func TestOneDocumentCanRetireABackendAndItsLastDeployment(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerBackend(t, acmeDescriptor)
+
+	models := t.TempDir()
+	dir := filepath.Join(models, "hub", "models--acme--tiny")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := a.run("model", "register", "acme/tiny", "--node", "gpu-01",
+		"--backend", "acme-serve", "--image", "acme/serve:1", "--models-dir", models,
+		"--port", "8001", "--yes", "--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("model register: exit %d: %s", code, stderr)
+	}
+
+	path := filepath.Join(t.TempDir(), "node-only.toml")
+	if err := os.WriteFile(path,
+		[]byte("[[node]]\nname = \"gpu-01\"\nstate = \"approved\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := a.run("config", "apply", "-f", path, "--prune",
+		"--yes", "--justify", "retiring the backend and what it served")
+	if code != ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(out, "- backend acme-serve") {
+		t.Errorf("the change list does not retire the backend:\n%s", out)
+	}
+	if _, ok := a.backendNames(t)["acme-serve"]; ok {
+		t.Error("acme-serve survived a document that does not name it")
+	}
+}

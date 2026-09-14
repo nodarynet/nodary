@@ -192,3 +192,57 @@ func TestUnstageAndRestageRequireANode(t *testing.T) {
 		}
 	}
 }
+
+// An operator removes a model the way they remove anything: export the
+// configuration, delete the block, apply with `--prune`. It did not work.
+//
+// Two causes, one shape. Objects were pruned in creation order, so the model
+// row went before the deployment still pointing at it; and every row an agent
+// had ever written *about* a model — a staging observation, a pending reset —
+// pinned it forever, because those references deliberately do not cascade.
+// Either way what came back was SQLite's own `FOREIGN KEY constraint failed
+// (787)`, which is not a refusal at all: nothing wraps it, so an API client
+// got a 500 with the message withheld.
+func TestPruningAModelTakesEverythingHangingOffItToo(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+	// The rows that pinned it: an observation and two pending requests.
+	// Written directly, the way markCorrupt writes the staging row — the
+	// verbs that produce them each have preconditions of their own, and what
+	// is under test is the prune, not how a mailbox came to have mail in it.
+	a.markCorrupt(t, "gpu-01", "acme/tiny")
+	a.execSQL(`INSERT INTO stage_reset (node_name, model_id, requested_at)
+	           VALUES ('gpu-01', 'acme/tiny', '2026-09-08T00:00:00.000000000Z')`)
+	a.execSQL(`INSERT INTO deployment_restart (node_name, deployment_id, requested_at)
+	           SELECT 'gpu-01', id, '2026-09-08T00:00:00.000000000Z' FROM deployment`)
+	if len(a.stageResetRows(t)) == 0 || len(a.restartRows(t)) == 0 {
+		t.Fatal("the fixture wrote no pending requests, so this proves nothing")
+	}
+
+	// Everything but the node, which cannot be created from a document anyway.
+	path := filepath.Join(t.TempDir(), "node-only.toml")
+	if err := os.WriteFile(path,
+		[]byte("[[node]]\nname = \"gpu-01\"\nstate = \"approved\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := a.run("config", "apply", "-f", path, "--prune",
+		"--yes", "--justify", "retiring the model")
+	if code != ExitOK {
+		t.Fatalf("a model could not be removed from the configuration: exit %d\n%s", code, stderr)
+	}
+	for _, want := range []string{"- model acme/tiny", "- deployment", "- route"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the change list does not say %q:\n%s", want, out)
+		}
+	}
+	if rows := a.stageResetRows(t); len(rows) != 0 {
+		t.Errorf("stage_reset still holds %v for a model that no longer exists", rows)
+	}
+	if rows := a.restartRows(t); len(rows) != 0 {
+		t.Errorf("deployment_restart still holds %v for a deployment that no longer exists", rows)
+	}
+	if left := a.scalar(t, `SELECT count(*) FROM staging`); left != "0" {
+		t.Errorf("staging still holds %s row(s) for a model that no longer exists", left)
+	}
+}

@@ -135,6 +135,10 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 	if err := applyGrants(ctx, tx, now, want, have, opt, &res); err != nil {
 		return res, err
 	}
+	// And every deletion after every creation, children before parents.
+	if err := pruneAll(ctx, m, want, have, opt, &res); err != nil {
+		return res, err
+	}
 	slices.Sort(res.Orphans)
 	return res, nil
 }
@@ -181,8 +185,7 @@ func applyModels(ctx context.Context, mut audit.Mutation, now time.Time, want, h
 			return fmt.Errorf("applying model %q: %w", m.ID, err)
 		}
 	}
-	return prune(ctx, tx, "model", "id", names(have.Models, func(m Model) string { return m.ID }),
-		names(want.Models, func(m Model) string { return m.ID }), opt, res)
+	return nil
 }
 
 // checkOrigin refuses a model whose provenance the active profile denies.
@@ -301,8 +304,7 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 	if err := checkPorts(ctx, tx, want); err != nil {
 		return err
 	}
-	return prune(ctx, tx, "deployment", "id", names(have.Deployments, func(d Deployment) string { return d.ID }),
-		names(want.Deployments, func(d Deployment) string { return d.ID }), opt, res)
+	return nil
 }
 
 // checkPorts refuses two deployments publishing the same loopback port on one
@@ -444,8 +446,7 @@ func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 			}
 		}
 	}
-	return prune(ctx, tx, "route", "name", names(have.Routes, func(r Route) string { return r.Name }),
-		names(want.Routes, func(r Route) string { return r.Name }), opt, res)
+	return nil
 }
 
 // applyBackends registers and removes operator descriptors — 04 §9.
@@ -479,7 +480,7 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 	// the transaction it was added in (audit.Log.Act writes its record in one
 	// of its own), so recording a digest on the way out of a failure would
 	// state that something was registered which was not.
-	registered, removed := map[string]string{}, []string{}
+	registered := map[string]string{}
 
 	if len(want.Backends) > 0 {
 		// The profile's gate (04 §5, 07 §1). Read here rather than passed in,
@@ -523,6 +524,21 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 		}
 	}
 
+	if len(registered) > 0 {
+		mut.Detail("backends_registered", registered)
+	}
+	return nil
+}
+
+// pruneBackends is applyBackends' other half, run from pruneAll rather than
+// beside the registrations — a backend and the last deployment using it have
+// to be removable in one document, and checking "still used" before the
+// deployment prune ran made that refuse.
+func pruneBackends(ctx context.Context, mut audit.Mutation, want, have *Snapshot,
+	opt Options, res *Result) error {
+
+	tx := mut.Tx()
+	var removed []string
 	for _, b := range have.Backends {
 		if slices.ContainsFunc(want.Backends, func(x Backend) bool { return x.Name == b.Name }) {
 			continue
@@ -547,13 +563,38 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 		removed = append(removed, b.Name)
 		res.Changes = append(res.Changes, "- backend "+b.Name)
 	}
-	if len(registered) > 0 {
-		mut.Detail("backends_registered", registered)
-	}
 	if len(removed) > 0 {
 		mut.Detail("backends_removed", removed)
 	}
 	return nil
+}
+
+// pruneAll deletes what the configuration no longer names, children first.
+//
+// **Separate from the upserts, and in the opposite order.** Creating needs a
+// model before the deployment that references it; deleting needs the reverse,
+// and pruning inside each applyX did it in creation order — so `config apply
+// --prune` could not remove a model at all. It deleted the model row while the
+// deployment still pointed at it and came back with SQLite's own
+// `FOREIGN KEY constraint failed (787)`, which is not even a refusal: nothing
+// wraps it, so an API client got a 500 with the message withheld.
+func pruneAll(ctx context.Context, mut audit.Mutation, want, have *Snapshot,
+	opt Options, res *Result) error {
+
+	tx := mut.Tx()
+	if err := prune(ctx, tx, "route", "name", names(have.Routes, func(r Route) string { return r.Name }),
+		names(want.Routes, func(r Route) string { return r.Name }), opt, res); err != nil {
+		return err
+	}
+	if err := prune(ctx, tx, "deployment", "id", names(have.Deployments, func(d Deployment) string { return d.ID }),
+		names(want.Deployments, func(d Deployment) string { return d.ID }), opt, res); err != nil {
+		return err
+	}
+	if err := prune(ctx, tx, "model", "id", names(have.Models, func(m Model) string { return m.ID }),
+		names(want.Models, func(m Model) string { return m.ID }), opt, res); err != nil {
+		return err
+	}
+	return pruneBackends(ctx, mut, want, have, opt, res)
 }
 
 // checkPolicy refuses a document that would move the posture.
@@ -735,12 +776,41 @@ func prune(ctx context.Context, tx *sql.Tx, table, key string, have, want []stri
 			res.Orphans = append(res.Orphans, table+" "+id)
 			continue
 		}
+		for _, dep := range dependents[table] {
+			if _, err := tx.ExecContext(ctx,
+				fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, dep.table, dep.column), id); err != nil {
+				return fmt.Errorf("pruning %s %q: clearing %s: %w", table, id, dep.table, err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx,
 			fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, table, key), id); err != nil {
 			return fmt.Errorf("pruning %s %q: %w", table, id, err)
 		}
 	}
 	return nil
+}
+
+// dependents hang off a configured object without being configuration.
+//
+// **They are deliberately not ON DELETE CASCADE.** A staging row is an
+// observation and a reset or restart row is an instruction somebody issued;
+// neither should disappear because an unrelated write touched its parent, and
+// the foreign key is what says so. But they also cannot outlive the object
+// they are about — and because they did, a model that had ever been staged
+// could never be pruned: `config apply --prune` failed on the `staging` row
+// with SQLite's own foreign-key error, for every model an agent had reported.
+//
+// Cleared here rather than at each call site so a table added later has one
+// place to be listed, which is the same argument prune itself makes. The names
+// are compile-time literals from this map; the ids are still bound.
+var dependents = map[string][]struct{ table, column string }{
+	"model": {
+		{"staging", "model_id"},
+		{"stage_reset", "model_id"},
+	},
+	"deployment": {
+		{"deployment_restart", "deployment_id"},
+	},
 }
 
 func names[T any](in []T, key func(T) string) []string {
