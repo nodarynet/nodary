@@ -104,10 +104,17 @@ func Build(ctx context.Context, m audit.Mutation, db *store.DB, k *secret.Key,
 	b.add(MemberControls, controls)
 	b.add(MemberControlsMD, controlsMD)
 
-	// Two members whose producers are R2's and R4's halves of the bundle. They
-	// are written empty with a status that names why, per 13 §2.
-	b.add(MemberRevisions, pending("revision", "configuration revisions arrive with the control plane"))
-	b.add(MemberNodes, pendingJSON("nodes", "node approval records arrive with the agent"))
+	revisions, err := revisionsSegment(ctx, db, opt)
+	if err != nil {
+		return nil, err
+	}
+	b.add(MemberRevisions, revisions)
+
+	nodes, err := nodesSegment(ctx, db, now)
+	if err != nil {
+		return nil, err
+	}
+	b.add(MemberNodes, nodes)
 
 	remediation, err := remediationSegment(ctx, db, now)
 	if err != nil {

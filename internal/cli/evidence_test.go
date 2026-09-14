@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -240,6 +241,11 @@ func TestUnmappedAndPendingMembersSayWhatTheyAre(t *testing.T) {
 		t.Errorf("controls.md does not warn against using it:\n%s", members["controls.md"])
 	}
 
+	// This appliance applied no configuration, enrolled no node and checked no
+	// advisory feed, so all three of these are legitimately empty — and each
+	// says so as one object rather than as a zero-byte file, because a missing
+	// file is a question and this is an answer. That they *can* carry rows is
+	// TestTheBundleCarriesTheConfigurationHistoryAndTheApprovals.
 	for _, m := range []string{"revisions.jsonl", "remediation.jsonl", "nodes.json"} {
 		if !strings.Contains(members[m], `"status": "pending"`) &&
 			!strings.Contains(members[m], `"status":"pending"`) {
@@ -458,5 +464,99 @@ func TestThePeriodDefaultsToNinetyDays(t *testing.T) {
 	// And a period that runs backwards is refused rather than silently empty.
 	if _, _, ok := period(e, now, "2026-09-13", "2026-09-01"); ok {
 		t.Error("--to before --from was accepted")
+	}
+}
+
+// R9-12: two of this row's three members shipped as static placeholders and the
+// row was marked done in the same commit. They emitted `{"status":"pending"}`
+// whatever the database held, so a bundle from an install with two years of
+// revisions understated the customer's own evidence — in a deliverable an
+// assessor consumes.
+func TestTheBundleCarriesTheConfigurationHistoryAndTheApprovals(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "the pilot host, checked by hand"); code != ExitOK {
+		t.Fatalf("approve: %s", stderr)
+	}
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	out := filepath.Join(a.dir, "bundle.tar.gz")
+	if code, _, stderr := a.run("evidence", "export", "--out", out); code != ExitOK {
+		t.Fatalf("export: %s", stderr)
+	}
+	members := extractBundle(t, out, t.TempDir())
+
+	revisions := members["revisions.jsonl"]
+	if strings.Contains(revisions, `"status":"pending"`) {
+		t.Fatalf("an install with revisions reported none:\n%s", revisions)
+	}
+	// Forward, because a chain reads forward and `config verify` walks it that
+	// way. A reversed member would verify by hand in the wrong direction.
+	var seqs []int64
+	for _, line := range strings.Split(strings.TrimSpace(revisions), "\n") {
+		var r struct {
+			Seq  int64  `json:"seq"`
+			Hash string `json:"hash"`
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			t.Fatalf("%v: %s", err, line)
+		}
+		if r.Kind != "revision" || r.Hash == "" {
+			t.Errorf("a revision row carries no hash: %s", line)
+		}
+		seqs = append(seqs, r.Seq)
+	}
+	for i := 1; i < len(seqs); i++ {
+		if seqs[i] <= seqs[i-1] {
+			t.Errorf("revisions are not in chain order: %v", seqs)
+			break
+		}
+	}
+	// Every revision, not a page of them. config.List defaults to fifty and has
+	// no unlimited value, so a bundle that silently carried the most recent
+	// fifty would be a truncated history presented as a complete one — the one
+	// failure this member must not have, and invisible without this check.
+	if want := a.scalar(t, `SELECT count(*) FROM revision`); want != strconv.Itoa(len(seqs)) {
+		t.Errorf("the database holds %s revisions and the member carries %d", want, len(seqs))
+	}
+
+	nodes := members["nodes.json"]
+	if strings.Contains(nodes, `"status": "pending"`) {
+		t.Fatalf("an install with an approved node reported none:\n%s", nodes)
+	}
+	// The offer, not today's inventory: 02 §1 makes the offer what the node put
+	// on the table and what the administrator agreed to. A member reporting the
+	// current `gpus` would describe the machine rather than the agreement.
+	for _, want := range []string{`"gpu-01"`, `"approved"`, `"offer"`, `"max_deployments"`} {
+		if !strings.Contains(nodes, want) {
+			t.Errorf("nodes.json does not carry %s:\n%s", want, nodes)
+		}
+	}
+}
+
+// And an install that genuinely has none still answers, rather than shipping a
+// member that could be read as "there were none" or as "we did not look".
+func TestAnEmptyInstallSaysSoRatherThanShippingAnEmptyMember(t *testing.T) {
+	a := newAppliance(t)
+	a.addUser("alice", "admin")
+	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
+
+	out := filepath.Join(a.dir, "bundle.tar.gz")
+	if code, _, stderr := a.run("evidence", "export", "--out", out); code != ExitOK {
+		t.Fatalf("export: %s", stderr)
+	}
+	members := extractBundle(t, out, t.TempDir())
+	for _, m := range []string{"revisions.jsonl", "nodes.json"} {
+		if !strings.Contains(members[m], "pending") {
+			t.Errorf("%s on an empty install:\n%s", m, members[m])
+		}
+		// It has to say *why*, or "pending" reads as "not built yet" forever.
+		if !strings.Contains(members[m], "on this install") {
+			t.Errorf("%s does not say why it is empty:\n%s", m, members[m])
+		}
 	}
 }
