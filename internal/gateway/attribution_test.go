@@ -24,8 +24,12 @@ func (f *fixture) addDeployment(id, modelID, node string, gpu int) {
 			sql  string
 			args []any
 		}{
-			{`INSERT INTO node (name, state, created_at) VALUES (?, 'ready', ?)`, []any{node, now}},
-			{`INSERT INTO model (id, backend, source, artifact, created_at)
+			// OR IGNORE: newFixture already places a node and a model, because
+			// a route with no ready member behind it is a 503 now. A test
+			// adding a second deployment on the same node is adding to that
+			// fleet rather than describing a fresh one.
+			{`INSERT OR IGNORE INTO node (name, state, created_at) VALUES (?, 'ready', ?)`, []any{node, now}},
+			{`INSERT OR IGNORE INTO model (id, backend, source, artifact, created_at)
 			  VALUES (?, 'vllm', 'local', '/srv/models/x', ?)`, []any{modelID, now}},
 			{`INSERT INTO deployment (id, model_id, node_name, backend, state, created_at, updated_at)
 			  VALUES (?, ?, ?, 'vllm', 'ready', ?, ?)`, []any{id, modelID, node, now, now}},

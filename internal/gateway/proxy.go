@@ -72,6 +72,28 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// docs/specs/11-failure-modes.md §4: a route with no ready deployment is a
+	// 503 with a Retry-After and an alert, not whatever the data plane says
+	// about a model it has not been told about.
+	//
+	// **Before the throttle**, so a request that cannot succeed does not spend
+	// the caller's quota on finding that out, and after the allowlist for the
+	// reason the throttle gives below.
+	ready, err := s.routeHasReadyMember(r.Context(), want.Model)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !ready {
+		// An alert, because 11 §4 asks for one and because this is the shape of
+		// a fleet that looks healthy from every other angle: the route exists,
+		// the grant exists, and nothing is serving it.
+		s.log.Error("gateway", "detail", "no ready deployment", "route", want.Model,
+			"request_id", requestID(r))
+		s.fail(w, r, fmt.Errorf("%w: %q has no ready deployment", errNoReadyMember, want.Model))
+		return
+	}
+
 	// docs/specs/06-gateway.md §4. After the allowlist, because being refused
 	// a route is a permanent answer and being throttled is a temporary one:
 	// telling somebody to wait for access they will never have is worse than

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 
 	"github.com/nodarynet/nodary/internal/identity"
 )
@@ -50,6 +51,13 @@ func statusFor(err error) (int, string) {
 		return http.StatusBadRequest, "bad_request"
 	case errors.Is(err, errThrottled):
 		return http.StatusTooManyRequests, "rate_limited"
+	// docs/specs/11-failure-modes.md §4: a route with no ready deployment is a
+	// 503 with a Retry-After, not a 404. The route exists, the caller is
+	// allowed it, and nothing about the request is wrong — what is missing is
+	// a replica, and a client that is told "no such model" gives up where a
+	// client told "not yet" comes back.
+	case errors.Is(err, errNoReadyMember):
+		return http.StatusServiceUnavailable, "no_ready_deployment"
 	}
 	return http.StatusInternalServerError, "internal"
 }
@@ -69,6 +77,9 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.As(err, &thr) {
 		body.Detail = thr.detail()
 		w.Header().Set("Retry-After", thr.retryAfter())
+	}
+	if errors.Is(err, errNoReadyMember) {
+		w.Header().Set("Retry-After", strconv.Itoa(noReadyRetryAfter))
 	}
 	if status == http.StatusInternalServerError {
 		s.log.Error("gateway", "detail", err.Error(), "request_id", requestID(r))

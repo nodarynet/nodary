@@ -79,19 +79,36 @@ func newFixture(t *testing.T, upstream http.HandlerFunc) *fixture {
 		t.Fatal(err)
 	}
 
-	// A route and a grant, written directly: config.Apply needs a node and a
-	// deployment, and none of that is what these tests are about.
+	// A route, a grant, and a ready deployment behind the route, written
+	// directly: config.Apply would need the whole enrollment, and none of that
+	// is what these tests are about.
+	//
+	// The deployment is not decoration. docs/specs/11-failure-modes.md §4 makes
+	// a route with no ready member a 503, so a fixture whose route has nothing
+	// behind it is testing the refusal rather than whatever it meant to test.
+	now := time.Now().UTC().Format(audit.TimeFormat)
 	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO route (name, strategy, created_at) VALUES ('acme/tiny', 'round-robin', ?)`,
-			time.Now().UTC().Format(audit.TimeFormat)); err != nil {
-			return err
+		for _, stmt := range []struct {
+			sql  string
+			args []any
+		}{
+			{`INSERT INTO route (name, strategy, created_at) VALUES ('acme/tiny', 'round-robin', ?)`,
+				[]any{now}},
+			{`INSERT INTO user_route (user_id, route_name, granted_at)
+			  SELECT id, 'acme/tiny', ? FROM user WHERE name = 'bob'`, []any{now}},
+			{`INSERT INTO node (name, state, created_at) VALUES ('gpu-01', 'ready', ?)`, []any{now}},
+			{`INSERT INTO model (id, backend, source, artifact, created_at)
+			  VALUES ('acme/tiny', 'vllm', 'local', 'hf-cache', ?)`, []any{now}},
+			{`INSERT INTO deployment (id, model_id, node_name, backend, state, created_at, updated_at)
+			  VALUES ('dep_one', 'acme/tiny', 'gpu-01', 'vllm', 'ready', ?, ?)`, []any{now, now}},
+			{`INSERT INTO route_member (route_name, deployment_id, weight) VALUES ('acme/tiny', 'dep_one', 1)`,
+				nil},
+		} {
+			if _, err := tx.ExecContext(ctx, stmt.sql, stmt.args...); err != nil {
+				return err
+			}
 		}
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO user_route (user_id, route_name, granted_at)
-			 SELECT id, 'acme/tiny', ? FROM user WHERE name = 'bob'`,
-			time.Now().UTC().Format(audit.TimeFormat))
-		return err
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -539,5 +556,71 @@ func TestUsageIsFoundWhenAChunkIsSplitAcrossWrites(t *testing.T) {
 	u := f.usageRows()
 	if len(u) != 1 || u[0].prompt != 5 || u[0].completion != 3 {
 		t.Errorf("rows = %+v, want 5/3 read from a chunk delivered one byte at a time", u)
+	}
+}
+
+// docs/specs/11-failure-modes.md §4: "No ready deployment on a route — 503 with
+// Retry-After; alert raised."
+//
+// Not a 404, and the difference is what a client does next: told "no such
+// model" it gives up, told "not yet" it comes back. The route exists, the
+// caller is granted it, and nothing about the request is wrong — what is
+// missing is a replica.
+func TestARouteWithNoReadyDeploymentIs503(t *testing.T) {
+	f := newFixture(t, completion)
+	f.setDeploymentState("dep_one", "starting")
+
+	resp, body := f.post("/v1/chat/completions", f.key,
+		map[string]any{"model": "acme/tiny", "messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", resp.StatusCode, body)
+	}
+	if resp.Header.Get("Retry-After") == "" {
+		t.Error("no Retry-After: a client told to come back needs to know when")
+	}
+	if !strings.Contains(body, "no_ready_deployment") {
+		t.Errorf("body = %s, want a stable code naming the reason", body)
+	}
+	// 11 §4 asks for an alert, and this is the shape of a fleet that looks
+	// healthy from every other angle: the route exists, the grant exists, and
+	// nothing is serving it.
+	if !strings.Contains(f.logs.String(), "no ready deployment") {
+		t.Errorf("nothing was logged:\n%s", f.logs.String())
+	}
+}
+
+// A deployment an operator disabled is not a ready member, whether or not the
+// node has got around to reporting the stop. The decision is the fact.
+func TestADisabledDeploymentIsNotAReadyMember(t *testing.T) {
+	f := newFixture(t, completion)
+	f.disableDeployment("dep_one")
+
+	resp, body := f.post("/v1/chat/completions", f.key,
+		map[string]any{"model": "acme/tiny", "messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503: %s", resp.StatusCode, body)
+	}
+}
+
+// setDeploymentState is how a test says the node has reported something other
+// than "serving" about a route's only member.
+func (f *fixture) setDeploymentState(id, state string) {
+	f.t.Helper()
+	f.execDeployment(`UPDATE deployment SET state = ? WHERE id = ?`, state, id)
+}
+
+// disableDeployment is `nodary model disable` without the ceremony.
+func (f *fixture) disableDeployment(id string) {
+	f.t.Helper()
+	f.execDeployment(`UPDATE deployment SET disabled = 1 WHERE id = ?`, id)
+}
+
+func (f *fixture) execDeployment(query string, args ...any) {
+	f.t.Helper()
+	if err := f.db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), query, args...)
+		return err
+	}); err != nil {
+		f.t.Fatal(err)
 	}
 }

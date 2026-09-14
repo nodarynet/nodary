@@ -279,3 +279,38 @@ func Serve(ctx context.Context, h http.Handler, bind string) error {
 		return nil
 	}
 }
+
+// errNoReadyMember is docs/specs/11-failure-modes.md §4's "no ready deployment
+// on a route".
+var errNoReadyMember = errors.New("no ready deployment")
+
+// noReadyRetryAfter is how long a client is asked to wait, in seconds.
+//
+// Sixty, because that is what actually bounds the answer changing:
+// nodary-gateway-sync.timer is what puts a newly ready deployment into the data
+// plane's configuration, and it runs a minute apart. Retrying sooner cannot
+// find anything the previous attempt could not.
+const noReadyRetryAfter = 60
+
+// routeHasReadyMember asks whether anything behind this route can serve.
+//
+// Read from the control plane's own tables rather than from the data plane's
+// rendered configuration, because that file belongs to a different unit and
+// parsing it would couple the gateway to its format. The cost is a window: a
+// deployment that has just reported ready is visible here before
+// nodary-gateway-sync.timer has put it in litellm.yaml, so for up to a minute
+// this says "go ahead" and LiteLLM answers that it has no such model. That is
+// bounded, it resolves itself, and it is the smaller of the two wrongs — the
+// alternative is refusing a route that is in fact serving.
+//
+// `disabled` is checked here as well as in the renderer: it is a decision
+// somebody made, and it should not depend on the node having got around to
+// reporting the stop.
+func (s *Server) routeHasReadyMember(ctx context.Context, route string) (bool, error) {
+	var n int
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT count(*) FROM route_member m
+		 JOIN deployment d ON d.id = m.deployment_id
+		 WHERE m.route_name = ? AND d.state = 'ready' AND d.disabled = 0`, route).Scan(&n)
+	return n > 0, err
+}
