@@ -14,6 +14,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/identity"
+	"github.com/nodarynet/nodary/internal/store/storetest"
 )
 
 // appliance is the state a command operates on: a database, an at-rest key and
@@ -42,10 +43,12 @@ func newAppliance(t *testing.T) *appliance {
 	// the stream these tests read.
 	t.Setenv(audit.SinksEnv, "none")
 	dir := t.TempDir()
+	db := filepath.Join(dir, "nodary.db")
+	storetest.Place(t, db)
 	return &appliance{
 		t:     t,
 		dir:   dir,
-		db:    filepath.Join(dir, "nodary.db"),
+		db:    db,
 		key:   filepath.Join(dir, "secret.key"),
 		creds: filepath.Join(dir, "credentials"),
 		seeds: map[string][]byte{},

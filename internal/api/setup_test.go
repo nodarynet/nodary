@@ -16,6 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/secret"
 	"github.com/nodarynet/nodary/internal/store"
+	"github.com/nodarynet/nodary/internal/store/storetest"
 )
 
 // bareControlPlane is a control plane with no users, which is the only state
@@ -35,7 +36,9 @@ func newBareControlPlane(t *testing.T) *bareControlPlane {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	db, err := store.Open(ctx, filepath.Join(dir, "nodary.db"))
+	path := filepath.Join(dir, "nodary.db")
+	storetest.Place(t, path)
+	db, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}

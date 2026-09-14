@@ -19,6 +19,7 @@ import (
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/secret"
 	"github.com/nodarynet/nodary/internal/store"
+	"github.com/nodarynet/nodary/internal/store/storetest"
 )
 
 type fixture struct {
@@ -39,7 +40,13 @@ func newFixture(t *testing.T) *fixture {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	db, err := store.Open(ctx, filepath.Join(dir, "nodary.db"))
+	path := filepath.Join(dir, "nodary.db")
+	// Migrated already, so Migrate below has nothing to apply — see
+	// internal/store/storetest. It still runs: the fixture exercises the same
+	// open-and-migrate the server does, and skipping it would make this
+	// fixture the one place that does not.
+	storetest.Place(t, path)
+	db, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
