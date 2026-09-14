@@ -487,16 +487,13 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 	// state that something was registered which was not.
 	registered := map[string]string{}
 
+	// The profile's gates (04 §5, 07 §1). Read here rather than passed in,
+	// because every road into this function has to meet them.
+	var active policy.Profile
 	if len(want.Backends) > 0 {
-		// The profile's gate (04 §5, 07 §1). Read here rather than passed in,
-		// because every road into this function has to meet it.
-		active, _, err := policy.Active(ctx, tx)
-		if err != nil {
+		var err error
+		if active, _, err = policy.Active(ctx, tx); err != nil {
 			return err
-		}
-		if !active.AllowCustomBackends {
-			return fmt.Errorf("%w: the %s profile does not allow custom backends; "+
-				"this build serves %s", ErrInvalid, active.Name, strings.Join(builtinNames(), ", "))
 		}
 	}
 
@@ -524,6 +521,28 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 		// reason.
 		if _, err := backend.Resolve(d); err != nil {
 			return fmt.Errorf("%w: backend %q: %v", ErrInvalid, b.Name, err)
+		}
+		// **A derive is gated by allow_derived_images, not by
+		// allow_custom_backends**, and §5 says so in as many words: the two
+		// settings are consistent because "registering an arbitrary backend
+		// introduces unreviewed argument handling and a new weight layout,
+		// while a derive changes an image and inherits everything else".
+		// Holding a derive to the custom-backend gate made derived images
+		// unreachable under `regulated` — the one profile §5 argues needs
+		// them, since a FIPS override is the motivating case.
+		if dv := d.Backend.Derive; dv != nil {
+			if !active.AllowDerivedImages {
+				return fmt.Errorf("%w: the %s profile does not allow derived images; %q "+
+					"declares [backend.derive]", ErrInvalid, active.Name, b.Name)
+			}
+			if active.RequirePinnedDerives {
+				if err := dv.Pinned(); err != nil {
+					return fmt.Errorf("%w: backend %q: %v", ErrInvalid, b.Name, err)
+				}
+			}
+		} else if !active.AllowCustomBackends {
+			return fmt.Errorf("%w: the %s profile does not allow custom backends; "+
+				"this build serves %s", ErrInvalid, active.Name, strings.Join(builtinNames(), ", "))
 		}
 		sum := sha256.Sum256([]byte(b.Source))
 		registered[b.Name] = hex.EncodeToString(sum[:])

@@ -13,6 +13,7 @@ import (
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/derive"
 	"github.com/nodarynet/nodary/internal/identity"
+	"github.com/nodarynet/nodary/internal/policy"
 )
 
 // buildDerive is swapped in a test. What this verb decides — who may build,
@@ -78,6 +79,29 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 	if err := identity.Authorize(s.who.Role, identity.PermBackendRegister); err != nil {
 		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
 		return ExitPolicy
+	}
+
+	// Checked here as well as at registration, because a profile can be
+	// tightened afterwards: a site that moved to `regulated` last week must not
+	// still be able to build the unpinned recipe it registered before.
+	active, _, err := policy.Active(ctx, s.db.Read())
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
+		return ExitFailure
+	}
+	if !active.AllowDerivedImages {
+		fmt.Fprintf(e.stderr, "nodary backend %s: the %s profile does not allow derived images.\n",
+			verb, active.Name)
+		return ExitPolicy
+	}
+	if active.RequirePinnedDerives {
+		if err := d.Backend.Derive.Pinned(); err != nil {
+			fmt.Fprintf(e.stderr, "nodary backend %s: %v\n"+
+				"  The %s profile sets require_pinned_derives, so a build has to be "+
+				"reproducible\n  rather than merely recorded (docs/specs/04-backends.md §5).\n",
+				verb, err, active.Name)
+			return ExitPolicy
+		}
 	}
 
 	have, err := config.BuiltImage(ctx, s.db.Read(), name)

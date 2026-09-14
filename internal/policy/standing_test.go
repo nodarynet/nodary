@@ -38,11 +38,13 @@ func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 			t.Errorf("%s carries an unrecognized standing %q", f.name, f.standing)
 		}
 	}
-	if got := len(Unenforced()); got != 3 {
-		t.Errorf("%d settings are unenforced, the display and the README say 3: %v", got, Unenforced())
-	}
-	if enforcedN != 12 || invariantN != 2 {
-		t.Errorf("enforced = %d, invariant = %d; want 12 and 2", enforcedN, invariantN)
+	// Derived, not literal. The count moves every time a task lands, and a
+	// number written here would go stale in exactly the way this file exists
+	// to catch — it would just move the stale number into the test. What has
+	// to hold is that every setting lands in exactly one category.
+	if got := enforcedN + invariantN + len(Unenforced()); got != len(fields) {
+		t.Errorf("%d settings are categorized and the table has %d: enforced %d, "+
+			"invariant %d, unenforced %v", got, len(fields), enforcedN, invariantN, Unenforced())
 	}
 }
 
@@ -74,8 +76,15 @@ func TestTheMarkingSurvivesEveryRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 	standing, lines := Standing(), Describe(p)
-	if len(standing) != 5 {
-		t.Errorf("Standing() carries %d annotations, want 5 (3 unenforced + 2 invariants)", len(standing))
+	var invariants int
+	for _, f := range fields {
+		if strings.HasPrefix(f.standing, invariant) {
+			invariants++
+		}
+	}
+	if want := len(Unenforced()) + invariants; len(standing) != want {
+		t.Errorf("Standing() carries %d annotations, want %d (%d unenforced + %d invariants)",
+			len(standing), want, len(Unenforced()), invariants)
 	}
 	for name, note := range standing {
 		var found bool
@@ -109,8 +118,14 @@ func TestTheGuideSaysHowManySettingsAreUnmarked(t *testing.T) {
 	// Both numbers are derived. The total used to be spelled out here as a
 	// literal, which is the same staleness this test exists to catch — it just
 	// moved the stale number into the test.
-	want := fmt.Sprintf("%s of\nits %s settings are marked today",
-		spellOut(len(Unenforced())), strings.ToLower(spellOut(len(fields))))
+	// The verb too: "One ... are marked" is the sentence a derived number
+	// produces and a reader trips over.
+	verb := "are"
+	if len(Unenforced()) == 1 {
+		verb = "is"
+	}
+	want := fmt.Sprintf("%s of\nits %s settings %s marked today",
+		spellOut(len(Unenforced())), strings.ToLower(spellOut(len(fields))), verb)
 	if !strings.Contains(string(body), want) {
 		t.Errorf("the administering guide does not say %q; %d settings are unenforced: %v",
 			want, len(Unenforced()), Unenforced())

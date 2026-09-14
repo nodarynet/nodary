@@ -308,3 +308,87 @@ func (a *appliance) mustBuild(t *testing.T, verb string) {
 		t.Fatalf("backend %s: exit %d: %s", verb, code, stderr)
 	}
 }
+
+// unpinnedDescriptor is the same derive with the version dropped — the recipe a
+// default site may register and a regulated one may not.
+var unpinnedDescriptor = strings.Replace(fipsDescriptor,
+	"opencv-python-headless==4.12.0.88", "opencv-python-headless", 1)
+
+func (a *appliance) regulated(t *testing.T) {
+	t.Helper()
+	if code, _, stderr := a.run("policy", "apply", "regulated"); code != ExitOK {
+		t.Fatalf("apply regulated: %d %s", code, stderr)
+	}
+}
+
+// §5's policy row: what `regulated` adds is that sources must be pinned and
+// come from a named index, so the build is reproducible rather than merely
+// recorded.
+func TestARegulatedSiteRefusesAnUnpinnedRecipe(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.regulated(t)
+
+	code, _, stderr := a.run("backend", "register", "--file", a.descriptorFile(t, unpinnedDescriptor),
+		"--yes", "--justify", "FIPS override for this site")
+	if code == ExitOK {
+		t.Fatal("a regulated site registered a recipe that floats")
+	}
+	if !strings.Contains(stderr, "exact version") {
+		t.Errorf("the refusal does not say what is missing: %s", stderr)
+	}
+
+	// And the index, the other half of the row.
+	noIndex := strings.Replace(fipsDescriptor, "index_url = \"https://pypi.internal/simple\"\n", "", 1)
+	code, _, stderr = a.run("backend", "register", "--file", a.descriptorFile(t, noIndex),
+		"--yes", "--justify", "FIPS override for this site")
+	if code == ExitOK {
+		t.Fatal("a regulated site registered a recipe with no named index")
+	}
+	if !strings.Contains(stderr, "index_url") {
+		t.Errorf("the refusal does not name the field: %s", stderr)
+	}
+
+	// **The pinned form still registers under `regulated`.** §5 is explicit
+	// that `allow_custom_backends = false` and `allow_derived_images = true`
+	// are consistent, so a derive is gated by the second and not the first —
+	// a FIPS override is the motivating case, not the thing being guarded
+	// against.
+	code, _, stderr = a.run("backend", "register", "--file", a.descriptorFile(t, fipsDescriptor),
+		"--yes", "--justify", "FIPS override for this site")
+	if code != ExitOK {
+		t.Fatalf("a regulated site refused the pinned derive it is meant to allow: %s", stderr)
+	}
+	if _, ok := a.backendNames(t)["vllm-fips"]; !ok {
+		t.Error("the derive did not register")
+	}
+}
+
+// A profile can be tightened after the fact. A site that moved to `regulated`
+// last week must not still be able to build the unpinned recipe it registered
+// before, or the flag would be advice rather than a control.
+func TestTighteningTheProfileStopsAnUnpinnedBuild(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerBackend(t, unpinnedDescriptor)
+	stubBuild(t, builtDigest)
+
+	// Under the default profile it builds, which is the point of the two
+	// profiles differing.
+	a.mustBuild(t, "build")
+
+	a.regulated(t)
+	code, _, stderr := a.run("backend", "rebuild", "vllm-fips",
+		"--yes", "--justify", "rebuilding after the base moved")
+	if code == ExitOK {
+		t.Fatal("a regulated site rebuilt a recipe that floats")
+	}
+	if !strings.Contains(stderr, "require_pinned_derives") {
+		t.Errorf("the refusal does not name the setting that caused it: %s", stderr)
+	}
+	// Nothing that is serving changed: the image built before the profile
+	// moved is still the image on record.
+	if got := a.backendNames(t)["vllm-fips"].Built.Digest; got != builtDigest {
+		t.Errorf("tightening the profile changed what is on record: %q", got)
+	}
+}

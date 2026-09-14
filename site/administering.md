@@ -462,8 +462,8 @@ sudo nodary policy apply regulated --justify "moving the pilot to regulated"
 ```
 
 `policy show` marks every setting nothing acts on yet and names the task that will enforce
-it, so the profile can be read as a list of controls rather than a list of numbers. Three of
-its seventeen settings are marked today. Two more are **invariants** — `require_signed_artifacts`
+it, so the profile can be read as a list of controls rather than a list of numbers. One of
+its seventeen settings is marked today. Two more are **invariants** — `require_signed_artifacts`
 and `egress_default` are refused at parse if set to anything else, and the mechanisms behind
 them run unconditionally.
 
