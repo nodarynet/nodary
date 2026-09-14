@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -311,5 +312,40 @@ func TestTheBuildProxyBindsWithoutABridge(t *testing.T) {
 	// the time a step runs because attaching it is what creates it.
 	if !f.saw("https_proxy=http://" + Gateway + ":") {
 		t.Errorf("a step was not pointed at the gateway: %v", f.calls)
+	}
+}
+
+// Measured on hardware: a finished build left `nodary-derive/<name>:step-N` in
+// the store, one per step, forever. On the alpine smoke test that was 10MB; on
+// a vLLM derive it is nine gigabytes a rebuild, on the control plane, with
+// nothing that ever looks at them again.
+func TestABuildDoesNotLeaveItsIntermediatesBehind(t *testing.T) {
+	f := &fakeRuntime{}
+	d := derive(t, `"pip install a==1", "pip install b==2"`, `index_url = "https://pypi.internal/simple"`)
+	if _, err := build(t, d, f); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 2; i++ {
+		name := fmt.Sprintf("nodary-derive/vllm-fips:step-%d", i)
+		if !f.saw("commit nodary-derive-vllm-fips-" + fmt.Sprint(i-1) + " " + name) {
+			t.Fatalf("the fixture did not commit %s: %v", name, f.calls)
+		}
+		if !f.saw("rmi --force " + name) {
+			t.Errorf("%s was left in the store: %v", name, f.calls)
+		}
+	}
+	// After the final tag, never before: untagging the last step first would
+	// leave the layers the result needs unreferenced, even for an instant.
+	var tagged, removed int
+	for i, c := range f.calls {
+		if strings.HasPrefix(c, "nerdctl tag ") {
+			tagged = i
+		}
+		if strings.HasPrefix(c, "nerdctl rmi ") && removed == 0 {
+			removed = i
+		}
+	}
+	if removed < tagged {
+		t.Errorf("an intermediate was removed before the result was tagged: %v", f.calls)
 	}
 }
