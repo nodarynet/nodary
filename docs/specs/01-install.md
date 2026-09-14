@@ -209,7 +209,7 @@ Every channel ships the binary and nothing else, so all of them reach the same s
 | :--- | :--- |
 | PyPI | `pip install nodary` — per-platform wheels; the entry point `execv`s the binary |
 | npm | `npm i -g nodary` — per-platform packages under `optionalDependencies` |
-| Homebrew | `brew install nodarynet/tap/nodary` |
+| Homebrew | `brew install --cask nodarynet/tap/nodary` — **macOS only** ([ADR 0004](../adr/0004-release-artifacts-and-channels.md)) |
 
 These are complete install paths. `pip install nodary && nodary server install` and
 `curl … | sh -s -- server` differ only in how the binary arrived.

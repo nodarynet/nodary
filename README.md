@@ -38,7 +38,7 @@ verbs on your behalf. **[Getting started
 **[administering a fleet →](https://nodarynet.github.io/nodary/administering/)** is the
 verbs one at a time, for a third node, a script, or a flag the wizard never asks about.
 
-The same binary is also on PyPI, npm and Homebrew, and those are complete install paths rather
+The same binary is also on PyPI, npm and Homebrew (macOS), and those are complete install paths rather
 than conveniences — `pip install nodary && nodary server install` reaches the same state
 ([ADR 0004](docs/adr/0004-release-artifacts-and-channels.md)). Nodes run Linux; a Windows
 machine with an NVIDIA GPU joins **inside WSL2** as an ordinary Linux node
@@ -143,7 +143,7 @@ front page rather than only in a plan.
 | **R2** Control plane | 41 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
 | **R4** Agent | 43 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer |
-| **R5** Install | 27 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, the offline bundle an air-gapped site installs from, an unsupported platform refused by name in every channel, and a separately signed component manifest a site can take a fix from without waiting for a release |
+| **R5** Install | 28 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, the offline bundle an air-gapped site installs from, an unsupported platform refused by name in every channel, and a separately signed component manifest a site can take a fix from without waiting for a release |
 | **R6** Backends | 10 of 16 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it, the `api` dialect governing what may join a route, the stage → prepare → serve lifecycle for backends that compile an engine before they can answer, and TensorRT-LLM |
 | **R9** Evidence | 18 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check`, the offline route a site with no network receives revisions by, the decision clock that makes an undecided advisory a POA&M item, and the decision itself as an audited act |
 

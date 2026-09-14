@@ -146,8 +146,13 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - *done:* npm names `win32-x64` and lists what is supported; no Windows wheel is built, so the message comes from pip itself and says there is no matching distribution. Neither channel reaches a binary
 - [ ] **R5-22** Move npm publishing to Trusted Publishing · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* `NPM_TOKEN` is gone and npm authenticates by OIDC, as PyPI already does. This removes the last long-lived publishing credential and the whole class of failure that `EOTP` belongs to
-- [ ] **R5-23** Resolve the goreleaser `brews` deprecation before it is removed
+- [x] **R5-23** Resolve the goreleaser `brews` deprecation before it is removed
   - *done:* the Homebrew channel survives a goreleaser major bump. The migration target, `homebrew_casks`, is macOS-only, so adopting it as-is would silently drop Linux Homebrew users — and Linux is the primary platform while macOS is CLI-only ([01 §8](../specs/01-install.md#8-platform-support)). Decide deliberately: keep a formula by another route, or accept narrowing the channel and say so in [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
+  - **decided: narrow the channel**, and [ADR 0004](../adr/0004-release-artifacts-and-channels.md) is amended rather than left promising a formula
+  - the fact that settled it: **the tap had never been published to.** `nodarynet/homebrew-tap` held nothing but its initial commit — `skip_upload: auto` meant the one pre-release tag skipped it — so there were no Homebrew users to drop and this is a forward-looking choice with no migration cost. It reads as severe until that is checked
+  - a cask is also the *right* idiom rather than a concession: on macOS the binary is the operator CLI only, which is a standalone binary rather than something a formula would build. A Linux operator who wants the CLI has `install.sh`, PyPI and npm, each carrying both platforms
+  - **validated against a real `goreleaser`, not reasoned about** — which is how `homebrew_casks.binary` turned out to be deprecated *as well*, one release after the property it replaced. `binaries:` is the current spelling and `check` is now clean rather than exit-2
+  - the cask carries a post-install hook clearing `com.apple.quarantine`. The release artifacts are not codesigned or notarized, so without it Gatekeeper refuses to execute what the cask just downloaded, and the dialog says the file is damaged — which reads as a corrupt download rather than an unsigned one
 - [ ] **R5-24** Move npm's `latest` tag off the release candidate
   - *done:* `npm install -g nodary` resolves to a stable version. `--tag next` does not hold on a package's **first** publish — npm must give a new package a `latest` and has nowhere else to point it — so `0.0.1-rc1` currently owns it. Publishing `0.0.1` with `--tag latest` fixes it; `npm deprecate` warns installers in the meantime
 

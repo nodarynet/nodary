@@ -112,3 +112,43 @@ func TestTheWheelTagsAreSpecificEnoughToRefuse(t *testing.T) {
 		}
 	}
 }
+
+// R5-23: the Homebrew channel is a macOS cask, and two of its properties are
+// invisible to `goreleaser check` — which validates the schema and has nothing
+// to say about whether the values make sense together.
+//
+// String assertions rather than a YAML parse: this module has no YAML
+// dependency, and adding one to check four lines of release configuration would
+// cost more than it proves.
+func TestTheHomebrewChannelIsACaskInTheRightPlace(t *testing.T) {
+	body, err := os.ReadFile(repoFile(t, ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+
+	// `brews` is deprecated and goes away at the next major. Its return would
+	// pass `check` with a warning CI is configured to tolerate.
+	if strings.Contains(src, "\nbrews:") {
+		t.Error("the deprecated `brews` block is back; goreleaser removes it at the next major")
+	}
+	if !strings.Contains(src, "\nhomebrew_casks:") {
+		t.Fatal("no homebrew_casks block: the Homebrew channel is gone entirely")
+	}
+
+	// **A cask published into Formula/ installs from nowhere.** `brew install
+	// --cask nodarynet/tap/nodary` looks in Casks/, so the wrong directory is a
+	// 404 for every macOS operator and a valid configuration to goreleaser.
+	casks := src[strings.Index(src, "\nhomebrew_casks:"):]
+	if !strings.Contains(casks, "directory: Casks") {
+		t.Error("the cask is not published into Casks/, so `brew install --cask` would 404")
+	}
+
+	// The release artifacts are not codesigned or notarized, so Gatekeeper
+	// quarantines what the cask downloads and macOS refuses to run it — with a
+	// dialog about a damaged file, which reads as a corrupt download. Losing
+	// this hook breaks every macOS install and nothing here would fail.
+	if !strings.Contains(casks, "com.apple.quarantine") {
+		t.Error("no quarantine-clearing hook: Gatekeeper would refuse the binary on first run")
+	}
+}

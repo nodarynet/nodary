@@ -34,7 +34,7 @@ Distribution:
 | `curl \| sh` | Signed bundle containing the binary | primary path |
 | PyPI | Per-platform wheels carrying the prebuilt binary; entry point `execv`s it | `ruff`, `uv` |
 | npm | Per-platform packages under `optionalDependencies` — no `postinstall` fetch | `esbuild` |
-| Homebrew | Tap with a bottle per platform | — |
+| Homebrew | Tap with a cask, macOS only ([ADR 0004](0004-release-artifacts-and-channels.md)) | — |
 
 ## Rationale
 

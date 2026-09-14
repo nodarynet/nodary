@@ -38,11 +38,29 @@ Three objects, named distinctly, never again used interchangeably:
 | `nodary.net/install.sh` | Fetch, verify and place the binary, then `exec` it |
 | PyPI | Per-platform wheels; the entry point `execv`s the binary |
 | npm | Per-platform packages under `optionalDependencies`, guarded by `os`/`cpu` |
-| Homebrew | Tap with a bottle per platform |
+| Homebrew | Tap with a **cask, macOS only** — see below |
 
 Because every channel ships the same object, they converge on the same state. `pip install
 nodary && nodary server install` and `curl -fsSL https://nodary.net/install.sh | sh -s --
 server` differ only in how the binary arrived.
+
+### Amended: the Homebrew channel is macOS only
+
+This table originally promised a formula, which covers macOS and Linux both. goreleaser
+deprecated `brews` and its migration target, `homebrew_casks`, is a macOS-only Homebrew
+concept, so the channel narrows (R5-23).
+
+**It is a narrowing and not a regression.** The tap had never been published to when this
+changed — `skip_upload: auto` meant the one pre-release tag skipped it — so no install broke.
+On macOS the binary is the operator CLI only ([01 §8](../specs/01-install.md#8-platform-support)),
+which is what a cask is the right Homebrew idiom *for*: a standalone binary, not a library a
+formula would build. A Linux operator who wants the CLI has `install.sh`, PyPI and npm, each
+of which carries both platforms, so "every channel ships the same object" survives — Homebrew
+now ships it to fewer of them.
+
+The alternative considered and rejected was publishing a formula from our own release workflow
+to keep Linux. It buys a fourth route to a CLI that already has three, and pays for it with
+release-engineering code in the part of the system with the least coverage.
 
 ### Installation is interactive; components come after
 

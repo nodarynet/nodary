@@ -72,14 +72,20 @@ signs:
     cmd: minisign
     args: ["-S", "-s", "{{ .Env.NODARY_MINISIGN_KEY }}", "-m", "${artifact}", "-x", "${signature}"]
 
-# ADR 0004 promises a tap with a bottle per platform, which is a formula rather
-# than a cask: casks are macOS-only, and nodary's primary platform is Linux,
-# where Homebrew serves formulae. One formula covers both.
+# **A cask, and therefore macOS only** (R5-23, ADR 0004).
 #
-# The formula is pushed as soon as the release object exists, but `release.draft`
+# `brews:` is deprecated and goreleaser's migration target is this, which
+# Homebrew defines only for macOS. Narrowing the channel rather than keeping a
+# formula by another route is a deliberate choice and not a regression: the tap
+# had never been published to when this changed, so no install broke, and on
+# macOS the binary is the operator CLI only (R5-19) — which is exactly what a
+# cask is the right Homebrew idiom for. A Linux operator who wants the CLI has
+# `curl … | sh`, PyPI and npm, all of which carry both platforms.
+#
+# The cask is pushed as soon as the release object exists, but `release.draft`
 # below means the asset it points at is not downloadable until the draft is
 # published — publish the draft promptly or `brew install` 404s in between.
-brews:
+homebrew_casks:
   - name: nodary
     ids: [binary]
     repository:
@@ -89,17 +95,26 @@ brews:
       # A PAT with write access to the tap repository. The default GITHUB_TOKEN
       # is scoped to this repository and cannot push to another one.
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: "https://nodary.net"
     description: "One control plane for all of your GPU nodes"
     license: "Apache-2.0"
     # `prerelease: auto` below means a pre-release tag skips the tap rather than
-    # advertising itself as the current formula.
+    # advertising itself as the current cask.
     skip_upload: auto
-    install: |
-      bin.install "nodary"
-    test: |
-      system "#{bin}/nodary", "version"
+    binaries: [nodary]
+    # **Without this the binary is killed on first run.** The release artifacts
+    # are not codesigned or notarized, so Gatekeeper quarantines anything a cask
+    # downloads and macOS refuses to execute it — the failure is a dialog about
+    # a damaged file, which reads as a corrupt download rather than as an
+    # unsigned one. There is no test for it here: it is a property of the
+    # operator's machine, not of this repository.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"], print_stderr: false).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nodary"]
+          end
 
 release:
   draft: true
