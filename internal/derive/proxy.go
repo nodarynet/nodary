@@ -3,8 +3,8 @@
 // **The egress allowlist is the point of this package**, not a detail of it.
 // §5 requires a build to reach "the package index and nothing else", and the
 // mechanism is the one internal/agent/network.go already measured into
-// existence: a container on `nodary-isolated` has no default route, no NAT and
-// an empty resolver, so it reaches nowhere at all. This adds exactly one hole —
+// existence: a container on `nodary-isolated` has no default route and no NAT,
+// so it reaches nowhere at all. This adds exactly one hole —
 // a CONNECT proxy on the host that will open a tunnel to one host and refuse
 // every other — and the container has no second route to anything, including to
 // the proxy's refusal.
@@ -12,8 +12,16 @@
 // The shape matters. An IP allowlist in nftables would have to let DNS out for
 // the container to resolve the index, and R4d measured DNS as the channel that
 // survives a route check: `<data>.attacker.example` is an exfiltration path
-// that passes every connectivity test. Here the container resolves nothing —
-// the proxy resolves on its behalf — so there is no resolver to talk to.
+// that passes every connectivity test. Here nothing the container does resolves
+// — the proxy resolves on its behalf — so it never needs a resolver and an
+// allowlist never has to let one through.
+//
+// Measured rather than assumed, and the measurement corrected the wording: the
+// container *is* handed the host's nameserver in resolv.conf, because nerdctl
+// copies it when CNI names none. Every lookup still failed, with "Network
+// unreachable", since that address is off-link and there is no route. The
+// control is the absent route and the drop rule in internal/agent/network.go,
+// not an empty resolv.conf.
 package derive
 
 import (

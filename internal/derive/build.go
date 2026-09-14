@@ -31,7 +31,8 @@ import (
 const Gateway = "10.88.0.1"
 
 // Network is the CNI network a build step runs on: the same one a deployment
-// gets, with no default route, no NAT and no resolver.
+// gets, with no default route and no NAT — and therefore no way to reach the
+// resolver nerdctl hands it. See the package comment.
 const Network = "nodary-isolated"
 
 // Subnet is the network a build's containers live on, and the only network the

@@ -32,15 +32,26 @@ const IsolatedConfName = "10-nodary-isolated.conflist"
 //     address on the bridge and **no default route**. This is the control.
 //   - `ipMasq: false` — nothing NATs this subnet out, so even a route added by
 //     hand inside the container reaches nowhere.
-//   - an empty `dns` — the container's resolv.conf names no resolver.
+//   - an empty `dns`, which does **not** empty the container's resolv.conf.
 //
-// The third is not belt and braces. Measured on this machine: a container with
-// its default route removed still resolved names with live answers, because
-// docker injects a resolver at 127.0.0.11 on the container's own loopback,
-// which needs no route. Under CNI the bridge plugin fills resolv.conf from this
-// block instead, so leaving it empty is what makes the DNS assertion in
-// internal/agent/egress.go something the configuration actually delivers rather
-// than something it happens to get away with.
+// The third once claimed more than it delivers, and the correction is worth
+// keeping. The reason it is here was a measurement: a container with its
+// default route removed still resolved names with live answers, because docker
+// injects a resolver at 127.0.0.11 on the container's own loopback, which needs
+// no route. Under CNI there is no such injection — but nerdctl copies the
+// host's /etc/resolv.conf when this block names nothing, so the container is
+// still handed a nameserver.
+//
+// Measured on this machine with the network up: resolv.conf inside a container
+// read `nameserver 10.255.255.254`, the host's own. Every lookup nonetheless
+// failed with "Network unreachable", because that address is off-link and the
+// first property above means there is no route to it.
+//
+// So **the route and the drop rule are what hold, not this block.** The DNS
+// assertion in internal/agent/egress.go is safe because it measures the
+// outcome rather than trusting the configuration — it tries to resolve a name
+// that exists and requires the attempt to fail, which catches a reachable
+// resolver however the container came by one.
 // docs/plans/R4d-egress-isolation.md
 func isolatedConf() map[string]any {
 	return map[string]any{
