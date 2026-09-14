@@ -67,7 +67,12 @@ lint: ## Run staticcheck
 vuln: ## Report known vulnerabilities reachable from this code
 	GOTOOLCHAIN=$(TOOLCHAIN) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK) ./...
 
-check: fmt-check vet test-race ## Everything CI runs on a pull request
+# `lint` is in here because the help text above it is a promise: CI runs
+# staticcheck on every pull request, so a `make check` that skipped it reported
+# a green tree that CI then failed. It did — on a commit whose only defect was a
+# function written one commit before its first caller (U1000), which nothing
+# else in this list can see.
+check: fmt-check vet lint test-race ## Everything CI runs on a pull request
 
 .PHONY: fmt-check
 fmt-check:

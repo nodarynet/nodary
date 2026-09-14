@@ -108,8 +108,9 @@ func TestNodeShowSaysWhichStoppedDeploymentsWereDisabled(t *testing.T) {
 	}
 	a.registerModel(t, "acme/tiny", "gpu-01")
 
-	code, out, _ := a.run("node", "show", "gpu-01")
-	if strings.Contains(out, "disabled") {
+	if code, out, stderr := a.run("node", "show", "gpu-01"); code != ExitOK {
+		t.Fatalf("node show: exit %d, %s", code, stderr)
+	} else if strings.Contains(out, "disabled") {
 		t.Fatalf("a deployment nobody disabled is reported as disabled:\n%s", out)
 	}
 
