@@ -8,41 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/audit"
-	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/paths"
 )
-
-// docs/specs/08-data-model.md §4. A backup of nodary.db alone is useless: the
-// TOTP seeds, the LiteLLM master key and the agent CA private key inside it are
-// all sealed under /etc/nodary/secret.key, and the agent CA's own certificate
-// lives beside it rather than in the database at all.
-//
-// The inverse is the one that actually happens. An operator who backs up only
-// the database finds out at restore time — the worst possible moment — that
-// every node must re-enroll and every TOTP enrollment must be redone. So this
-// verb takes both, always, and there is no flag to take less.
-const (
-	backupDatabase = "nodary.db"
-	backupConfig   = "config"
-	backupManifest = "backup.json"
-)
-
-// backupInfo travels inside the archive so a restore can tell what it is
-// holding before it writes anything.
-type backupInfo struct {
-	CreatedAt string `json:"created_at"`
-	Version   string `json:"version"`
-	Install   string `json:"install"`
-	Database  string `json:"database"`
-	ConfigDir string `json:"config_dir"`
-}
 
 func cmdBackup(e env, args []string) int {
 	if len(args) == 0 {
@@ -64,6 +38,7 @@ func cmdBackup(e env, args []string) int {
 func cmdBackupCreate(e env, args []string) int {
 	fs := newFlagSet(e, "backup create")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	out := fs.String("out", "", "the archive to write")
 	configDir := fs.String("config-dir", paths.ConfigDir, "the configuration directory to capture")
@@ -74,12 +49,40 @@ func cmdBackupCreate(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary backup create: --out is required\n")
 		return ExitUsage
 	}
-	if code := refuseExposedDestination(e, "backup create", *out); code >= 0 {
+	rem, code := remoteFor(e, "backup create", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
 		return code
 	}
-	if _, err := os.Stat(*out); err == nil {
-		fmt.Fprintf(e.stderr, "nodary backup create: %s already exists; last night's backup is not overwritten\n", *out)
-		return ExitFailure
+
+	// **The archive is written on the control plane and stays there**, and
+	// --out names a path on that machine rather than on this one.
+	//
+	// Not a limitation worked around later: 08 §4 says the archive is as
+	// sensitive as the sealing key because it contains it, along with the
+	// agent CA private key and the LiteLLM master key. Streaming that to
+	// whichever laptop ran the command would move the control plane's entire
+	// secret material onto a machine with a different security posture as a
+	// side effect of a flag. What --server buys is the attribution: the chain
+	// says who took the backup, where a cron on the host says root.
+	if rem != nil {
+		var rep backup.Report
+		out, applied, code := rem.attested(e, "backup create", remoteAct{method: "POST",
+			path: "/backups", body: map[string]string{"out": *out, "config_dir": *configDir}},
+			cer, "text")
+		if !applied {
+			return code
+		}
+		if raw, err := json.Marshal(out.Result); err == nil {
+			_ = json.Unmarshal(raw, &rep)
+		}
+		reportBackup(e, rep, true)
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return ExitOK
+	}
+
+	if err := backup.CheckDestination(*out); err != nil {
+		fmt.Fprintf(e.stderr, "nodary backup create: %v\n", err)
+		return exitFor(err)
 	}
 
 	s, ok := openSession(e, "backup create", *dbPath, *keyPath, *credsPath)
@@ -113,187 +116,42 @@ func cmdBackupCreate(e env, args []string) int {
 		return code
 	}
 
-	if err := writeBackup(e, s, *out, *configDir); err != nil {
+	rep, err := backup.Create(context.Background(), s.db, s.now, *out, *configDir)
+	if err != nil {
 		os.Remove(*out)
 		fmt.Fprintf(e.stderr, "nodary backup create: %v\n", err)
 		return ExitFailure
 	}
+	reportBackup(e, rep, false)
 	reportRecord(e, rec)
 	return ExitOK
 }
 
-// writeBackup assembles the archive.
-func writeBackup(e env, s *session, out, configDir string) error {
-	tmp, err := os.MkdirTemp(filepath.Dir(out), ".nodary-backup-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-
-	snapshot := filepath.Join(tmp, backupDatabase)
-	if err := s.db.Snapshot(context.Background(), snapshot); err != nil {
-		return err
-	}
-
-	install, _ := audit.InstallID(context.Background(), s.db.Read())
-	info := backupInfo{
-		CreatedAt: s.now.UTC().Format(audit.TimeFormat),
-		Version:   buildinfo.Version,
-		Install:   install,
-		Database:  s.db.Path(),
-		ConfigDir: configDir,
-	}
-
-	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, paths.ModeDatabase)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gz := gzip.NewWriter(f)
-	tw := tar.NewWriter(gz)
-
-	manifest, err := json.MarshalIndent(info, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := addFileTo(tw, backupManifest, append(manifest, '\n'), 0o600); err != nil {
-		return err
-	}
-
-	var captured []string
-	if err := addPathTo(tw, backupDatabase, snapshot, &captured); err != nil {
-		return err
-	}
-	if err := addTreeTo(tw, backupConfig, configDir, &captured); err != nil {
-		return err
-	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-
-	reportBackup(e, out, captured)
-	return nil
-}
-
 // reportBackup says the loud thing 08 §4 requires.
-func reportBackup(e env, out string, captured []string) {
-	fmt.Fprintln(e.stdout, out)
-	fmt.Fprintf(e.stderr, "\nWrote %s (0600), holding:\n", out)
-	for _, c := range captured {
+//
+// `remote` changes one sentence and it is the one that matters: the file is on
+// the control plane, so "store it where you would store the key itself" is
+// advice about a machine the operator is not standing on.
+func reportBackup(e env, rep backup.Report, remote bool) {
+	fmt.Fprintln(e.stdout, rep.Path)
+	where := ""
+	if remote {
+		where = " on the control plane"
+	}
+	fmt.Fprintf(e.stderr, "\nWrote %s%s (0600), %s, sha256:%s, holding:\n",
+		rep.Path, where, backup.HumanBytes(rep.Bytes), rep.SHA256[:min(12, len(rep.SHA256))])
+	for _, c := range rep.Captured {
 		fmt.Fprintf(e.stderr, "  %s\n", c)
 	}
 	fmt.Fprintf(e.stderr,
 		"\nThis file is as sensitive as /etc/nodary/secret.key, because it contains it.\n"+
 			"Anyone holding it can read every TOTP seed, the LiteLLM master key and the\n"+
 			"agent CA private key. Store it where you would store the key itself.\n")
-}
-
-// refuseExposedDestination implements 08 §4's refusal.
-//
-// The directory rather than the file: the archive itself is created 0600, so
-// what is left to get wrong is where it is put. A world-writable directory lets
-// somebody replace the backup with their own, and a world-readable one is the
-// case the specification names.
-//
-// No override flag. The specification says refuses, and a backup holding the
-// sealing key is not the place to add a way to say "yes I know".
-func refuseExposedDestination(e env, verb, out string) int {
-	dir := filepath.Dir(out)
-	info, err := os.Stat(dir)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-		return ExitFailure
-	}
-	if mode := info.Mode().Perm(); mode&0o007 != 0 {
+	if remote {
 		fmt.Fprintf(e.stderr,
-			"nodary %s: %s is mode %04o, and a backup holds /etc/nodary/secret.key —\n"+
-				"  every TOTP seed, the LiteLLM master key and the agent CA private key are\n"+
-				"  sealed under it (docs/specs/08-data-model.md §4).\n"+
-				"  Write somewhere only root can reach:\n"+
-				"    sudo install -d -m 0700 /var/backups/nodary\n", verb, dir, mode)
-		return ExitPolicy
+			"It stays on that machine: nodary will not carry the sealing key to yours.\n"+
+				"Move it with whatever already moves your backups off that host.\n")
 	}
-	return -1
-}
-
-func addFileTo(tw *tar.Writer, name string, body []byte, mode os.FileMode) error {
-	if err := tw.WriteHeader(&tar.Header{
-		Name: name, Mode: int64(mode), Size: int64(len(body)), Typeflag: tar.TypeReg,
-	}); err != nil {
-		return err
-	}
-	_, err := tw.Write(body)
-	return err
-}
-
-func addPathTo(tw *tar.Writer, name, path string, captured *[]string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if captured != nil {
-		*captured = append(*captured, fmt.Sprintf("%-28s %s", name, humanBytes(info.Size())))
-	}
-	return addFileTo(tw, name, body, info.Mode().Perm())
-}
-
-// addTreeTo captures a whole directory.
-//
-// Everything under it, with no exclusions. The alternative is a list of what
-// matters, which is a list somebody has to remember to extend — and the failure
-// mode of forgetting is discovered at restore, by somebody having a bad day
-// already. /etc/nodary is small, and all of it is either configuration or a
-// secret.
-func addTreeTo(tw *tar.Writer, prefix, root string, captured *[]string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		name := filepath.ToSlash(filepath.Join(prefix, rel))
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return tw.WriteHeader(&tar.Header{
-				Name: name + "/", Mode: int64(info.Mode().Perm()), Typeflag: tar.TypeDir,
-			})
-		}
-		// Symlinks are followed rather than recorded. A backup that restored a
-		// dangling link in place of a key would look like it worked.
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		return addPathTo(tw, name, path, captured)
-	})
-}
-
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%d B", n)
 }
 
 // cmdBackupRestore puts a backup back.
@@ -303,12 +161,33 @@ func humanBytes(n int64) string {
 // operator running one more command.
 func cmdBackupRestore(e env, args []string) int {
 	fs := newFlagSet(e, "backup restore")
+	server := serverFlag(fs)
 	from := fs.String("from", "", "the archive to restore")
 	dbPath := fs.String("db", paths.Database(), "where to write the database")
 	configDir := fs.String("config-dir", paths.ConfigDir, "where to write the configuration")
 	force := fs.Bool("force", false, "overwrite an existing database and configuration")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
+	}
+	// **Declared so it can be refused with a reason**, rather than falling
+	// through to "flag provided but not defined" — an administrator who can
+	// create a backup over the network will reasonably try to restore one that
+	// way, and the answer is a sentence, not a parser error.
+	//
+	// Restore replaces /etc/nodary and the database on the machine it runs on,
+	// with the control plane stopped, and starts nothing afterwards. There is
+	// no coherent thing for it to do against a control plane that is serving
+	// requests — and a control plane that could be told to overwrite its own
+	// sealing key over HTTP is one whose worst day is one request away.
+	if strings.TrimSpace(*server) != "" {
+		fmt.Fprintf(e.stderr,
+			"nodary backup restore: this runs on the control-plane host, with it stopped.\n"+
+				"  It replaces the database and /etc/nodary and starts nothing, so there is\n"+
+				"  nothing for --server to act against:\n"+
+				"    sudo systemctl stop nodary-server\n"+
+				"    sudo nodary backup restore --from ARCHIVE\n"+
+				"    sudo nodary audit verify && sudo systemctl start nodary-server\n")
+		return ExitUsage
 	}
 	if *from == "" && fs.NArg() == 1 {
 		*from = fs.Arg(0)
@@ -368,29 +247,29 @@ func cmdBackupRestore(e env, args []string) int {
 }
 
 // readBackup reads the manifest and the member list without extracting.
-func readBackup(path string) (backupInfo, []string, error) {
-	var info backupInfo
+func readBackup(path string) (backup.Info, []string, error) {
+	var info backup.Info
 	var members []string
 	err := walkBackup(path, func(h *tar.Header, r io.Reader) error {
 		if h.Typeflag == tar.TypeDir {
 			return nil
 		}
 		members = append(members, h.Name)
-		if h.Name == backupManifest {
+		if h.Name == backup.Manifest {
 			return json.NewDecoder(r).Decode(&info)
 		}
 		return nil
 	})
 	if err != nil {
-		return backupInfo{}, nil, err
+		return backup.Info{}, nil, err
 	}
-	if !slices.Contains(members, backupDatabase) {
-		return backupInfo{}, nil, fmt.Errorf("%s holds no %s; it is not a nodary backup", path, backupDatabase)
+	if !slices.Contains(members, backup.Database) {
+		return backup.Info{}, nil, fmt.Errorf("%s holds no %s; it is not a nodary backup", path, backup.Database)
 	}
 	// The refusal 08 §4 exists to prevent, caught before anything is written
 	// rather than at the TOTP prompt three weeks later.
-	if !slices.Contains(members, backupConfig+"/secret.key") {
-		return backupInfo{}, nil, fmt.Errorf(
+	if !slices.Contains(members, backup.Config+"/secret.key") {
+		return backup.Info{}, nil, fmt.Errorf(
 			"%s holds a database but no config/secret.key.\n"+
 				"  Every TOTP seed, the LiteLLM master key and the agent CA private key in that\n"+
 				"  database are sealed under it, so restoring this would produce a control plane\n"+
@@ -405,12 +284,12 @@ func extractBackupTo(path string, members []string, dbPath, configDir string) ([
 	err := walkBackup(path, func(h *tar.Header, r io.Reader) error {
 		var dest string
 		switch {
-		case h.Name == backupManifest:
+		case h.Name == backup.Manifest:
 			return nil
-		case h.Name == backupDatabase:
+		case h.Name == backup.Database:
 			dest = dbPath
-		case strings.HasPrefix(h.Name, backupConfig+"/"):
-			rel := strings.TrimPrefix(h.Name, backupConfig+"/")
+		case strings.HasPrefix(h.Name, backup.Config+"/"):
+			rel := strings.TrimPrefix(h.Name, backup.Config+"/")
 			// An archive is untrusted input even when we wrote it: a member
 			// named ../../etc/shadow would otherwise escape the destination.
 			if !filepath.IsLocal(rel) {

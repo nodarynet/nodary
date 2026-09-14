@@ -8,17 +8,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/core"
 	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/metering"
+	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/policy"
 )
 
@@ -102,6 +106,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/revisions/{seq}", s.showRevision)
 	h("POST", "/revisions/{seq}/rollback", s.rollback)
 	h("GET", "/config/export", s.exportConfig)
+	h("POST", "/backups", s.createBackup)
 	h("GET", "/config/verify", s.verifyConfig)
 	h("POST", "/config/apply", s.applyConfig)
 
@@ -140,7 +145,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 // --- auth --------------------------------------------------------------------
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Username, Password string }
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		s.fail(w, r, badRequest("expected {\"username\":…,\"password\":…}"))
 		return
@@ -279,7 +287,11 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Name, Email, Role string }
+	var body struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+		Role  string `json:"role"`
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		s.fail(w, r, badRequest("expected {\"name\":…,\"role\":…}"))
 		return
@@ -328,7 +340,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 // is what an operator types and what POST /tokens takes for the same account.
 func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	var body struct{ State string }
+	var body struct {
+		State string `json:"state"`
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		s.fail(w, r, badRequest("expected {\"state\":\"suspended\"}"))
 		return
@@ -435,7 +449,9 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		User, Kind, Name string
+		User string `json:"user"`
+		Kind string `json:"kind"`
+		Name string `json:"name"`
 		// Lifetime is the CLI's --expires: "90d", "12h", "never", or empty for
 		// the per-kind default. It used to be absent and ninety days hardcoded,
 		// which ignored what the caller asked for *and* what the profile
@@ -584,7 +600,10 @@ func (s *Server) showPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Profile, Source string }
+	var body struct {
+		Profile string `json:"profile"`
+		Source  string `json:"source"`
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		s.fail(w, r, badRequest("expected {\"profile\":…} or {\"source\":…}"))
 		return
@@ -648,6 +667,73 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		return map[string]any{"denies": m["denies"]}
+	})
+}
+
+// createBackup writes an archive on this host and leaves it here.
+//
+// **The archive never crosses the wire, and that is the design rather than a
+// step that is missing.** docs/specs/08-data-model.md §4: it is as sensitive as
+// /etc/nodary/secret.key because it contains it, together with the agent CA
+// private key and the LiteLLM master key. Streaming it to whichever machine
+// made the request would move this control plane's entire secret material onto
+// one with a different security posture, as a side effect of a flag. What this
+// endpoint buys is the attribution — an administrator can take a backup before
+// a risky change without a shell here, and the chain says who did.
+//
+// `out` is therefore a path on *this* filesystem, and 08 §4's refusal is
+// checked here, where the directory it names actually exists.
+func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
+	// **Tagged, and ConfigDir is why.** encoding/json matches an untagged
+	// field by name case-insensitively, which carries `out` to `Out` and
+	// silently drops `config_dir` — the underscore is not a case difference.
+	// The symptom was a backup that captured /etc/nodary on a host that has
+	// no such directory, and the same shape once cost audit.Record its
+	// prev_hash on the way back over the wire. Every field a client sends
+	// gets a tag, not only the ones whose names have two words.
+	var body struct {
+		Out       string `json:"out"`
+		ConfigDir string `json:"config_dir"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		s.fail(w, r, badRequest("expected {\"out\":…}"))
+		return
+	}
+	if body.Out == "" {
+		s.fail(w, r, badRequest("out is required; it names the archive to write on this host"))
+		return
+	}
+	if body.ConfigDir == "" {
+		body.ConfigDir = paths.ConfigDir
+	}
+	if err := backup.CheckDestination(body.Out); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	s.mutate(w, r, core.Change{
+		Action: "backup.create",
+		Target: &audit.Target{Kind: "backup", ID: filepath.Base(body.Out)},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			return map[string]any{
+				"out": body.Out, "database": s.db.Path(), "config_dir": body.ConfigDir,
+				"includes_secret_key": true,
+			}, nil
+		},
+		Apply: func(m audit.Mutation, _ any) error {
+			// Before the snapshot rather than after, so the record of the
+			// backup is inside the backup.
+			m.Detail("out", body.Out)
+			m.Detail("config_dir", body.ConfigDir)
+			return nil
+		},
+	}, func(core.Outcome) any {
+		rep, err := backup.Create(r.Context(), s.db, s.now(), body.Out, body.ConfigDir)
+		if err != nil {
+			os.Remove(body.Out)
+			return err
+		}
+		return rep
 	})
 }
 

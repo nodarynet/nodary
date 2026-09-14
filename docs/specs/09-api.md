@@ -23,6 +23,7 @@ Mutating requests carry `X-Nodary-Justify` and, when policy requires it, `X-Noda
 | **Audit** | `GET /audit?from&to&actor&action` · `GET /audit/verify` · `GET /audit/export?format=jsonl\|csv` |
 | **Policy** | `GET /policy` · `POST /policy/apply` · `GET /policy/diff` |
 | **Config** | `GET /revisions` · `GET /revisions/{seq}` · `POST /revisions/{seq}/rollback` · `GET /config/export` · `GET /config/verify` · `POST /config/apply` |
+| **Backup** | `POST /backups` |
 | **Agent** | `POST /enroll` · `GET /agent/desired` · `POST /agent/status` · `POST /agent/events` · `GET /agent/dist/{version}` ([03](03-agent.md)) |
 
 Inference is served separately on the gateway port and mirrors the OpenAI surface
@@ -46,6 +47,18 @@ refusal to make, and it is a `422` naming the line.
 
 The object endpoints above remain the way a program changes one thing. This is the
 declarative route: a site keeping its configuration in version control applies the file.
+
+**`POST /backups` writes an archive on the control-plane host and leaves it there.** `out` is a
+path on *that* filesystem, and [08 §4](08-data-model.md#4-secrets-at-rest)'s refusal to write
+somewhere world-readable is checked there, where the directory exists. The archive is never
+returned: it holds `/etc/nodary/secret.key`, the agent CA private key and the LiteLLM master
+key, so streaming it to whichever machine asked would move the control plane's entire secret
+material onto one with a different security posture as a side effect of a request. What the
+endpoint exists for is the attribution — an administrator can take a backup before a risky
+change without a shell on the host, and the chain records who did rather than `root`. Moving
+the archive off that host stays a separate, deliberate act. There is no restore endpoint:
+restore replaces the database and the configuration directory with the control plane stopped,
+and starts nothing.
 
 ## 2. Conventions
 
@@ -87,6 +100,7 @@ Uniform envelope; `code` is stable and machine-readable, `message` is for humans
 | `412` | `X-Nodary-Intent` no longer matches the rendered change |
 | `422` | Semantically invalid: capability unsupported, artifact/layout mismatch |
 | `429` | Rate or budget limit, with `Retry-After` |
+| `403` | `destination_exposed`: a backup destination other users can read ([08 §4](08-data-model.md#4-secrets-at-rest)) |
 | `503` | No ready deployment on the route |
 
 `403` rather than `404` for a disallowed route is deliberate: hiding existence buys nothing

@@ -1447,3 +1447,130 @@ func TestRegisterPicksAPortFromTheControlPlanesFleet(t *testing.T) {
 			"fleet's view of what is taken", ports[0])
 	}
 }
+
+// `backup create` over --server, and the shape of it: the archive is written on
+// the control plane and stays there.
+//
+// docs/specs/08-data-model.md §4 is the reason. The archive holds
+// /etc/nodary/secret.key, the agent CA private key and the LiteLLM master key,
+// so streaming it to whichever machine asked would move this control plane's
+// entire secret material onto one with a different posture as a side effect of
+// a flag. What --server is for here is the attribution.
+func TestBackupCreateOverServerWritesOnTheControlPlane(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "nodary-backup.tar.gz")
+	confDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(confDir, "secret.key"), []byte("sealed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run(t, "backup", "create", "--out", out, "--config-dir", confDir,
+		"--yes", "--justify", "before a risky change, from my own machine",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("backup create over --server: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(stdout, out) {
+		t.Errorf("stdout does not name the archive:\n%s", stdout)
+	}
+	// The archive is real, and where the caller said — on the control plane's
+	// filesystem, which in this test is the same machine.
+	info, err := os.Stat(out)
+	if err != nil {
+		t.Fatalf("no archive was written: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("the archive is empty")
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("the archive is mode %04o, want 600", mode)
+	}
+	for _, want := range []string{"as sensitive as", "stays on that machine", "sha256:"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the report does not say %q:\n%s", want, stderr)
+		}
+	}
+
+	// The record is the person's, which is the whole point of doing this over
+	// the network rather than from a cron on the host.
+	code, listing, stderr := run(t, "audit", "list", "--limit", "20", "--format", "json",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	var got struct {
+		Records []struct {
+			Action string `json:"action"`
+			Actor  struct {
+				ID     string `json:"id"`
+				Method string `json:"method"`
+			} `json:"actor"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(listing), &got); err != nil {
+		t.Fatalf("%v\n%s", err, listing)
+	}
+	var found bool
+	for _, r := range got.Records {
+		if r.Action != "backup.create" {
+			continue
+		}
+		found = true
+		if r.Actor.Method == "local" || r.Actor.ID == "root" {
+			t.Errorf("the backup was recorded as %s/%s, not as the person who took it",
+				r.Actor.ID, r.Actor.Method)
+		}
+	}
+	if !found {
+		t.Errorf("no backup.create record:\n%s", listing)
+	}
+}
+
+// 08 §4's refusal has to hold on the machine that owns the directory, because
+// that is the only machine that can see its mode.
+func TestBackupRefusesAnExposedDestinationOverServerToo(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"backup", "create", "--out", filepath.Join(dir, "b.tar.gz"),
+		"--yes", "--justify", "somewhere other people can read"}
+
+	local, _, localErr := run(t, append(append([]string{}, args...),
+		"--db", a.db, "--secret-key", a.key)...)
+	remote, _, remoteErr := run(t, append(append([]string{}, args...),
+		"--server", base, "--credentials", a.creds)...)
+
+	if local != ExitPolicy || remote != ExitPolicy {
+		t.Fatalf("exit %d locally and %d over --server, want ExitPolicy on both\n%s%s",
+			local, remote, localErr, remoteErr)
+	}
+	if !strings.Contains(remoteErr, "secret.key") {
+		t.Errorf("the refusal over --server does not say what is at stake:\n%s", remoteErr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.tar.gz")); err == nil {
+		t.Error("an archive was written to a destination that was refused")
+	}
+}
+
+// Restore is a console operation and says so, rather than failing as an
+// unknown flag.
+func TestBackupRestoreRefusesServerWithAReason(t *testing.T) {
+	code, _, stderr := run(t, "backup", "restore", "--from", "/nonexistent.tar.gz",
+		"--server", "https://nodary.example:8443")
+	if code != ExitUsage {
+		t.Fatalf("exit %d, want ExitUsage", code)
+	}
+	if !strings.Contains(stderr, "control-plane host") || !strings.Contains(stderr, "systemctl stop") {
+		t.Errorf("the refusal does not say what to do instead:\n%s", stderr)
+	}
+}

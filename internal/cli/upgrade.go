@@ -11,6 +11,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/install"
@@ -160,7 +161,7 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 	}
 	out := filepath.Join(dir, fmt.Sprintf("pre-upgrade-%s-%s.tar.gz",
 		buildinfo.Version, s.now.UTC().Format("20060102T150405Z")))
-	if err := writeBackup(e, s, out, confDir); err != nil {
+	if _, err := backup.Create(context.Background(), s.db, s.now, out, confDir); err != nil {
 		os.Remove(out)
 		fmt.Fprintf(e.stderr, "nodary upgrade: taking the pre-upgrade backup: %v\n", err)
 		return ExitFailure

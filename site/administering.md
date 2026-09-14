@@ -560,6 +560,7 @@ machine you are standing on. These do, today:
 | Records | `audit list`, `usage show` |
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
 | Policy | `policy show\|diff\|apply` |
+| Backup | `backup create` |
 
 So the loop closes: an administrator with a credential can mint the next administrator's,
 without anybody opening a shell on the control plane.
@@ -777,6 +778,21 @@ omits everything since the last checkpoint.
 !!! warning "The archive is as sensitive as the sealing key, because it contains it"
     Anyone holding it can read every TOTP seed, the LiteLLM master key and the agent CA
     private key. Store it where you would store `/etc/nodary/secret.key` itself.
+
+You can take one from your own machine, which is worth having at the moment you most want a
+backup — just before a change you are not sure about:
+
+```sh
+nodary backup create --out /var/backups/nodary/before-OPS-4150.tar.gz \
+  --server https://nodary.example.internal:8443 \
+  --justify "OPS-4150: before the policy change"
+```
+
+`--out` is a path **on the control plane**, and that is where the archive stays. nodary will
+not carry the sealing key to your laptop, so moving the file off that host remains whatever
+already moves your backups off it. What you gain is the record: the chain says you took this
+backup, where a cron on the host says `root`. Restore is the other way round — it runs on the
+console, with the control plane stopped, and refuses `--server` for that reason.
 
 !!! note "The master key is a mode, not a seal"
     Anyone who can read `/etc/nodary/gateway.env` can present that key to `127.0.0.1:4000` and

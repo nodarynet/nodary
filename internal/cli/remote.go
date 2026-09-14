@@ -423,7 +423,12 @@ func (e *remoteError) exit() int {
 	case "unauthenticated", "forbidden", "too_many_attempts", "reauthentication_failed":
 		return ExitAuth
 	case "reauthentication_required", "justification_required",
-		"justification_too_short", "unattended_forbidden", "lifetime_too_long":
+		"justification_too_short", "unattended_forbidden", "lifetime_too_long",
+		// 08 §4's refusal to write the sealing key somewhere other people can
+		// read. ExitPolicy rather than ExitAuth, even though it is a 403:
+		// nothing about the credential is wrong, and the local route has
+		// always answered this one 5.
+		"destination_exposed":
 		return ExitPolicy
 	case "invalid", "bad_request":
 		return ExitUsage

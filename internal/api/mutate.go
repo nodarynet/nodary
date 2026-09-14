@@ -72,7 +72,21 @@ func (s *Server) mutate(w http.ResponseWriter, r *http.Request, c core.Change, o
 		"request_id": requestID(r),
 	}
 	if onOK != nil {
+		// **An onOK that returns an error reports it instead of a result.**
+		//
+		// Most handlers use this hook to describe what they did, and for those
+		// nothing changes. One does real work in it: `backup create` has to
+		// write the archive *after* the transaction commits, because the audit
+		// record of the backup belongs inside the backup and a vacuum cannot
+		// start while a write is open. Without this, a failed write would be
+		// answered with `"applied": true` and no result — an operator told
+		// they have a backup that does not exist, which is the worst answer a
+		// backup verb can give.
 		if extra := onOK(out); extra != nil {
+			if err, failed := extra.(error); failed {
+				s.fail(w, r, err)
+				return
+			}
 			body["result"] = extra
 		}
 	}

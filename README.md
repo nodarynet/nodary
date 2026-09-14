@@ -131,7 +131,7 @@ front page rather than only in a plan.
 | :--- | :--- |
 | The offline bundle | [R5-13/14](docs/tasks/R5-install.md) |
 | Agent self-upgrade — `nodary upgrade` moves the control-plane host; a GPU node is upgraded by re-running `install.sh` on it | [R5-16](docs/tasks/R5-install.md) |
-| Remote administration for **every** verb. `nodary login` and `--server` are built, and the fleet, model, route, limit, account and record verbs act on a control plane over the network as the person holding the credential. What still needs root on that host is `model register` and staging, `policy apply`, `backup`, and anything that installs or diagnoses a machine — and a verb that has not been converted refuses `--server` rather than quietly acting locally | [R2-44](docs/tasks/R2-control-plane.md) |
+| Remote administration for the verbs that install or diagnose a machine. `nodary login` and `--server` are built, and every administrative verb — fleet, models and staging, routing, limits, accounts, records, configuration, policy and `backup create` — acts on a control plane over the network as the person holding the credential. What still needs root on a host is what is *about* that host: `server install`, `node install`, `doctor`, `gateway`, and `backup restore`, which replaces a stopped control plane's database and starts nothing. A verb that has not been converted refuses `--server` rather than quietly acting locally | [R2-44](docs/tasks/R2-control-plane.md) |
 | A UI of any kind | [R7](docs/tasks/R7-ui-readonly.md), [R8](docs/tasks/R8-ui-mutating.md) |
 | A FIPS-validated artifact — CI proves the tree builds and passes under `GODEBUG=fips140=on`, and ships nothing | [R5-25/26](docs/tasks/R5-install.md) |
 | OIDC, and backends beyond vLLM, SGLang and llama.cpp — TensorRT-LLM needs the `prepare` phase | [R6-06](docs/tasks/R6-backends.md) |
@@ -140,7 +140,7 @@ front page rather than only in a plan.
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 40 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 41 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
 | **R4** Agent | 42 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 20 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |

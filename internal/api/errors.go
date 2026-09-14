@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/attest"
+	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/policy"
@@ -72,7 +73,8 @@ func statusFor(err error) (int, string) {
 		return http.StatusNotFound, "not_found"
 
 	case errors.Is(err, identity.ErrNameTaken),
-		errors.Is(err, identity.ErrBadTransition):
+		errors.Is(err, identity.ErrBadTransition),
+		errors.Is(err, backup.ErrExists):
 		return http.StatusConflict, "conflict"
 
 	// 09 §2: a mutation whose If-Match no longer holds. Its own code rather
@@ -102,6 +104,11 @@ func statusFor(err error) (int, string) {
 		return http.StatusForbidden, "unattended_forbidden"
 	case errors.Is(err, attest.ErrLifetimeTooLong):
 		return http.StatusForbidden, "lifetime_too_long"
+	// docs/specs/08-data-model.md §4's refusal. Its own code because a client
+	// acts on it differently from every other 403 here: nothing about the
+	// credential is wrong, and the fix is a directory mode on the host.
+	case errors.Is(err, backup.ErrExposedDestination):
+		return http.StatusForbidden, "destination_exposed"
 	case errors.Is(err, identity.ErrBadCode):
 		return http.StatusUnauthorized, "reauthentication_failed"
 

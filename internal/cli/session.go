@@ -16,6 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/core"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -336,11 +337,14 @@ func exitFor(err error) int {
 		return ExitUsage
 	case errors.Is(err, identity.ErrNameTaken),
 		errors.Is(err, identity.ErrBadTransition),
+		// Last night's backup is not overwritten by a mistyped path.
+		errors.Is(err, backup.ErrExists),
 		// docs/specs/11-failure-modes.md §3: state moved between the preview
 		// and the apply, so what would be applied is not what was approved.
 		errors.Is(err, attest.ErrIntentChanged):
 		return ExitPrecondition
-	case errors.Is(err, audit.ErrDeliveryBlocked),
+	case errors.Is(err, backup.ErrExposedDestination),
+		errors.Is(err, audit.ErrDeliveryBlocked),
 		errors.Is(err, attest.ErrJustification),
 		errors.Is(err, attest.ErrJustificationShort),
 		errors.Is(err, attest.ErrTOTPRequired),
