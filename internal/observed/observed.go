@@ -95,6 +95,13 @@ type DeploymentReport struct {
 	State  string
 	Health string
 	Error  string
+	// Egress and EgressReason are docs/specs/03-agent.md §5's verdict, when
+	// this node reached one. Empty means the report carries no new answer,
+	// and Heartbeat leaves whatever is stored alone — a verdict is expensive
+	// to reach (three network operations inside a namespace) and is not
+	// re-established every fifteen seconds.
+	Egress       string
+	EgressReason string
 }
 
 type StagingReport struct {
@@ -131,6 +138,20 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 				 WHERE id = ? AND node_name = ?`,
 				d.State, orDefault(d.Health, "unknown"), nullOr(d.Error), stamp, d.ID, name); err != nil {
 				return fmt.Errorf("recording deployment %s on %s: %w", d.ID, name, err)
+			}
+			// A statement of its own rather than three more columns above,
+			// because it is conditional: the verdict survives the heartbeats
+			// that carry no new one. Folding it into the statement above would
+			// blank the stored answer on the very next beat, leaving a node
+			// that asserted isolation once looking like one that never did.
+			if d.Egress == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE deployment SET egress_state = ?, egress_reason = ?, egress_checked_at = ?
+				 WHERE id = ? AND node_name = ?`,
+				d.Egress, nullOr(d.EgressReason), stamp, d.ID, name); err != nil {
+				return fmt.Errorf("recording the egress verdict for %s on %s: %w", d.ID, name, err)
 			}
 		}
 

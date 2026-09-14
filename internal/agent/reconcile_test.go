@@ -673,3 +673,44 @@ func TestAnInconclusiveEgressAssertionIsRetried(t *testing.T) {
 		t.Error("a restarted deployment kept its predecessor's verdict")
 	}
 }
+
+// R4-29 / R2-26: the egress assertion runs after a start and while its answer
+// is inconclusive, not on every cycle — so the verdict a converged node reports
+// on its heartbeat is one it reached some cycles ago. Reporting only what the
+// current iteration found would make a node that established isolation look,
+// one cycle later, exactly like a node that has never been asked.
+func TestAConvergedNodeKeepsReportingTheVerdictItReached(t *testing.T) {
+	compliant := &EgressVerdict{Deployment: "d1", State: Compliant}
+
+	// The cycle that started it reaches an answer.
+	first := carryEgress(nil, []UnitOutcome{
+		{Deployment: "d1", Action: "started", Egress: compliant},
+		{Deployment: "d2"},
+	})
+	if first["d1"].State != Compliant {
+		t.Fatalf("d1 = %q, want the verdict this cycle reached", first["d1"].State)
+	}
+	if _, ok := first["d2"]; ok {
+		t.Error("d2 has a verdict and was never probed")
+	}
+
+	// The next cycle converges and probes nothing.
+	second := carryEgress(first, []UnitOutcome{{Deployment: "d1"}, {Deployment: "d2"}})
+	if second["d1"].State != Compliant {
+		t.Errorf("d1 = %q after a converged cycle, want the verdict kept", second["d1"].State)
+	}
+
+	// A re-probe replaces it rather than being ignored — the whole point of
+	// re-probing is that the answer can change.
+	third := carryEgress(second, []UnitOutcome{
+		{Deployment: "d1", Action: "restarted",
+			Egress: &EgressVerdict{Deployment: "d1", State: NonCompliant, Reason: "dns: resolved"}},
+	})
+	if third["d1"].State != NonCompliant {
+		t.Errorf("d1 = %q after a new verdict, want it replaced", third["d1"].State)
+	}
+	// And d2 left the plan, so nothing is reported about it any more.
+	if _, ok := third["d2"]; ok {
+		t.Error("d2 left the plan and is still reported")
+	}
+}

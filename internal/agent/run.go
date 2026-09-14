@@ -62,6 +62,14 @@ type Daemon struct {
 	// Report that the plan alone cannot answer.
 	lastRefused     []Refusal
 	lastOutOfPolicy []Refusal
+	// lastEgress is the most recent egress verdict reached for each deployment
+	// still in the plan (R4-29, docs/specs/03-agent.md §5). Sticky rather than
+	// per-iteration: the probe runs on a start and while a verdict is
+	// inconclusive, not every cycle, so a converged node produces no new
+	// verdict and would otherwise report nothing about isolation it has
+	// already established. Replaced wholesale each reconcile, which is also
+	// how a deployment that left the plan stops being reported.
+	lastEgress map[string]EgressVerdict
 }
 
 // NewDaemon prepares the loop. It does not start it.
@@ -162,6 +170,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	// heartbeat from unless it rides along on the same handoff.
 	d.lastRestartDone = r.RestartDone
 	d.lastRefused, d.lastOutOfPolicy = r.Refused, r.OutOfPolicy
+	d.lastEgress = carryEgress(d.lastEgress, r.Units)
 	for _, u := range r.Units {
 		if u.Action != "" || u.Error != "" {
 			d.Log.Info("agent", "deployment", u.Deployment, "state", u.State,
@@ -279,11 +288,17 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	for _, u := range d.last.Units {
 		s := byID[u.Deployment]
 		state, detail := d.observedState(ctx, u, s)
+		v := d.lastEgress[u.Deployment]
 		body.Deployments = append(body.Deployments, api.StatusUnit{
 			ID:     u.Deployment,
 			State:  state,
 			Health: orDefault(s.Health, "unknown"),
 			Error:  detail,
+			// docs/specs/11-failure-modes.md §3 makes a failing assertion a
+			// critical alert; it was one on this node's journal alone, which
+			// is the machine the operator is not looking at.
+			Egress:       v.State,
+			EgressReason: v.Reason,
 		})
 	}
 	for _, st := range d.last.Stage {
@@ -339,6 +354,29 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		return fmt.Errorf("the control plane returned %s", resp.Status)
 	}
 	return nil
+}
+
+// carryEgress is the verdict each deployment in the plan stands at now.
+//
+// The probe runs on a start and while an answer is inconclusive, not every
+// cycle (reconcile.go), so a converged node produces no new verdict — and a
+// node that reported only what this iteration found would report isolation
+// once and then nothing, which the control plane cannot tell from a node that
+// was never asked. So a deployment with no new answer keeps the last one.
+//
+// Built fresh from the current units rather than merged into the old map, so
+// a deployment that left the plan stops being reported instead of standing as
+// a verdict about something that is no longer there.
+func carryEgress(prev map[string]EgressVerdict, units []UnitOutcome) map[string]EgressVerdict {
+	out := make(map[string]EgressVerdict, len(units))
+	for _, u := range units {
+		if u.Egress != nil {
+			out[u.Deployment] = *u.Egress
+		} else if v, ok := prev[u.Deployment]; ok {
+			out[u.Deployment] = v
+		}
+	}
+	return out
 }
 
 // disabledStatus is one disabled deployment rendered onto the wire, as the

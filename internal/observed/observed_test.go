@@ -348,3 +348,90 @@ func TestHeartbeatKeepsRefusedAndOutOfPolicyApart(t *testing.T) {
 		t.Errorf("kinds = %v, want dep_two refused and nothing else", got)
 	}
 }
+
+// egressOf reads the stored verdict for one deployment.
+func egressOf(t *testing.T, db *store.DB, id string) (state, reason, at string) {
+	t.Helper()
+	if err := db.Read().QueryRow(
+		`SELECT coalesce(egress_state, ''), coalesce(egress_reason, ''), coalesce(egress_checked_at, '')
+		 FROM deployment WHERE id = ?`, id).Scan(&state, &reason, &at); err != nil {
+		t.Fatal(err)
+	}
+	return state, reason, at
+}
+
+// R4-29 / R2-26: docs/specs/03-agent.md §5's verdict is reached on a start and
+// while it is inconclusive, not on every heartbeat — so most reports carry no
+// new answer, and a report carrying none must leave the stored one standing.
+// Blanking it would make a node that asserted isolation ten seconds ago
+// indistinguishable from one that has never been probed, which is the
+// difference `GET /nodes/{name}/verify-egress` exists to report.
+func TestHeartbeatKeepsTheLastEgressVerdictUntilANewOneArrives(t *testing.T) {
+	ctx := context.Background()
+	db := nodeWithTwoDeployments(t)
+
+	first := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_one", State: "ready", Egress: "compliant"},
+		{ID: "dep_two", State: "ready"},
+	}}, first); err != nil {
+		t.Fatal(err)
+	}
+	state, _, at := egressOf(t, db, "dep_one")
+	if state != "compliant" || at != first.Format(audit.TimeFormat) {
+		t.Fatalf("dep_one = %q at %q, want compliant at %v", state, at, first)
+	}
+	// Never probed, because it has never run: null, not a verdict.
+	if state, _, at := egressOf(t, db, "dep_two"); state != "" || at != "" {
+		t.Errorf("dep_two = %q at %q, want nothing asserted", state, at)
+	}
+
+	// A later heartbeat with no new answer. The unit states move; the verdict
+	// does not.
+	later := first.Add(15 * time.Second)
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_one", State: "ready"},
+	}}, later); err != nil {
+		t.Fatal(err)
+	}
+	if state, _, at := egressOf(t, db, "dep_one"); state != "compliant" || at != first.Format(audit.TimeFormat) {
+		t.Errorf("after a heartbeat with no verdict dep_one = %q at %q, want the first one kept", state, at)
+	}
+
+	// And a new answer replaces it, timestamp and reason together.
+	newer := later.Add(15 * time.Second)
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_one", State: "ready", Egress: "non-compliant", EgressReason: "dns: resolved example.com"},
+	}}, newer); err != nil {
+		t.Fatal(err)
+	}
+	state, reason, at := egressOf(t, db, "dep_one")
+	if state != "non-compliant" || reason != "dns: resolved example.com" || at != newer.Format(audit.TimeFormat) {
+		t.Errorf("dep_one = %q/%q at %q, want the new verdict", state, reason, at)
+	}
+}
+
+// The same rule the deployment, staging and refusal writes follow: a node may
+// report on what the configuration placed there and may not invent a row.
+func TestAnEgressVerdictForAnotherNodesDeploymentIsIgnored(t *testing.T) {
+	ctx := context.Background()
+	db := nodeWithTwoDeployments(t)
+
+	now := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO node (name, state, created_at) VALUES ('gpu-02', 'approved', ?)`,
+			now.Format(audit.TimeFormat))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Heartbeat(ctx, db, "gpu-02", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_one", State: "ready", Egress: "compliant"},
+	}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if state, _, _ := egressOf(t, db, "dep_one"); state != "" {
+		t.Errorf("dep_one on gpu-01 = %q after gpu-02 reported on it; a node may only report on its own", state)
+	}
+}

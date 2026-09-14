@@ -58,6 +58,18 @@ type StatusUnit struct {
 	State  string `json:"state"`
 	Health string `json:"health"`
 	Error  string `json:"error"`
+	// Egress is docs/specs/03-agent.md §5's verdict — `compliant`,
+	// `non-compliant` or `inconclusive` — and EgressReason is why, when it is
+	// not the first.
+	//
+	// **Empty means "no new answer", not "not asserted".** The node re-probes
+	// on a start and while a verdict is inconclusive, not every fifteen
+	// seconds, so most heartbeats carry the last answer it reached and a node
+	// that has reached none carries nothing. observed.Heartbeat leaves the
+	// stored verdict alone when this is empty, so an omission never erases
+	// one.
+	Egress       string `json:"egress,omitempty"`
+	EgressReason string `json:"egress_reason,omitempty"`
 }
 
 type StatusStaging struct {
@@ -113,7 +125,8 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{
-			ID: u.ID, State: u.State, Health: u.Health, Error: u.Error})
+			ID: u.ID, State: u.State, Health: u.Health, Error: u.Error,
+			Egress: u.Egress, EgressReason: u.EgressReason})
 	}
 	for _, st := range body.Staging {
 		report.Staging = append(report.Staging, observed.StagingReport{
