@@ -188,6 +188,27 @@ func TestADeriveNeedsATimeout(t *testing.T) {
 	}
 }
 
+// The tunnel a build reaches its index through (R6-09) carries TLS end to end;
+// it never reads the traffic. Cleartext would hand nodary the bytes whose
+// digest it is about to record, so the refusal belongs where the file is read.
+func TestADeriveIndexMustBeHTTPS(t *testing.T) {
+	for _, u := range []string{
+		"http://pypi.internal/simple",
+		"ftp://pypi.internal/simple",
+		"pypi.internal/simple",
+	} {
+		src := strings.Replace(fipsDerive, "https://pypi.internal/simple", u, 1)
+		_, err := Parse([]byte(src))
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("%q was accepted as an index_url", u)
+			continue
+		}
+		if !strings.Contains(err.Error(), "https") {
+			t.Errorf("%q: the refusal does not say what is wanted: %v", u, err)
+		}
+	}
+}
+
 // §5 says a derive varies a *built-in*. A chain would make "what does this
 // backend do" a walk rather than a lookup, with no cycle detection anywhere.
 func TestADeriveOfADeriveIsRefused(t *testing.T) {

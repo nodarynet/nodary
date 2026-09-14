@@ -123,9 +123,16 @@ func (d Descriptor) validateDerive() error {
 				"instead of doing what it looks like", ErrInvalid, b.Name, i, step[n:n+1])
 		}
 	}
-	if u := strings.TrimSpace(dv.IndexURL); u != "" &&
-		!strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
-		return fmt.Errorf("%w: %s: derive.index_url %q is not a URL", ErrInvalid, b.Name, u)
+	// **https only, and refused here rather than at build time.** A build
+	// reaches its index through a CONNECT tunnel (R6-09), which carries TLS end
+	// to end and cannot read or alter what is installed. Plain HTTP would put
+	// that proxy in the middle of the bytes whose digest the build is about to
+	// record. An operator reading their own file should learn this now, not an
+	// hour into a build.
+	if u := strings.TrimSpace(dv.IndexURL); u != "" && !strings.HasPrefix(u, "https://") {
+		return fmt.Errorf("%w: %s: derive.index_url %q must be https — the build reaches it "+
+			"through a tunnel that carries TLS end to end, and cleartext would put nodary in "+
+			"the middle of what the build installs", ErrInvalid, b.Name, u)
 	}
 	return nil
 }
