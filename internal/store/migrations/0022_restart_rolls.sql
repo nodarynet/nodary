@@ -1,0 +1,22 @@
+-- R4-22: a rolling restart never drops the last ready replica.
+--
+-- The sequencing is here rather than in the command that asked for it. A
+-- long-running CLI loop could serialize replicas on one node, but replicas of
+-- one model span nodes and no agent can see another's -- so every node would
+-- cycle at once and the model would be down. The control plane is the only
+-- place that sees them all, and docs/specs/03-agent.md 1 gives it no way to
+-- push: what it can do is decline to *offer* a restart until the one before it
+-- is serving again.
+--
+-- roll_id groups the replicas of one operator decision; sequence is the order
+-- within it. A row is removed when the node acknowledges the restart, and the
+-- node does not acknowledge one until the deployment is serving again -- 7's
+-- algorithm waits for ready, and the node is the only party that can see
+-- readiness, so that is where the waiting lives.
+--
+-- A roll therefore halts by itself when a replica does not come back: the row
+-- stays, so nothing after it is ever offered, and the remainder keeps running.
+-- That is 7's "if not ready: halt, leave remainder running, report" with
+-- nothing to implement.
+ALTER TABLE deployment_restart ADD COLUMN roll_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE deployment_restart ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0;

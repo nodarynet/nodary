@@ -49,11 +49,20 @@ type Daemon struct {
 	// last is the most recent plan, so the health poller has something to probe
 	// between reconciles.
 	last Plan
-	// lastRestartDone is which deployments the most recent reconcile actually
-	// cycled for `nodary model restart` (R4-36) — Reconcile's own Report is
-	// not kept anywhere else, so this is the only way report() (a different
-	// goroutine, on its own 15s timer) can learn about it.
-	lastRestartDone []string
+	// restarting is the deployments this agent has cycled for `nodary model
+	// restart` and has not yet reported done.
+	//
+	// **A restart is not done when the unit has been poked.** R4-22 rolls a
+	// model's replicas one at a time and the control plane moves to the next
+	// only when this one reports done, so reporting on the cycle would let the
+	// next node stop its copy while this one was still starting — which is the
+	// outage the roll exists to avoid. Readiness is something only the node can
+	// see, so the waiting is here, and report() clears an entry when the
+	// deployment it names is serving again.
+	//
+	// Handed between goroutines without a lock, the same way d.last already is:
+	// reconcile writes it and report() reads it on its own 15s timer.
+	restarting map[string]bool
 	// lastRefused and lastOutOfPolicy are Reconcile's verdicts rather than
 	// Build's. Build states which placements node.toml narrows out; only
 	// Reconcile can tell an out-of-policy placement that is serving — left
@@ -170,7 +179,12 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	// ever sees d.last — Reconcile's own Report is otherwise built, logged
 	// and discarded right here, so RestartDone has nowhere to reach the next
 	// heartbeat from unless it rides along on the same handoff.
-	d.lastRestartDone = r.RestartDone
+	if d.restarting == nil {
+		d.restarting = map[string]bool{}
+	}
+	for _, id := range r.RestartDone {
+		d.restarting[id] = true
+	}
 	d.lastRefused, d.lastOutOfPolicy = r.Refused, r.OutOfPolicy
 	d.lastEgress = carryEgress(d.lastEgress, r.Units)
 	for _, u := range r.Units {
@@ -322,6 +336,9 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		s := byID[u.Deployment]
 		state, detail := d.observedState(ctx, u, s)
 		v := d.lastEgress[u.Deployment]
+		if restartFinished(d.restarting, u.Deployment, state) {
+			body.RestartDone = append(body.RestartDone, u.Deployment)
+		}
 		body.Deployments = append(body.Deployments, api.StatusUnit{
 			ID:     u.Deployment,
 			State:  state,
@@ -359,7 +376,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		body.Deployments = append(body.Deployments, failedStatus(f))
 	}
 	body.ResetDone = d.last.ResetDone
-	body.RestartDone = d.lastRestartDone
+
 	// R4-15: what this node will not run, and why. Recomputed by Build every
 	// cycle and reported every heartbeat — until now it reached the node's
 	// own journal and stopped there, so the operator who could act on it saw
@@ -558,4 +575,24 @@ func (d *Daemon) sleep(ctx context.Context, dur time.Duration) {
 	case <-ctx.Done():
 	case <-t.C:
 	}
+}
+
+// restartFinished reports whether a restart this node performed is done, and
+// forgets it once it is.
+//
+// **Done means serving, not cycled.** R4-22 rolls a model's replicas one at a
+// time and the control plane offers the next only when this one is reported
+// done — so answering yes on the cycle would let the next node stop its copy
+// while this one was still starting, which is precisely the outage the roll
+// exists to avoid. Readiness is something only the node can see, so the waiting
+// is here and not on the control plane.
+//
+// A deployment that never comes back is never reported done, which is how 03 §7's
+// "halt, leave remainder running" happens without anybody implementing it.
+func restartFinished(restarting map[string]bool, deployment, state string) bool {
+	if !restarting[deployment] || state != "ready" {
+		return false
+	}
+	delete(restarting, deployment)
+	return true
 }

@@ -18,22 +18,32 @@ import (
 // consumed by the agent and acknowledged over the heartbeat
 // (internal/observed.Heartbeat), rather than through config.Record.
 //
-// **--node is mandatory here, unlike enable/disable.** A restart is
-// inherently a single node's act — cycling a systemd unit — where
-// enable/disable are a fleet-wide declarative toggle.
+// **It rolls** (R4-22): the replicas are cycled one at a time, and the next is
+// not offered to its node until the one before it is serving again. The
+// sequencing is enforced by the control plane rather than by this command,
+// because replicas of one model live on different hosts and no agent can see
+// another's — so the verb returns as soon as the roll is recorded, and the
+// fleet works through it.
 //
-// Resolves to every deployment of this model on that node (not a single
-// row — deployment.id is the only primary key, so replicas are possible) and
-// restarts every one that is not disabled. A disabled one is skipped with a
-// message, not a hard refusal: direct the operator to `enable` first rather
-// than failing the whole request over one replica among several.
+// **--node is optional**, and it used to be required on the reasoning that a
+// restart is one node's act. That is true of cycling a unit and false of the
+// thing docs/specs/03-agent.md §7 describes, which iterates over the replicas
+// of a *model* and is where the "never drops the last ready replica" guarantee
+// comes from. Named, it narrows the roll to one host's copies; omitted, it
+// takes every replica.
+//
+// A disabled replica is skipped with a message, not a hard refusal: direct the
+// operator to `enable` first rather than failing the whole request over one
+// among several.
 func cmdModelRestart(e env, args []string) int {
 	fs := newFlagSet(e, "model restart")
 	dbPath, keyPath, credsPath := stateFlags(fs)
 	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
-	node := fs.String("node", "", "the node to restart it on")
+	node := fs.String("node", "", "limit the roll to one node; every replica otherwise")
+	allowDowntime := fs.Bool("allow-downtime", false,
+		"restart even though fewer than two replicas are serving")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -44,10 +54,6 @@ func cmdModelRestart(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary model restart: expected one model id\n")
 		return ExitUsage
 	}
-	if *node == "" {
-		fmt.Fprintf(e.stderr, "nodary model restart: --node is required; `nodary node list` names them\n")
-		return ExitUsage
-	}
 	id := fs.Arg(0)
 
 	r, code := remoteFor(e, "model restart", *server, *credsPath, *dbPath, *keyPath)
@@ -55,9 +61,15 @@ func cmdModelRestart(e env, args []string) int {
 		return code
 	}
 	if r != nil {
-		out, applied, code := r.attested(e, "model restart", remoteAct{method: "POST",
-			path: "/models/" + url.PathEscape(id) + "/restart?node=" + url.QueryEscape(*node)},
-			cer, *format)
+		path := "/models/" + url.PathEscape(id) + "/restart"
+		if *node != "" {
+			path = addQuery(path, "node="+url.QueryEscape(*node))
+		}
+		if *allowDowntime {
+			path = addQuery(path, "allow_downtime=true")
+		}
+		out, applied, code := r.attested(e, "model restart",
+			remoteAct{method: "POST", path: path}, cer, *format)
 		if !applied {
 			return code
 		}
@@ -73,19 +85,32 @@ func cmdModelRestart(e env, args []string) int {
 	defer s.Close()
 
 	var skippedDisabled []string
+	plan := func(ctx context.Context, tx *sql.Tx) (targets, skipped []fleet.Replica, ready int, err error) {
+		if targets, skipped, err = fleet.RestartTargets(ctx, tx, id, *node); err != nil {
+			return nil, nil, 0, err
+		}
+		if len(targets) == 0 && len(skipped) == 0 {
+			return nil, nil, 0, fmt.Errorf(
+				"%w: %q has no deployment%s; `nodary node show` names them",
+				identity.ErrNotFound, id, onNode(*node))
+		}
+		if ready, err = fleet.ReadyReplicas(ctx, tx, id); err != nil {
+			return nil, nil, 0, err
+		}
+		return targets, skipped, ready, fleet.AllowRoll(id, ready, len(targets), *allowDowntime)
+	}
+
 	rec, applied, code := s.attested(e, "model restart", change{
 		action: "model.restart",
 		target: &audit.Target{Kind: "model", ID: id},
 		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			targets, skipped, err := fleet.RestartTargets(ctx, tx, id, *node)
+			targets, skipped, ready, err := plan(ctx, tx)
 			if err != nil {
 				return nil, err
 			}
-			if len(targets) == 0 && len(skipped) == 0 {
-				return nil, fmt.Errorf("%w: %q has no deployment on %s; `nodary node show %s` names them",
-					identity.ErrNotFound, id, *node, *node)
-			}
-			return map[string]any{"restart": targets, "skipped_disabled": skipped}, nil
+			return map[string]any{"restart": fleet.ReplicaIDs(targets),
+				"skipped_disabled": fleet.ReplicaIDs(skipped),
+				"ready_replicas":   ready, "allow_downtime": *allowDowntime}, nil
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := identity.Authorize(s.who.Role, identity.PermModelRestart); err != nil {
@@ -94,16 +119,17 @@ func cmdModelRestart(e env, args []string) int {
 			if err := s.touch(m); err != nil {
 				return err
 			}
-			// Re-derived rather than trusting render's returned preview, the
-			// same discipline cmdModelToggle's edit closure follows: apply
-			// runs inside its own transaction and must not depend on a value
-			// that only round-tripped through the preview shown on screen.
-			targets, skipped, err := fleet.RestartTargets(context.Background(), m.Tx(), id, *node)
+			// Re-planned rather than trusting render's returned preview, the
+			// same discipline cmdModelToggle's edit closure follows: apply runs
+			// inside its own transaction, and a replica that stopped serving in
+			// between changes the answer to the downtime question.
+			targets, skipped, _, err := plan(context.Background(), m.Tx())
 			if err != nil {
 				return err
 			}
-			skippedDisabled = skipped
-			return fleet.RequestRestart(context.Background(), m, s.now, *node, targets)
+			skippedDisabled = fleet.ReplicaIDs(skipped)
+			return fleet.RequestRestart(context.Background(), m, s.now,
+				fleet.RollID(s.now), targets)
 		},
 	}, cer, *format)
 	if !applied {

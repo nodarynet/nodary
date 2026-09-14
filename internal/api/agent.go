@@ -14,6 +14,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
@@ -270,20 +271,10 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 		return Desired{}, err
 	}
 
-	restarts, err := s.db.Read().QueryContext(ctx,
-		`SELECT deployment_id FROM deployment_restart WHERE node_name = ?`, n.name)
+	// One replica of a roll at a time (R4-22). The rule is fleet.OfferedRestarts
+	// because it is a rule about the fleet rather than about this endpoint.
+	doc.Restart, err = fleet.OfferedRestarts(ctx, s.db.Read(), n.name)
 	if err != nil {
-		return Desired{}, err
-	}
-	defer restarts.Close()
-	for restarts.Next() {
-		var id string
-		if err := restarts.Scan(&id); err != nil {
-			return Desired{}, err
-		}
-		doc.Restart = append(doc.Restart, id)
-	}
-	if err := restarts.Err(); err != nil {
 		return Desired{}, err
 	}
 	return doc, nil

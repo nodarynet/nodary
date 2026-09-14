@@ -74,13 +74,8 @@ func TestRestartOverTheAPIQueuesItForTheNode(t *testing.T) {
 	f := newFixture(t)
 	f.ready(t)
 
-	// A restart is a single node's act, so the node is required rather than
-	// guessed at.
-	if code, doc := f.do(http.MethodPost, "/models/acme%2Ftiny/restart", f.admin, nil,
-		map[string]string{api.HeaderJustify: "cycling it"}); code != http.StatusBadRequest {
-		t.Fatalf("restart without a node: %d %v", code, doc)
-	}
-
+	// ?node= narrows the roll to one host's replicas; without it every replica
+	// of the model is taken, in a fixed order (R4-22).
 	code, doc := f.do(http.MethodPost, "/models/acme%2Ftiny/restart?node=gpu-01", f.admin, nil,
 		map[string]string{api.HeaderJustify: "cycling it"})
 	if code != http.StatusOK {

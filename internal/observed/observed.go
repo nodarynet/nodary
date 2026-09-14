@@ -182,6 +182,10 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 				return fmt.Errorf("clearing the reset request for %s on %s: %w", modelID, name, err)
 			}
 		}
+		// A restart the node reports as done is done: it does not report one
+		// until the deployment is serving again (R4-22), because readiness is
+		// something only the node can see. Clearing the row is what lets the
+		// next replica of a roll be offered.
 		for _, deploymentID := range r.RestartDone {
 			if _, err := tx.ExecContext(ctx,
 				`DELETE FROM deployment_restart WHERE node_name = ? AND deployment_id = ?`,

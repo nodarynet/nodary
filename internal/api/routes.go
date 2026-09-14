@@ -1277,14 +1277,21 @@ func onNode(node string) string {
 // declarative: the params before and after a restart can be identical, so it
 // writes its own table for the agent to consume and acknowledge, exactly as
 // `nodary model restart` does through the same two fleet functions.
+// modelRestart rolls a model's replicas: one at a time, never dropping the last
+// that is serving (R4-22).
+//
+// `?node=` is **optional now**, and that is what makes this a roll. It used to
+// be required on the reasoning that a restart is one node's act — true of
+// cycling a unit, and not of the thing 03 §7 describes, which iterates over the
+// replicas of a *model* and is the reason the guarantee exists at all. Named,
+// it narrows the roll to one host's copies; omitted, it takes every replica in
+// a fixed order.
 func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	node := r.URL.Query().Get("node")
-	if node == "" {
-		s.fail(w, r, badRequest("restart needs ?node=NAME; GET /nodes names them"))
-		return
-	}
-	var skipped []string
+	allowDowntime := r.URL.Query().Get("allow_downtime") == "true"
+
+	var skipped []fleet.Replica
 	s.mutate(w, r, core.Change{
 		Action: "model.restart",
 		Target: &audit.Target{Kind: "model", ID: id},
@@ -1294,9 +1301,18 @@ func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			if len(targets) == 0 && len(disabled) == 0 {
-				return nil, notFound("%q has no deployment on %s", id, node)
+				return nil, notFound("%q has no deployment%s", id, onNode(node))
 			}
-			return map[string]any{"restart": targets, "skipped_disabled": disabled, "node": node}, nil
+			ready, err := fleet.ReadyReplicas(ctx, tx, id)
+			if err != nil {
+				return nil, err
+			}
+			if err := fleet.AllowRoll(id, ready, len(targets), allowDowntime); err != nil {
+				return nil, err
+			}
+			return map[string]any{"restart": fleet.ReplicaIDs(targets),
+				"skipped_disabled": fleet.ReplicaIDs(disabled), "node": node,
+				"ready_replicas": ready, "allow_downtime": allowDowntime}, nil
 		},
 		Apply: func(m audit.Mutation, _ any) error {
 			p, _ := s.principalOf(r)
@@ -1305,13 +1321,22 @@ func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 			}
 			// Re-derived rather than trusting the preview that round-tripped
 			// through the response: apply runs in its own transaction and must
-			// not depend on a value that only travelled through the screen.
+			// not depend on a value that only travelled through the screen —
+			// and a replica that stopped serving in between changes the answer
+			// to the downtime question.
 			targets, disabled, err := fleet.RestartTargets(r.Context(), m.Tx(), id, node)
 			if err != nil {
 				return err
 			}
+			ready, err := fleet.ReadyReplicas(r.Context(), m.Tx(), id)
+			if err != nil {
+				return err
+			}
+			if err := fleet.AllowRoll(id, ready, len(targets), allowDowntime); err != nil {
+				return err
+			}
 			skipped = disabled
-			return fleet.RequestRestart(r.Context(), m, s.now(), node, targets)
+			return fleet.RequestRestart(r.Context(), m, s.now(), fleet.RollID(s.now()), targets)
 		},
 	}, func(core.Outcome) any {
 		if len(skipped) == 0 {
@@ -1319,7 +1344,7 @@ func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 		}
 		// Named rather than silent: an operator who asked for a restart and got
 		// one fewer than they have replicas needs to know which, and why.
-		return map[string]any{"skipped_disabled": skipped}
+		return map[string]any{"skipped_disabled": fleet.ReplicaIDs(skipped)}
 	})
 }
 
