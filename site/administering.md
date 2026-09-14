@@ -225,6 +225,63 @@ the same manifest, across as many reconcile cycles as it takes and resumable if 
 restarts partway through. `nodary node show fractal` shows it moving `staging → staged` with
 the byte count climbing against the total.
 
+### What the node needs to fetch it
+
+Two settings, both on the node, both in the same place — a drop-in on the agent's unit,
+since neither belongs in configuration the control plane replicates to every node:
+
+```sh
+sudo systemctl edit nodary-agent
+```
+
+```ini
+[Service]
+Environment=HF_TOKEN=hf_...
+Environment=HTTPS_PROXY=http://proxy.corp.example:3128
+```
+
+```sh
+sudo systemctl restart nodary-agent
+```
+
+The restart is not optional: both are read when the agent starts. `HF_TOKEN` is needed for
+exactly the repositories that needed one when you built the manifest — every Gemma, Llama
+and Mistral release — and is one token per node, not per model. `HTTPS_PROXY` is only for
+sites that reach the internet through a proxy; leave the line out otherwise.
+
+The download itself does **not** run inside the agent. It runs as its own transient unit,
+`nodary-stage-<model>.service`, which lives only as long as the transfer and exits before
+anything starts serving. That is where to look while one is running:
+
+```sh
+systemctl list-units 'nodary-stage-*'      # what is downloading right now
+journalctl -u 'nodary-stage-*' -n 50       # why one stopped
+```
+
+Running it separately is mostly about what it is *not* doing: several gigabytes of somebody
+else's bytes are no longer being pulled and hashed inside the long-lived root process that
+holds this node's certificate and key.
+
+That unit runs under an IP filter, which is worth knowing about before you diagnose a
+download that will not start:
+
+| | |
+| :--- | :--- |
+| **Allowed** | the public internet, this host's resolvers from `/etc/resolv.conf`, and your `HTTPS_PROXY` if you set one |
+| **Denied** | private ranges, CGNAT, loopback, and link-local — which includes `169.254.169.254`, the cloud metadata endpoint |
+
+The shape of that is deliberate, and it is the opposite of what you might expect. Weights
+come from a CDN whose addresses rotate under short TTLs and which a fetch is *redirected* to
+rather than addressed at, so an allowlist of destinations would break a large transfer
+partway through and look exactly like a network outage. Narrowing the other side costs the
+download nothing and removes what was worth removing: it cannot reach your control plane,
+your other nodes, the rest of your network, or the metadata service that hands out cloud
+role credentials to anything that asks.
+
+If it is your *own* egress firewall blocking the transfer, nodary cannot tell you anything
+more specific than a connection error. Opening a path for `huggingface.co` and the CDN host
+it redirects to is the direct answer, and a proxy is usually the easier one.
+
 If a transfer lands corrupt — bad media, a flaky link — that state is **terminal on
 purpose**: nothing silently retries, because a staging loop that heals itself hides the
 thing you needed to know. `nodary model restage <repo> --node <name>` is the explicit
