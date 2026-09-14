@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/secret"
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -586,16 +588,42 @@ func TestUserVerbsOverServer(t *testing.T) {
 		t.Errorf("bob is still listed after being deleted:\n%s", out)
 	}
 
-	// Suspension has no endpoint, and deleting instead would answer a
-	// reversible request with an irreversible act.
-	code, _, stderr = run(t, "user", "suspend", "carol", "--server", base,
-		"--credentials", a.creds, "--justify", "on leave")
-	if code != ExitUsage {
-		t.Errorf("user suspend over --server: exit = %d, want %d (%s)", code, ExitUsage, stderr)
+	// Suspension is a PATCH and deletion is a DELETE, which is not arbitrary:
+	// the irreversible act must not be reachable by putting a different word in
+	// a body. Suspending leaves the account there and stops it authenticating.
+	if code, _, stderr = run(t, "user", "suspend", "carol", "--server", base,
+		"--credentials", a.creds, "--justify", "on leave"); code != ExitOK {
+		t.Fatalf("user suspend over --server: exit %d, %s", code, stderr)
 	}
-	if code, out, _ = run(t, "user", "list", "--server", base,
-		"--credentials", a.creds); code != ExitOK || !strings.Contains(out, "carol") {
-		t.Errorf("a refused suspension removed the account:\n%s", out)
+	code, out, stderr = run(t, "user", "show", "carol", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("user show: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, `"state": "suspended"`) {
+		t.Errorf("carol is not suspended:\n%s", out)
+	}
+
+	// `user show` reads the same listing `user list` does, so there is one
+	// place deciding what a caller may see rather than two.
+	local, out, stderr := a.run("user", "show", "carol", "--format", "json")
+	if local != ExitOK {
+		t.Fatalf("user show locally: exit %d, %s", local, stderr)
+	}
+	remoteCode, remoteOut, stderr := run(t, "user", "show", "carol", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if remoteCode != ExitOK {
+		t.Fatalf("user show over --server: exit %d, %s", remoteCode, stderr)
+	}
+	if remoteOut != out {
+		t.Errorf("user show differs between the two routes:\n  local  %s\n  remote %s",
+			out, remoteOut)
+	}
+
+	// A name nothing holds is a refusal, not an empty rendering.
+	if code, _, stderr = run(t, "user", "show", "nobody", "--server", base,
+		"--credentials", a.creds); code == ExitOK {
+		t.Errorf("showing a user that does not exist reported success (%s)", stderr)
 	}
 }
 
@@ -945,5 +973,44 @@ func TestAnUnreadableConfigurationIsRefusedWithItsReason(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "invalid configuration") {
 		t.Errorf("the refusal does not say the document is the problem: %q", stderr)
+	}
+}
+
+// PATCH sets one state and refuses the rest. Deletion is irreversible and has
+// its own method, so it must not be reachable by putting a different word in a
+// body — a client typo should not be able to delete an account.
+func TestPatchingAUserWillOnlySuspend(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+	a.addUser("bob", "operator")
+
+	creds, err := identity.LoadCredentials(a.creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred, err := creds.Token(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := agent.Client(a.pin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &remote{base: base, cred: cred, c: client}
+
+	for _, state := range []string{"deleted", "active", "", "nonsense"} {
+		err := r.do("PATCH", "/users/bob?dry_run=true",
+			map[string]any{"state": state}, nil)
+		if err == nil {
+			t.Errorf("PATCH accepted state %q", state)
+			continue
+		}
+		var refusal *remoteError
+		if !errors.As(err, &refusal) || refusal.code != "bad_request" {
+			t.Errorf("state %q: %v, want a bad request", state, err)
+		}
+	}
+	if code, out, _ := a.run("user", "list"); code != ExitOK || !strings.Contains(out, "bob") {
+		t.Errorf("bob was removed by a refused patch:\n%s", out)
 	}
 }

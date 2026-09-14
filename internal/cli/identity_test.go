@@ -140,7 +140,7 @@ func TestUserAddListShow(t *testing.T) {
 		t.Fatalf("show: exit = %d", code)
 	}
 	var doc struct {
-		User   userReport             `json:"user"`
+		User   identity.UserReport    `json:"user"`
 		Tokens []identity.TokenReport `json:"tokens"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
@@ -246,7 +246,7 @@ func TestTOTPEnrollmentPrintsTheSeedAloneOnStdout(t *testing.T) {
 		t.Error("a refused enrollment left the seed readable")
 	}
 	var doc struct {
-		User userReport `json:"user"`
+		User identity.UserReport `json:"user"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestASealedSeedNeverAppearsInOutput(t *testing.T) {
 		t.Error("show carries the TOTP seed")
 	}
 	var doc struct {
-		User userReport `json:"user"`
+		User identity.UserReport `json:"user"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatal(err)

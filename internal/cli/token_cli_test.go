@@ -94,7 +94,7 @@ func TestSavedCredentialsAuthenticateTheNextCommand(t *testing.T) {
 	}
 	_, stdout, _ := a.run("user", "show", "alice", "--format", "json")
 	var who struct {
-		User userReport `json:"user"`
+		User identity.UserReport `json:"user"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &who); err != nil {
 		t.Fatal(err)

@@ -78,6 +78,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// Users and tokens — R2-31.
 	h("GET", "/users", s.listUsers)
 	h("POST", "/users", s.createUser)
+	h("PATCH", "/users/{name}", s.patchUser)
 	h("DELETE", "/users/{name}", s.deleteUser)
 	h("GET", "/tokens", s.listTokens)
 	h("POST", "/tokens", s.createToken)
@@ -303,6 +304,54 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		// answers with a different document depending on which road it took.
 		return identity.NewUserReport(created)
 	})
+}
+
+// patchUser changes an account's state, which today means suspending it.
+//
+// 09 §1's `PATCH /users/{id}` with one thing to patch: the state machine in
+// internal/identity is one-way — active to suspended or deleted, suspended to
+// deleted — so there is no reinstatement to express, and a role change has no
+// verb on either front end to be the counterpart of. Deletion keeps its own
+// DELETE, because it is the irreversible one and should not be reachable by
+// putting a different word in a body.
+//
+// Addressed by name rather than by id, as DELETE beside it already is: a name
+// is what an operator types and what POST /tokens takes for the same account.
+func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body struct{ State string }
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		s.fail(w, r, badRequest("expected {\"state\":\"suspended\"}"))
+		return
+	}
+	if body.State != string(identity.StateSuspended) {
+		s.fail(w, r, badRequest(
+			"state may only be set to %q here; deleting an account is DELETE /users/{name}",
+			identity.StateSuspended))
+		return
+	}
+
+	var after identity.User
+	s.mutate(w, r, core.Change{
+		Action: "user.suspend",
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// The state being moved *from* is read here, so suspending an
+			// account somebody else already deleted refuses rather than
+			// reporting a transition that never happened.
+			before, err := identity.Get(ctx, tx, name)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"name": before.Name, "from": string(before.State),
+				"to": string(identity.StateSuspended)}, nil
+		},
+		Apply: func(m audit.Mutation, _ any) error {
+			p, _ := s.principalOf(r)
+			var err error
+			after, err = identity.Suspend(r.Context(), m, p.Role, s.now(), name)
+			return err
+		},
+	}, func(core.Outcome) any { return identity.NewUserReport(after) })
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {

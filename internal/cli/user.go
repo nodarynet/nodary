@@ -140,7 +140,7 @@ func cmdUserAdd(e env, args []string) int {
 	if !applied {
 		return code
 	}
-	return writeUser(e, *format, newUserReport(created), rec)
+	return writeUser(e, *format, identity.NewUserReport(created), rec)
 }
 
 func cmdUserState(e env, verb string, args []string) int {
@@ -165,16 +165,15 @@ func cmdUserState(e env, verb string, args []string) int {
 		return code
 	}
 	if r != nil {
-		// `delete` only. 09 §1 serves no suspension, so there is nothing here
-		// to call — and inventing one by deleting instead would answer a
-		// reversible request with an irreversible act.
-		if verb != "delete" {
-			fmt.Fprintf(e.stderr, "nodary user %s: the control plane serves no %s endpoint yet; "+
-				"run it on the control-plane host.\n", verb, verb)
-			return ExitUsage
+		// Suspension is a PATCH and deletion is a DELETE, which is 09 §1's
+		// shape and not an arbitrary one: the irreversible act should not be
+		// reachable by putting a different word in a body.
+		act := remoteAct{method: "DELETE", path: "/users/" + url.PathEscape(name)}
+		if verb == "suspend" {
+			act = remoteAct{method: "PATCH", path: act.path,
+				body: map[string]any{"state": "suspended"}}
 		}
-		out, applied, code := r.attested(e, "user "+verb,
-			remoteAct{method: "DELETE", path: "/users/" + url.PathEscape(name)}, cer, *format)
+		out, applied, code := r.attested(e, "user "+verb, act, cer, *format)
 		if !applied {
 			return code
 		}
@@ -218,7 +217,7 @@ func cmdUserState(e env, verb string, args []string) int {
 	if !applied {
 		return code
 	}
-	return writeUser(e, *format, newUserReport(after), rec)
+	return writeUser(e, *format, identity.NewUserReport(after), rec)
 }
 
 func cmdUserList(e env, args []string) int {
@@ -238,7 +237,7 @@ func cmdUserList(e env, args []string) int {
 		return code
 	}
 
-	var reports []userReport
+	var reports []identity.UserReport
 	if r != nil {
 		q := url.Values{}
 		if *all {
@@ -249,7 +248,7 @@ func cmdUserList(e env, args []string) int {
 		// manage users, so this listing can be narrower than the same verb run
 		// on the host — which is the permission table working rather than a
 		// difference between the two roads.
-		if reports, err = remoteList[userReport](r, "/users", "users", q); err != nil {
+		if reports, err = remoteList[identity.UserReport](r, "/users", "users", q); err != nil {
 			fmt.Fprintf(e.stderr, "nodary user list: %v\n", err)
 			return exitFor(err)
 		}
@@ -266,9 +265,9 @@ func cmdUserList(e env, args []string) int {
 			fmt.Fprintf(e.stderr, "nodary user list: %v\n", err)
 			return ExitFailure
 		}
-		reports = make([]userReport, len(users))
+		reports = make([]identity.UserReport, len(users))
 		for i, u := range users {
-			reports[i] = newUserReport(u)
+			reports[i] = identity.NewUserReport(u)
 		}
 	}
 	if *format == "json" {
@@ -288,6 +287,7 @@ func cmdUserShow(e env, args []string) int {
 	fs := newFlagSet(e, "user show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -298,30 +298,65 @@ func cmdUserShow(e env, args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "user show", path)
-	if !ok {
-		return ExitFailure
-	}
-	defer db.Close()
-
-	u, err := identity.Get(context.Background(), db.Read(), name)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
-		return exitFor(err)
-	}
-	tokens, err := identity.ListTokens(context.Background(), db.Read(), u.ID)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
-		return ExitFailure
+	r, code := remoteFor(e, "user show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
 
-	report := newUserReport(u)
+	var report identity.UserReport
+	var tokens []identity.TokenReport
+	if r != nil {
+		// Filtered out of the listing rather than fetched from a
+		// `GET /users/{name}` that 09 §1 does not have — and that absence
+		// turns out to be right. One listing means one place decides what a
+		// caller may see, so `user show` withholds an address from a viewer
+		// for the same reason `user list` does, instead of a second handler
+		// having to remember to.
+		users, err := remoteList[identity.UserReport](r, "/users", "users", url.Values{"all": {"true"}})
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
+			return exitFor(err)
+		}
+		found := false
+		for _, u := range users {
+			if u.Name == name {
+				report, found = u, true
+				break
+			}
+		}
+		if !found {
+			fmt.Fprintf(e.stderr, "nodary user show: no such user: %q\n", name)
+			return ExitFailure
+		}
+		if tokens, err = remoteList[identity.TokenReport](r, "/tokens", "tokens",
+			url.Values{"user": {name}}); err != nil {
+			fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
+			return exitFor(err)
+		}
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "user show", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+
+		u, err := identity.Get(context.Background(), db.Read(), name)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
+			return exitFor(err)
+		}
+		live, err := identity.ListTokens(context.Background(), db.Read(), u.ID)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary user show: %v\n", err)
+			return ExitFailure
+		}
+		report, tokens = identity.NewUserReport(u), identity.TokenReports(live, time.Now())
+	}
+
 	if *format == "json" {
 		return writeJSON(e, "user show", map[string]any{
-			"user":   report,
-			"tokens": identity.TokenReports(tokens, time.Now()),
+			"user": report, "tokens": tokens,
 		})
 	}
 
@@ -407,25 +442,12 @@ func cmdUserTOTP(e env, args []string) int {
 	return ExitOK
 }
 
-// userReport is the stable shape of a user in --format json. It holds nothing
-// sealed, which is the property worth stating: a display struct that gains a
-// secret is how one reaches a log.
-type userReport struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Email        string `json:"email,omitempty"`
-	Role         string `json:"role"`
-	State        string `json:"state"`
-	TOTPEnrolled bool   `json:"totp_enrolled"`
-	CreatedAt    string `json:"created_at"`
-}
-
 // userFromResult rebuilds the account a mutation reported making or changing.
 //
 // The report rather than identity.User, because what comes back is what the
 // control plane chose to say about it — and writeUser renders the report.
-func userFromResult(result map[string]any) userReport {
-	var u userReport
+func userFromResult(result map[string]any) identity.UserReport {
+	var u identity.UserReport
 	raw, err := json.Marshal(result)
 	if err == nil {
 		_ = json.Unmarshal(raw, &u)
@@ -433,25 +455,12 @@ func userFromResult(result map[string]any) userReport {
 	return u
 }
 
-func newUserReport(u identity.User) userReport {
-	return userReport{
-		ID:           u.ID,
-		Name:         u.Name,
-		Email:        u.Email,
-		Role:         string(u.Role),
-		State:        string(u.State),
-		TOTPEnrolled: u.TOTPEnrolled,
-		CreatedAt:    u.CreatedAt.Format(audit.TimeFormat),
-	}
-}
-
-// writeUser reports one changed user and the record that change produced.
 // writeUser renders one account and the record that changed it.
 //
 // It takes the report rather than identity.User because a --server invocation
 // never holds one: what comes back is what the control plane chose to say about
 // the account, and both roads have to print the same thing from it.
-func writeUser(e env, format string, u userReport, rec audit.Record) int {
+func writeUser(e env, format string, u identity.UserReport, rec audit.Record) int {
 	if format == "json" {
 		return writeJSON(e, "user", map[string]any{
 			"user": u,
