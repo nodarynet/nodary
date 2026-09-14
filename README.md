@@ -144,7 +144,7 @@ front page rather than only in a plan.
 | **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
 | **R4** Agent | 42 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 20 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |
-| **R6** Backends | 7 of 16 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, and an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it |
+| **R6** Backends | 8 of 16 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it, and the `api` dialect governing what may join a route |
 | **R9** Evidence | 15 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check` |
 
 ```sh

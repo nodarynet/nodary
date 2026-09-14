@@ -351,3 +351,35 @@ func TestOneDocumentCanRetireABackendAndItsLastDeployment(t *testing.T) {
 		t.Error("acme-serve survived a document that does not name it")
 	}
 }
+
+// The road an operator actually takes. `model register` creates a route as
+// well as a deployment, so a backend that cannot be routed to is refused
+// there — at the moment the route would come into being, naming it.
+func TestRegisteringAModelOnABackendTheGatewayCannotProxyIsRefused(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerBackend(t, strings.Replace(acmeDescriptor,
+		`api            = "openai"`, `api            = "triton"`, 1))
+
+	models := t.TempDir()
+	dir := filepath.Join(models, "hub", "models--acme--tiny")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := a.run("model", "register", "acme/tiny", "--node", "gpu-01",
+		"--backend", "acme-serve", "--image", "acme/serve:1", "--models-dir", models,
+		"--port", "8001", "--yes", "--justify", "test")
+	if code == ExitOK {
+		t.Fatal("a model was routed to a backend that does not speak OpenAI")
+	}
+	// It has to say which of the three things is wrong, because the operator
+	// wrote all three: the descriptor's api, the backend, and the route.
+	for _, want := range []string{"triton", "acme-serve", "openai"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the refusal does not name %q: %s", want, stderr)
+		}
+	}
+}

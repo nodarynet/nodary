@@ -139,6 +139,11 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 	if err := pruneAll(ctx, m, want, have, opt, &res); err != nil {
 		return res, err
 	}
+	// Last, over whatever the document left standing: a member this apply
+	// removed is not a member to refuse.
+	if err := checkRouteDialects(ctx, tx); err != nil {
+		return res, err
+	}
 	slices.Sort(res.Orphans)
 	return res, nil
 }
@@ -835,6 +840,78 @@ func nullableInt(n int64) any {
 		return nil
 	}
 	return n
+}
+
+// checkRouteDialects refuses a route carrying a deployment the gateway cannot
+// proxy — docs/specs/04-backends.md §8.
+//
+// `api` is what tells the control plane whether it may route to a deployment
+// directly, and the gateway hands LiteLLM `openai/<model>` for every member it
+// renders (internal/gateway/litellm.go). So a `triton` or `custom` deployment
+// on a route is not a failure anybody sees as one: the proxy accepts the
+// configuration, comes up healthy, and answers every request by speaking
+// OpenAI at a server that does not speak it.
+//
+// **Over every member, at the end, rather than beside the insert.** Two
+// different documents produce this state — one that adds a member to a route,
+// and one that re-registers a backend under the same name with a different
+// `api` — and a check inside applyRoutes would miss the second entirely,
+// because that document names no route at all. Backends have been registrable
+// since R6-07, so the second is a road an operator now has.
+//
+// An unknown backend is left alone for the reason checkArtifact gives: R6 owns
+// which backends exist, and refusing here would make this a second place that
+// decides.
+func checkRouteDialects(ctx context.Context, tx *sql.Tx) error {
+	type member struct{ route, deployment, backend string }
+
+	// Read out before resolving any of them: a Querier call while these rows
+	// are open would be a second statement on the transaction's one
+	// connection.
+	var members []member
+	rows, err := tx.QueryContext(ctx,
+		`SELECT rm.route_name, rm.deployment_id, d.backend
+		   FROM route_member rm JOIN deployment d ON d.id = rm.deployment_id
+		  ORDER BY rm.route_name, rm.deployment_id`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var m member
+		if err := rows.Scan(&m.route, &m.deployment, &m.backend); err != nil {
+			rows.Close()
+			return err
+		}
+		members = append(members, m)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	dialect := map[string]string{}
+	for _, m := range members {
+		api, seen := dialect[m.backend]
+		if !seen {
+			d, err := BackendFor(ctx, tx, m.backend)
+			if err != nil {
+				dialect[m.backend] = ""
+				continue
+			}
+			api = d.Backend.API
+			dialect[m.backend] = api
+		}
+		if api == "" || api == "openai" {
+			continue
+		}
+		return fmt.Errorf("%w: route %q carries deployment %q, whose backend %q speaks %q and "+
+			"not openai; every member is proxied as OpenAI, so this route would answer each "+
+			"request by speaking a dialect the server does not. 04 §8 reaches one through an "+
+			"adapter configured for it, and this build has no way to configure one",
+			ErrInvalid, m.route, m.deployment, m.backend, api)
+	}
+	return nil
 }
 
 // checkCapabilities refuses a deployment asking its backend for something the

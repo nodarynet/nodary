@@ -342,3 +342,99 @@ func hasChange(all []string, want string) bool {
 	}
 	return false
 }
+
+// tritonDescriptor is acme-serve speaking a dialect the gateway cannot proxy.
+// Identical to acmeDescriptor but for the one line under test, so a refusal
+// can only be about that line.
+var tritonDescriptor = strings.Replace(acmeDescriptor,
+	`api            = "openai"`, `api            = "triton"`, 1)
+
+// routed is a snapshot that registers a backend, places a deployment on it,
+// and puts that deployment on a route — the whole road from a descriptor to
+// something a client can ask for.
+func routed(source string) *config.Snapshot {
+	s := snapWith([]config.Backend{{Name: "acme-serve", Source: source}},
+		config.Deployment{ID: "tiny-gpu-01", ModelID: "acme/tiny", NodeName: "gpu-01",
+			Backend: "acme-serve", Image: "acme/serve:1", GPUs: []int{0}, Port: 8001})
+	s.Routes = []config.Route{{Name: "tiny", Strategy: "round-robin",
+		Members: []config.RouteMember{{DeploymentID: "tiny-gpu-01", Weight: 1}}}}
+	return s
+}
+
+// 04 §8: `api` is what says whether the control plane may route to a
+// deployment directly. The gateway hands LiteLLM `openai/<model>` for every
+// member it renders, so a triton deployment on a route is not a failure
+// anybody sees — the proxy comes up healthy and answers each request by
+// speaking OpenAI at a server that does not speak it.
+func TestARouteRefusesADeploymentThatDoesNotSpeakOpenAI(t *testing.T) {
+	_, _, apply := registry(t)
+
+	if _, err := apply(routed(acmeDescriptor), false); err != nil {
+		t.Fatalf("an openai backend on a route was refused: %v", err)
+	}
+
+	_, _, apply2 := registry(t)
+	_, err := apply2(routed(tritonDescriptor), false)
+	if err == nil {
+		t.Fatal("a triton deployment was added to an OpenAI route")
+	}
+	for _, want := range []string{"tiny", "tiny-gpu-01", "acme-serve", "triton"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+	if !errors.Is(err, config.ErrInvalid) {
+		t.Errorf("the refusal is not ErrInvalid, so an API client gets a 500 with the "+
+			"message withheld: %v", err)
+	}
+}
+
+// The second road, and the one a check beside the INSERT would miss entirely:
+// the route does not change, the *backend under it* does. A document that
+// re-registers a descriptor names no route at all.
+func TestRedefiningABackendCannotChangeTheDialectUnderAStandingRoute(t *testing.T) {
+	_, _, apply := registry(t)
+	if _, err := apply(routed(acmeDescriptor), false); err != nil {
+		t.Fatalf("setting up: %v", err)
+	}
+
+	// Only the descriptor. No route, no deployment, no model.
+	_, err := apply(&config.Snapshot{
+		Backends: []config.Backend{{Name: "acme-serve", Source: tritonDescriptor}},
+	}, false)
+	if err == nil {
+		t.Fatal("a backend serving a route changed dialect and the route kept carrying it")
+	}
+	if !strings.Contains(err.Error(), "triton") || !errors.Is(err, config.ErrInvalid) {
+		t.Errorf("wrong refusal: %v", err)
+	}
+}
+
+// A member this apply removes is not a member to refuse, which is why the
+// check runs after the prune rather than before it. Otherwise the only way out
+// of a bad dialect would be to fix the descriptor first — and the descriptor
+// may be exactly what the operator is trying to retire.
+func TestRetiringTheRouteIsAWayOutOfABadDialect(t *testing.T) {
+	db, _, apply := registry(t)
+
+	// Get into the state the long way: a valid route, then the table edited
+	// underneath it, which is what a build without this check would leave.
+	if _, err := apply(routed(acmeDescriptor), false); err != nil {
+		t.Fatalf("setting up: %v", err)
+	}
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, e := tx.ExecContext(context.Background(),
+			`UPDATE backend SET body = ? WHERE name = 'acme-serve'`, tritonDescriptor)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The whole configuration minus the route, pruned. It has to be allowed:
+	// the route is the thing being removed.
+	out := routed(tritonDescriptor)
+	out.Routes = nil
+	if _, err := apply(out, true); err != nil {
+		t.Fatalf("a route carrying a bad dialect could not be retired: %v", err)
+	}
+}
