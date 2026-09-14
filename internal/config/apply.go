@@ -18,6 +18,16 @@ import (
 // enrolled.
 var ErrUnknownNode = errors.New("unknown node")
 
+// ErrInvalid is a document this control plane will not apply because of what is
+// in it, rather than because of who asked.
+//
+// It exists so both front ends answer the same way: without it, a deployment
+// naming a model that does not exist — an operator's typo in a file — was an
+// unrecognized error, which internal/api renders as 500 with the message
+// deliberately withheld. A malformed document is the caller's to fix and they
+// have to be told what is wrong with it.
+var ErrInvalid = errors.New("invalid configuration")
+
 // Result says what an apply did, so a caller can report it and a --dry-run can
 // report it without doing it.
 type Result struct {
@@ -218,8 +228,8 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 				// meant to reference objects it does not restate. Sending an
 				// operator back to their file to look for a node that is
 				// missing from the *fleet* is the wrong direction.
-				return fmt.Errorf("deployment %q names %s %q, which this control plane does not have",
-					d.ID, ref.what, ref.id)
+				return fmt.Errorf("%w: deployment %q names %s %q, which this control plane does not have",
+					ErrInvalid, d.ID, ref.what, ref.id)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO deployment
@@ -251,8 +261,57 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 			}
 		}
 	}
+	if err := checkPorts(ctx, tx, want); err != nil {
+		return err
+	}
 	return prune(ctx, tx, "deployment", "id", names(have.Deployments, func(d Deployment) string { return d.ID }),
 		names(want.Deployments, func(d Deployment) string { return d.ID }), opt, res)
+}
+
+// checkPorts refuses two deployments publishing the same loopback port on one
+// node.
+//
+// **This had no guard at all, and `model register` defaults `--port` to 8001.**
+// Registering a second model on a node without naming a port therefore produced
+// two deployments both publishing 127.0.0.1:8001, which is not a loud failure:
+// the second container fails to bind while the first keeps serving, so the
+// gateway's route for the second model reaches the *first model's* server. A
+// request for one model answered by another, metered against the wrong one.
+// Two claims on one GPU is the analogous failure and 0006_fleet.sql guards it
+// with a unique index; the port had nothing.
+//
+// A check here rather than an index, for two reasons. A partial unique index
+// added now would fail to build on any database that already holds a duplicate
+// pair — which is exactly the databases this bug has produced — leaving a
+// control plane that cannot migrate. And ports have no racing second writer the
+// way GPU claims do: `observed.Heartbeat` never touches the column, so every
+// write of it passes through here, inside the write transaction, on the single
+// writer connection.
+//
+// After the inserts rather than before each one, so that two deployments
+// *exchanging* ports in one document is applied rather than refused for a
+// collision that exists only halfway through the loop.
+func checkPorts(ctx context.Context, tx *sql.Tx, want *Snapshot) error {
+	for _, d := range want.Deployments {
+		if d.Port <= 0 {
+			continue
+		}
+		var other string
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM deployment WHERE node_name = ? AND port = ? AND id <> ? ORDER BY id LIMIT 1`,
+			d.NodeName, d.Port, d.ID).Scan(&other)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: deployment %q publishes port %d on %s, which %q already publishes: "+
+			"two servers on one loopback port means the second never binds and the gateway "+
+			"answers for the first. Give one of them another port (`model register --port`)",
+			ErrInvalid, d.ID, d.Port, d.NodeName, other)
+	}
+	return nil
 }
 
 // applyGrants replaces the per-user route allowlist wholesale.

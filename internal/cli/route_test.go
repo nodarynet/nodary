@@ -21,8 +21,12 @@ func (a *appliance) registerModelOnGPU(t *testing.T, id, node string, gpu int) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// No --port: two deployments on one node may not publish the same loopback
+	// port, and picking the free one is register's job. This fixture used to
+	// pass 8000+gpu, which collides with registerModel's 8001 at gpu 1 — the
+	// exact bug config.Apply's checkPorts now refuses.
 	code, _, stderr := a.run("model", "register", id, "--node", node, "--models-dir", models,
-		"--gpu", strconv.Itoa(gpu), "--port", strconv.Itoa(8000+gpu), "--yes", "--justify", "test fixture")
+		"--gpu", strconv.Itoa(gpu), "--yes", "--justify", "test fixture")
 	if code != ExitOK {
 		t.Fatalf("registering %s on gpu %d: exit %d: %s", id, gpu, code, stderr)
 	}
@@ -140,5 +144,52 @@ func TestRouteSetRequiresAddRemoveOrStrategy(t *testing.T) {
 
 	if code, _, _ := a.run("route", "set", "tiny", "--yes", "--justify", "x"); code != ExitUsage {
 		t.Errorf("route set with nothing to change: exit %d, want ExitUsage", code)
+	}
+}
+
+// `model register` defaults --port to 8001, and a fixed default made
+// registering a second model on a node produce two deployments publishing the
+// same loopback port — which is not a loud failure, but a route for one model
+// answered by another model's server. The default is now a starting point.
+func TestRegisteringASecondModelPicksAFreePort(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	a.registerModel(t, "acme/tiny", "fractal") // explicit --port 8001
+	a.registerModelOnGPU(t, "acme/other", "fractal", 1)
+
+	_, stdout, _ := a.run("node", "show", "fractal")
+	for _, want := range []string{"8001", "8002"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("node show does not report port %s:\n%s", want, stdout)
+		}
+	}
+}
+
+// An explicit --port is not a suggestion. Somebody who names a port that is
+// already taken has made a mistake worth refusing, and the refusal names both
+// deployments because they are about to change one of them.
+func TestAnExplicitPortThatIsTakenIsRefused(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	a.registerModel(t, "acme/tiny", "fractal")
+
+	models := t.TempDir()
+	dir := filepath.Join(models, "hub", "models--acme--other")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := a.run("model", "register", "acme/other", "--node", "fractal",
+		"--models-dir", models, "--gpu", "1", "--port", "8001",
+		"--yes", "--justify", "the same port on purpose")
+	if code == ExitOK {
+		t.Fatal("a second deployment took a port that was already published")
+	}
+	for _, want := range []string{"tiny-fractal", "8001"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the refusal does not name %s: %s", want, stderr)
+		}
 	}
 }

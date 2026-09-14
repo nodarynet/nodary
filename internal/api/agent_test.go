@@ -114,7 +114,11 @@ func (f *fixture) place(node, deployment string, gpu int) {
 			})
 			snap.Deployments = append(snap.Deployments, config.Deployment{
 				ID: deployment, ModelID: "acme/tiny", NodeName: node, Backend: "vllm",
-				Image: "registry.invalid/vllm@sha256:" + hex64, GPUs: []int{gpu}, Port: 8001,
+				// One port per GPU index, because two deployments on one node
+				// may not publish the same loopback port — config.Apply
+				// refuses it, and the fixture was building exactly the state
+				// that refusal exists for.
+				Image: "registry.invalid/vllm@sha256:" + hex64, GPUs: []int{gpu}, Port: 8001 + gpu,
 			})
 			if _, err := config.Apply(ctx, m, time.Now(), snap, config.Options{}); err != nil {
 				return err

@@ -108,7 +108,8 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, identity.ErrUnknownRole),
 		errors.Is(err, identity.ErrUnknownKind),
 		errors.Is(err, identity.ErrWeakPassword),
-		errors.Is(err, config.ErrUnknownNode):
+		errors.Is(err, config.ErrUnknownNode),
+		errors.Is(err, config.ErrInvalid):
 		return http.StatusUnprocessableEntity, "invalid"
 
 	case errors.Is(err, errBadRequest):

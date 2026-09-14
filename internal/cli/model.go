@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/preflight"
+	"github.com/nodarynet/nodary/internal/store"
 )
 
 // modelVerbs that this release does not implement, listed rather than falling
@@ -83,7 +86,7 @@ func cmdModelRegister(e env, args []string) int {
 	cer := attestFlags(fs)
 	node := fs.String("node", "", "the node to place it on; nodary node list names them")
 	gpus := fs.String("gpu", "0", "GPU indices on that node, comma-separated")
-	port := fs.Int("port", 8001, "loopback port the deployment publishes")
+	port := fs.Int("port", 8001, "loopback port the deployment publishes (default: the first free one on that node)")
 	route := fs.String("route", "", "the name clients ask for (default: the model's name, lowercased)")
 	backendName := fs.String("backend", "vllm", "backend descriptor")
 	modelsDir := fs.String("models-dir", "", "where weights are staged (default "+agent.DefaultModelsDir()+")")
@@ -190,6 +193,26 @@ func cmdModelRegister(e env, args []string) int {
 		}
 		fmt.Fprintf(e.stdout, "%s %-18s %d file(s), %d bytes, manifest %s\n",
 			mark(preflight.LevelOK), "weights", files, total, sum[:12])
+	}
+
+	// **8001 is a starting point, not the answer.** Two deployments on one node
+	// publishing the same loopback port is not a loud failure: the second
+	// container never binds while the first keeps serving, so the gateway's
+	// route for the second model reaches the *first model's* server — a request
+	// for one model answered by another, metered against the wrong one. A fixed
+	// default made that the outcome of registering a second model on a node
+	// without thinking about ports, which is the ordinary thing to do.
+	//
+	// config.Apply refuses the collision either way (checkPorts), for the
+	// hand-written document this cannot see. This is so an operator never meets
+	// that refusal for a detail they have no reason to care about: the port is
+	// published on loopback and nothing outside the box ever names it.
+	if *out == "" && !flagWasSet(fs, "port") {
+		if free, ok := freePortOn(e, dbPath, *node, *port); ok && free != *port {
+			fmt.Fprintf(e.stdout, "%s %-18s %d is taken on %s; using %d\n",
+				mark(preflight.LevelOK), "port", *port, *node, free)
+			*port = free
+		}
 	}
 
 	pinned := *image
@@ -340,4 +363,50 @@ func parseGPUList(e env, spec string) ([]int, bool) {
 		return nil, false
 	}
 	return out, true
+}
+
+// flagWasSet reports whether a flag was named on the command line, as opposed
+// to holding its default. `--port 8001` means "8001, and I mean it".
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	seen := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			seen = true
+		}
+	})
+	return seen
+}
+
+// freePortOn is the first port at or above `from` that nothing on this node
+// already publishes.
+//
+// Best effort: a database that cannot be opened or read leaves the default in
+// place and lets the apply refuse, which is the same answer with a worse
+// message rather than a different outcome. `model register` opens the database
+// again a moment later through openSession, so a failure here is a failure
+// there too.
+func freePortOn(e env, dbPath *string, node string, from int) (int, bool) {
+	path, _ := resolveDBIn(e, *dbPath)
+	db, err := store.OpenReadOnly(context.Background(), path)
+	if err != nil {
+		return 0, false
+	}
+	defer db.Close()
+	snap, err := config.Read(context.Background(), db.Read())
+	if err != nil {
+		return 0, false
+	}
+	taken := map[int]bool{}
+	for _, d := range snap.Deployments {
+		if d.NodeName == node {
+			taken[d.Port] = true
+		}
+	}
+	// 0006_fleet.sql bounds a deployment's port to an unprivileged one.
+	for p := from; p < 65536; p++ {
+		if !taken[p] {
+			return p, true
+		}
+	}
+	return 0, false
 }
