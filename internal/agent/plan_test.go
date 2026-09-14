@@ -684,3 +684,120 @@ func TestAPlanThatMeasuredNothingClaimsNoFailure(t *testing.T) {
 		t.Errorf("units = %d, want the deployment planned as usual", len(p.Units))
 	}
 }
+
+const acmeDescriptor = `[backend]
+name           = "acme-serve"
+api            = "openai"
+weights_layout = "hf-cache"
+mount_path     = "/weights"
+container_port = 9000
+image_default  = "acme/serve:1"
+
+[backend.capabilities]
+tensor_parallel = false
+expert_parallel = false
+quantization    = ["awq"]
+lora            = false
+cpu_offload     = false
+
+[backend.args]
+model_path = "--model={v}"
+port       = "--port={v}"
+
+[backend.gpu]
+mechanism = "device-flag"
+
+[backend.probe]
+health          = "/healthz"
+ready           = "/healthz"
+ready_timeout_s = 300
+`
+
+// R6-07: a node runs a backend that is not compiled into it, because the
+// control plane sent the descriptor. There is no other channel — 03 §1 gives
+// it no way to push, and a file placed on each node by hand would be a second
+// copy of one fact.
+func TestANodeRunsADescriptorItWasSent(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deployment())
+	doc.Staging[0].ManifestSHA256 = digest
+	doc.Deployments[0].Backend = "acme-serve"
+	// acme names neither max_context nor tensor_parallel, and a parameter the
+	// descriptor does not name is dropped and the deployment refused (R6-03) —
+	// which is itself proof the sent descriptor is the one in force.
+	doc.Deployments[0].Params = json.RawMessage(`{}`)
+	doc.Backends = []api.DesiredBackend{{Name: "acme-serve", Source: acmeDescriptor}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Units) != 1 {
+		t.Fatalf("units = %d, refusals %+v: the sent descriptor was not used",
+			len(p.Units), p.Refused)
+	}
+	env := envOf(p.Units[0])
+	// The descriptor's own vocabulary, not a built-in's: `--model=` is acme's
+	// spelling, and the mount path and container port are its too.
+	if !strings.Contains(env["NODARY_ARGS"], "--model=") {
+		t.Errorf("args = %q, want the sent descriptor's own spelling", env["NODARY_ARGS"])
+	}
+	if env["NODARY_CONTAINER_PORT"] != "9000" {
+		t.Errorf("container port = %q, want the descriptor's 9000", env["NODARY_CONTAINER_PORT"])
+	}
+	if env["NODARY_MOUNT_PATH"] != "/weights" {
+		t.Errorf("mount path = %q, want the descriptor's /weights", env["NODARY_MOUNT_PATH"])
+	}
+}
+
+func envOf(u Unit) map[string]string {
+	out := map[string]string{}
+	for _, kv := range u.Env {
+		out[kv.Key] = kv.Value
+	}
+	return out
+}
+
+// A built-in may not be redefined. The applier refuses registering one, and
+// this is the same rule held on the far side of the wire: a node that accepted
+// a redefinition would be one host in a fleet quietly running a different vLLM.
+func TestASentDescriptorMayNotShadowABuiltIn(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deployment())
+	doc.Staging[0].ManifestSHA256 = digest
+	doc.Backends = []api.DesiredBackend{{Name: "vllm",
+		Source: strings.Replace(acmeDescriptor,
+			`name           = "acme-serve"`, `name           = "vllm"`, 1)}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Units) != 1 {
+		t.Fatalf("units = %d, want the deployment still planned", len(p.Units))
+	}
+	if got := envOf(p.Units[0])["NODARY_CONTAINER_PORT"]; got != "8000" {
+		t.Errorf("container port = %q, want the built-in vLLM's 8000 — a sent descriptor "+
+			"redefined a backend compiled into this agent", got)
+	}
+}
+
+// A descriptor that does not parse affects the deployments that name it and
+// nothing else. Failing the whole plan would stop the node reconciling
+// anything, including what is already serving.
+func TestAnUnreadableSentDescriptorDoesNotStopTheNode(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deployment())
+	doc.Staging[0].ManifestSHA256 = digest
+	doc.Backends = []api.DesiredBackend{{Name: "acme-serve", Source: "this is not toml {{{"}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatalf("a bad descriptor failed the whole plan: %v", err)
+	}
+	// The deployment on vllm is untouched; only one naming acme-serve would
+	// have been refused.
+	if len(p.Units) != 1 {
+		t.Errorf("units = %d, want the unrelated deployment still planned", len(p.Units))
+	}
+}

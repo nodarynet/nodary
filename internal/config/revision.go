@@ -249,6 +249,7 @@ func Changes(from, to *Snapshot) []string {
 	out = append(out, diffKeyed("route", keyRoutes(from), keyRoutes(to))...)
 	out = append(out, diffKeyed("limits", keyLimits(from), keyLimits(to))...)
 	out = append(out, diffKeyed("grant", keyGrants(from), keyGrants(to))...)
+	out = append(out, diffKeyed("backend", keyBackends(from), keyBackends(to))...)
 
 	fp, tp := "none", "none"
 	if from != nil && from.Policy != nil {
@@ -259,6 +260,20 @@ func Changes(from, to *Snapshot) []string {
 	}
 	if fp != tp {
 		out = append(out, fmt.Sprintf("~ policy %s -> %s", fp, tp))
+	}
+	return out
+}
+
+// keyBackends keys a registered descriptor by name and by the digest of its
+// bytes, so re-registering a changed descriptor under the same name shows as a
+// change rather than as nothing at all.
+func keyBackends(s *Snapshot) map[string]string {
+	out := map[string]string{}
+	if s == nil {
+		return out
+	}
+	for _, b := range s.Backends {
+		out[b.Name] = short(b.Source)
 	}
 	return out
 }

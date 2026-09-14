@@ -371,8 +371,12 @@ node will not return after a Windows reboot; a models directory under `/mnt/c`; 
 /var/log/nodary/agent.log        agent log (also journald)
 ```
 
-Built-in backend descriptors are embedded in the binary; `/etc/nodary/backends/` holds only
-operator-added ones ([04](04-backends.md#1-why-descriptors-rather-than-plugins)).
+Built-in backend descriptors are embedded in the binary. Operator-added ones are registered
+with the control plane ([04 §9](04-backends.md#9-registering-a-backend)) and reach a node in
+its desired-state document, so `/etc/nodary/backends/` is a place to keep the files being
+registered *from* and is not read by the agent. A node that resolved descriptors from its own
+disk would be a second source of truth for what a deployment means, and the drift would be
+silent.
 
 `secret.key` is the one file the service account does not own, and that only works because
 `nodary-server.service` carries `LoadCredential=secret.key:/etc/nodary/secret.key`: systemd

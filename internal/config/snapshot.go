@@ -40,7 +40,31 @@ type Snapshot struct {
 	// it later the change that invalidates every revision chain a customer
 	// already holds.
 	Grants []Grant `json:"grants" toml:"grant"`
-	Policy *Policy `json:"policy" toml:"policy,omitempty"`
+	// Backends are operator-registered descriptors (docs/specs/04-backends.md
+	// §9). Built-ins are not here: they are compiled into the binary and are
+	// the same on every host, so recording them in a revision would be
+	// recording the build.
+	//
+	// In the snapshot rather than in a table of its own, which decides two
+	// things at once. A site keeping its configuration in version control can
+	// declare its backends, and `config rollback` restores one that was
+	// removed — neither of which a side table outside the chain could do. And
+	// it is what carries a descriptor to a node: nothing else travels, and
+	// docs/specs/03-agent.md §1 gives the control plane no way to push.
+	Backends []Backend `json:"backends" toml:"backend"`
+	Policy   *Policy   `json:"policy" toml:"policy,omitempty"`
+}
+
+// Backend is one registered descriptor, by name and by source.
+//
+// The source and not the parsed struct, exactly as Policy carries a profile's:
+// the bytes an operator wrote are the authority, and a struct re-serialized is
+// this build's reading of their document rather than the document. The digest
+// §9 requires is derived from Source, so it is not repeated here — a derived
+// field inside a hash preimage is one more thing that can disagree with itself.
+type Backend struct {
+	Name   string `json:"name" toml:"name"`
+	Source string `json:"source" toml:"source"`
 }
 
 // Grant is one user's permission to call one route.
@@ -186,6 +210,7 @@ func Read(ctx context.Context, q Querier) (*Snapshot, error) {
 		{"deployments", readDeployments},
 		{"routes", readRoutes},
 		{"limits", readLimits},
+		{"backends", readBackends},
 		{"the policy profile", readPolicy},
 	} {
 		if err := step.fn(ctx, q, s); err != nil {
@@ -193,6 +218,22 @@ func Read(ctx context.Context, q Querier) (*Snapshot, error) {
 		}
 	}
 	return s, nil
+}
+
+func readBackends(ctx context.Context, q Querier, s *Snapshot) error {
+	rows, err := q.QueryContext(ctx, `SELECT name, body FROM backend ORDER BY name`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b Backend
+		if err := rows.Scan(&b.Name, &b.Source); err != nil {
+			return err
+		}
+		s.Backends = append(s.Backends, b)
+	}
+	return rows.Err()
 }
 
 func readNodes(ctx context.Context, q Querier, s *Snapshot) error {

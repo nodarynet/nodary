@@ -16,7 +16,6 @@ import (
 
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/audit"
-	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/core"
@@ -602,25 +601,25 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 // vocabulary and the capabilities before they write `params`. The projection
 // lives in internal/backend so that this and the CLI cannot drift.
 func (s *Server) listBackends(w http.ResponseWriter, r *http.Request) {
-	s.read(w, r, string(identity.PermStateRead), func(core.Deps) (any, error) {
-		all, err := backend.Builtins()
+	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		reports, err := config.BackendReports(r.Context(), d.DB.Read())
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"backends": backend.Reports(all)}, nil
+		return map[string]any{"backends": reports}, nil
 	})
 }
 
 func (s *Server) showBackend(w http.ResponseWriter, r *http.Request) {
-	s.read(w, r, string(identity.PermStateRead), func(core.Deps) (any, error) {
-		d, err := backend.Get(r.PathValue("name"))
+	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		rep, err := config.BackendReport(r.Context(), d.DB.Read(), r.PathValue("name"))
 		if err != nil {
 			// backend.ErrUnknown is in neither error table, so it would reach
 			// a client as a 500 with the message withheld. Named as what it
 			// is: the thing does not exist.
 			return nil, fmt.Errorf("%w: %s", identity.ErrNotFound, err)
 		}
-		return backend.NewReport(d, backend.SourceBuiltIn, ""), nil
+		return rep, nil
 	})
 }
 

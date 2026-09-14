@@ -331,6 +331,23 @@ Registration validates the descriptor against the schema, rejects unknown keys, 
 audit record containing the descriptor's SHA-256. Removal is refused while any deployment
 references it.
 
+**A registered descriptor is part of the configuration snapshot**, so it is in a revision:
+`config export` declares it, `config rollback` restores one that was removed, and the whole
+registry is one source of truth. Built-ins are not in the snapshot — they are compiled into
+the binary and identical on every host, so recording them in a revision would be recording the
+build. A registered name may not take a built-in's: an operator who redefined `vllm` would
+silently change what every deployment already using it means.
+
+**The descriptor travels to a node in its desired-state document**, alongside the deployment
+that needs it, and only for the backends that node actually runs. There is no other channel:
+[03 §1](03-agent.md) gives the control plane no way to push, which is the same reason a
+model's manifest rides along rather than being found beside weights that have not been
+downloaded yet. The alternative — a descriptor file placed on each node — is two copies of one
+fact: they drift, the drift is silent, and the chain would record a digest for a descriptor
+that is not the one the node ran, which is exactly the claim this product cannot afford to get
+wrong. The bytes travel rather than a decoded structure, so the agent parses what the operator
+wrote on the version of the code about to act on it.
+
 A descriptor carrying `[backend.derive]` (§5) is registered the same way, then built with
 `nodary backend build`. Registration records the recipe; the build records what the recipe
 produced. Removing a derive also removes its built image from the mirror.

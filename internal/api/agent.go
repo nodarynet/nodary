@@ -64,8 +64,35 @@ type Desired struct {
 	// acknowledges over the heartbeat, the same edge-triggered shape Reset
 	// already uses, since docs/specs/03-agent.md §2's protocol has no other
 	// way to express "do this now".
-	Restart []string     `json:"restart,omitempty"`
-	Agent   DesiredAgent `json:"agent"`
+	Restart []string `json:"restart,omitempty"`
+	// Backends are the operator-registered descriptors this node's deployments
+	// need — 04 §9, R6-07. Built-ins are absent: they are compiled into the
+	// agent's own binary and are the same on every host.
+	//
+	// **It travels here because there is nowhere else.** 03 §1 gives the
+	// control plane no way to push, so a node's only channel is this document
+	// — the same reason a model's manifest_body rides along rather than being
+	// found beside weights that have not been downloaded yet (R4-33). The
+	// alternative, a descriptor file placed on each node, is two copies of one
+	// fact: they drift, the drift is silent, and the chain would record a
+	// digest for a descriptor that is not the one the node ran.
+	//
+	// Only what this node uses, so the document stays the size of the node's
+	// own work rather than of the fleet's catalog.
+	Backends []DesiredBackend `json:"backends,omitempty"`
+	Agent    DesiredAgent     `json:"agent"`
+}
+
+// DesiredBackend is one registered descriptor, as its bytes.
+//
+// The TOML rather than a decoded struct, for the reason POST /config/apply
+// takes TOML: the agent parses what the operator wrote, on the version of the
+// code that is about to act on it, rather than inheriting the control plane's
+// reading of it across a version boundary.
+type DesiredBackend struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	SHA256 string `json:"sha256"`
 }
 
 type DesiredReset struct {
@@ -251,6 +278,23 @@ func (s *Server) desiredFor(ctx context.Context, n node, seq int64) (Desired, er
 				ManifestSHA256: m.ManifestSHA256, ExpectBytes: m.TotalBytes,
 				ManifestBody: m.ManifestBody,
 			})
+		}
+	}
+
+	// Only the registered descriptors this node's deployments actually name.
+	// A fleet with twenty custom backends and a node running one sends one.
+	if len(snap.Backends) > 0 {
+		used := map[string]bool{}
+		for _, d := range doc.Deployments {
+			used[d.Backend] = true
+		}
+		for _, b := range snap.Backends {
+			if !used[b.Name] {
+				continue
+			}
+			sum := sha256.Sum256([]byte(b.Source))
+			doc.Backends = append(doc.Backends, DesiredBackend{
+				Name: b.Name, Source: b.Source, SHA256: hex.EncodeToString(sum[:])})
 		}
 	}
 

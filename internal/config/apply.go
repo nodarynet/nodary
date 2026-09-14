@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,6 +110,15 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 		}
 	}
 
+	if err := checkPolicy(ctx, tx, want); err != nil {
+		return res, err
+	}
+	// Backends before models and deployments, both of which name one: a
+	// document that registers a descriptor and uses it in the same apply has
+	// to work, or registration is a two-step dance for no reason.
+	if err := applyBackends(ctx, tx, now, want, have, opt, &res); err != nil {
+		return res, err
+	}
 	if err := applyModels(ctx, m, now, want, have, opt, &res); err != nil {
 		return res, err
 	}
@@ -148,7 +159,7 @@ func applyModels(ctx context.Context, mut audit.Mutation, now time.Time, want, h
 		// reporting the model `corrupt` with "unknown weights layout", which
 		// names neither the field nor the document that set it. A catalog entry
 		// that can never stage is not a catalog entry.
-		if err := checkArtifact(m); err != nil {
+		if err := checkArtifact(ctx, mut.Tx(), m); err != nil {
 			return err
 		}
 		if err := checkOrigin(mut, active, m, have); err != nil {
@@ -235,7 +246,7 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 		}
 		// Before the insert, so a deployment the backend cannot serve never
 		// reaches the database and never reaches a node.
-		if err := checkCapabilities(d); err != nil {
+		if err := checkCapabilities(ctx, tx, d); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO deployment
@@ -437,6 +448,226 @@ func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 		names(want.Routes, func(r Route) string { return r.Name }), opt, res)
 }
 
+// applyBackends registers and removes operator descriptors — 04 §9.
+//
+// Three refusals, each of which is the whole reason this is not a plain
+// upsert.
+//
+// **A descriptor that does not parse never lands.** §9 says registration
+// validates against the schema and rejects unknown keys, and doing it here
+// rather than in the verb means `config apply` cannot be the way around it —
+// the same argument R4-32 makes for checking provenance in applyModels rather
+// than in `model register`.
+//
+// **A registered name may not shadow a built-in.** An operator who redefined
+// `vllm` would silently change the meaning of every deployment already using
+// it, on the next reconcile, with nothing in the change list saying so.
+//
+// **Removal is refused while a deployment references it.** A node whose
+// descriptor vanished cannot render an argv at all, so what an operator would
+// see is every deployment on that backend failing at once for a reason that
+// names neither this document nor this line.
+func applyBackends(ctx context.Context, tx *sql.Tx, now time.Time,
+	want, have *Snapshot, opt Options, res *Result) error {
+
+	if len(want.Backends) > 0 {
+		// The profile's gate (04 §5, 07 §1). Read here rather than passed in,
+		// because every road into this function has to meet it.
+		active, _, err := policy.Active(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !active.AllowCustomBackends {
+			return fmt.Errorf("%w: the %s profile does not allow custom backends; "+
+				"this build serves %s", ErrInvalid, active.Name, strings.Join(builtinNames(), ", "))
+		}
+	}
+
+	for _, b := range want.Backends {
+		d, err := backend.Parse([]byte(b.Source))
+		if err != nil {
+			return fmt.Errorf("%w: backend %q: %v", ErrInvalid, b.Name, err)
+		}
+		// The name in the document and the name inside the descriptor are two
+		// places one fact can be written, so they are held to each other
+		// rather than one silently winning.
+		if d.Backend.Name != b.Name {
+			return fmt.Errorf("%w: backend %q declares itself %q; the document and the "+
+				"descriptor have to agree on the name", ErrInvalid, b.Name, d.Backend.Name)
+		}
+		if _, builtin := builtins()[b.Name]; builtin {
+			return fmt.Errorf("%w: %q is built into this binary and cannot be redefined; "+
+				"a registered descriptor with that name would change what every deployment "+
+				"already using it means", ErrInvalid, b.Name)
+		}
+		sum := sha256.Sum256([]byte(b.Source))
+		if _, err := tx.ExecContext(ctx, `INSERT INTO backend
+			(name, body, sha256, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET
+				body = excluded.body, sha256 = excluded.sha256,
+				updated_at = excluded.updated_at`,
+			b.Name, b.Source, hex.EncodeToString(sum[:]), stamp(now), stamp(now)); err != nil {
+			return fmt.Errorf("registering backend %q: %w", b.Name, err)
+		}
+	}
+
+	for _, b := range have.Backends {
+		if slices.ContainsFunc(want.Backends, func(x Backend) bool { return x.Name == b.Name }) {
+			continue
+		}
+		if !opt.Prune {
+			res.Orphans = append(res.Orphans, "backend "+b.Name)
+			continue
+		}
+		var used string
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM deployment WHERE backend = ? ORDER BY id LIMIT 1`, b.Name).Scan(&used)
+		if err == nil {
+			return fmt.Errorf("%w: backend %q is still used by deployment %q; a node whose "+
+				"descriptor vanished cannot render an argv at all", ErrInvalid, b.Name, used)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM backend WHERE name = ?`, b.Name); err != nil {
+			return err
+		}
+		res.Changes = append(res.Changes, "- backend "+b.Name)
+	}
+	return nil
+}
+
+// checkPolicy refuses a document that would move the posture.
+//
+// **Changes() reported `~ policy default -> regulated` and Apply did nothing
+// about it.** So a document that tightened the profile previewed as though it
+// would, recorded a revision saying it had, and left the posture where it was
+// — which for a product whose deliverable is a chain an assessor reads is the
+// worst shape a bug can take: not silence, but a confident claim that the
+// thing happened.
+//
+// Refused rather than applied, and that is the point rather than the cheap way
+// out. `nodary policy apply` shows what a profile *loosens* before the
+// confirmation ([07 §4](docs/specs/07-identity-audit.md) requires loosening
+// not to be silent) and what it would *deny* among models already registered
+// (05 §2). A posture that moved as a side effect of a configuration apply
+// would have had neither in front of the person agreeing to it.
+//
+// A document carrying the profile that is already active passes, because that
+// is what `config export` writes and an export has to round-trip.
+func checkPolicy(ctx context.Context, q Querier, want *Snapshot) error {
+	if want.Policy == nil {
+		return nil
+	}
+	active, source, err := policy.Active(ctx, q)
+	if err != nil {
+		return err
+	}
+	if want.Policy.Name == active.Name && want.Policy.Source == string(source) {
+		return nil
+	}
+	return fmt.Errorf("%w: this document sets the policy profile to %q and %q is active. "+
+		"A posture change is `nodary policy apply`, which shows what it loosens and what it "+
+		"would deny before you agree to it; `config apply` carries the profile so that an "+
+		"export round-trips, and will not move it",
+		ErrInvalid, want.Policy.Name, active.Name)
+}
+
+// BackendFor resolves a backend name to the descriptor in force.
+//
+// Built-ins first, and not only because it is cheaper: a registered descriptor
+// may not take a built-in's name, so checking here in this order makes that
+// refusal belt-and-braces rather than the only thing standing between an
+// operator and redefining `vllm` for a fleet that is already running it.
+//
+// It lives in this package rather than in internal/backend because the
+// registry is a table and internal/backend has no database — and giving it one
+// would make a descriptor parser depend on a schema.
+func BackendFor(ctx context.Context, q Querier, name string) (backend.Descriptor, error) {
+	if d, ok := builtins()[name]; ok {
+		return d, nil
+	}
+	var body string
+	err := q.QueryRowContext(ctx, `SELECT body FROM backend WHERE name = ?`, name).Scan(&body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return backend.Get(name) // for its message, which names what this build has
+	}
+	if err != nil {
+		return backend.Descriptor{}, err
+	}
+	return backend.Parse([]byte(body))
+}
+
+// BackendReports is every backend in force, built-in and registered, as the
+// projection both front ends render.
+//
+// Here rather than in internal/backend for the same reason BackendFor is: the
+// registry is a table, and only this package can read one.
+func BackendReports(ctx context.Context, q Querier) ([]backend.Report, error) {
+	all := builtins()
+	out := make([]backend.Report, 0, len(all))
+	for _, n := range backend.Names(all) {
+		out = append(out, backend.NewReport(all[n], backend.SourceBuiltIn, ""))
+	}
+	rows, err := q.QueryContext(ctx, `SELECT name, body, sha256 FROM backend ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, body, sum string
+		if err := rows.Scan(&name, &body, &sum); err != nil {
+			return nil, err
+		}
+		d, err := backend.Parse([]byte(body))
+		if err != nil {
+			// Reported rather than hidden: a row that no longer parses is one
+			// an operator has to see, and it is exactly the row whose
+			// deployments are failing.
+			out = append(out, backend.Report{Name: name, Source: backend.SourceRegistered,
+				SHA256: sum, API: "unreadable: " + err.Error()})
+			continue
+		}
+		out = append(out, backend.NewReport(d, backend.SourceRegistered, sum))
+	}
+	return out, rows.Err()
+}
+
+// BackendReport is one of them.
+func BackendReport(ctx context.Context, q Querier, name string) (backend.Report, error) {
+	if d, ok := builtins()[name]; ok {
+		return backend.NewReport(d, backend.SourceBuiltIn, ""), nil
+	}
+	var body, sum string
+	err := q.QueryRowContext(ctx,
+		`SELECT body, sha256 FROM backend WHERE name = ?`, name).Scan(&body, &sum)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err := backend.Get(name)
+		return backend.Report{}, err
+	}
+	if err != nil {
+		return backend.Report{}, err
+	}
+	d, err := backend.Parse([]byte(body))
+	if err != nil {
+		return backend.Report{}, err
+	}
+	return backend.NewReport(d, backend.SourceRegistered, sum), nil
+}
+
+// builtins and builtinNames are the compiled-in set, tolerating the error: a
+// build whose own descriptors do not parse fails its own tests, and refusing
+// every apply here would turn that into an outage.
+func builtins() map[string]backend.Descriptor {
+	all, err := backend.Builtins()
+	if err != nil {
+		return nil
+	}
+	return all
+}
+
+func builtinNames() []string { return backend.Names(builtins()) }
+
 func applyLimits(ctx context.Context, tx *sql.Tx, want, have *Snapshot, opt Options, res *Result) error {
 	for _, l := range want.Limits {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO limits
@@ -530,8 +761,8 @@ func nullableInt(n int64) any {
 // exit 1 and a 422 naming the refusal. An unwrapped one reaches an API client
 // as a 500 with the message withheld, which is the shape this milestone's
 // predecessor found five times.
-func checkCapabilities(d Deployment) error {
-	desc, err := backend.Get(d.Backend)
+func checkCapabilities(ctx context.Context, q Querier, d Deployment) error {
+	desc, err := BackendFor(ctx, q, d.Backend)
 	if err != nil {
 		return nil
 	}
@@ -565,8 +796,8 @@ func unwrapMessage(err error) string {
 // and a model staged in another one is weights the server will not find. An
 // unknown backend is left alone — R6 owns which backends exist, and refusing
 // here would make this the second place that decides.
-func checkArtifact(m Model) error {
-	d, err := backend.Get(m.Backend)
+func checkArtifact(ctx context.Context, q Querier, m Model) error {
+	d, err := BackendFor(ctx, q, m.Backend)
 	if err != nil {
 		return nil
 	}

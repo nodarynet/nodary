@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -142,12 +143,15 @@ func cmdModelRegister(e env, args []string) int {
 	// `--backend llama-cpp` looked for a HuggingFace cache that a GGUF is not
 	// in, and stamped an artifact kind config.Apply then refused — the one
 	// path an operator would actually take.
-	desc, err := backend.Get(*backendName)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+	// Through the registry, not only the built-ins: a model registered against
+	// an operator's own backend has to resolve that backend's weights_layout
+	// or it is stamped with the wrong artifact kind and refused by the
+	// applier. Over --server the registry is on the far side, so the same
+	// endpoint `backend show` reads answers it here.
+	layout, ok := weightsLayoutFor(e, rem, *dbPath, *backendName)
+	if !ok {
 		return ExitUsage
 	}
-	layout := desc.Backend.WeightsLayout
 
 	var sum, manifestBody string
 	var total int64
@@ -329,6 +333,34 @@ func cmdModelRegister(e env, args []string) int {
 // a malformed file should refuse in front of the person who can fix it, not
 // surface three hops later as a node reporting a deployment `corrupt` for a
 // reason that names neither this flag nor this file.
+// weightsLayoutFor resolves what a backend reads, from whichever side this
+// invocation is registering against.
+func weightsLayoutFor(e env, rem *remote, dbPath, name string) (string, bool) {
+	var rep backend.Report
+	if rem != nil {
+		if _, err := rem.get("/backends/"+url.PathEscape(name), &rep); err != nil {
+			fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+			return "", false
+		}
+		return rep.WeightsLayout, true
+	}
+	if db, ok := registryDB(e, "model register", dbPath); ok {
+		defer db.Close()
+		rep, err := config.BackendReport(context.Background(), db.Read(), name)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+			return "", false
+		}
+		return rep.WeightsLayout, true
+	}
+	d, err := backend.Get(name)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+		return "", false
+	}
+	return d.Backend.WeightsLayout, true
+}
+
 func readRemoteManifest(e env, path string) (sum, body string, ok bool) {
 	if path == "" {
 		fmt.Fprintf(e.stderr,

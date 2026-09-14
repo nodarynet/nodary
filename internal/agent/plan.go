@@ -227,6 +227,28 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	// The registered descriptors the control plane sent for this node's own
+	// deployments (R6-07). Merged rather than replacing: a built-in cannot be
+	// shadowed, which the applier already refuses at registration — this is
+	// the same rule held on the far side of the wire, because a node that
+	// accepted a redefinition would be one host in a fleet quietly running a
+	// different vLLM.
+	//
+	// A descriptor that does not parse is *dropped*, not fatal. It affects the
+	// deployments that name it and nothing else, and unitFor already refuses a
+	// deployment whose backend it cannot find, with a reason that names the
+	// backend — which is what an operator needs. Failing the whole plan would
+	// stop a node from reconciling anything, including what is serving.
+	for _, b := range doc.Backends {
+		if _, builtin := descriptors[b.Name]; builtin {
+			continue
+		}
+		d, err := backend.Parse([]byte(b.Source))
+		if err != nil || d.Backend.Name != b.Name {
+			continue
+		}
+		descriptors[b.Name] = d
+	}
 	offered := map[int]bool{}
 	for _, g := range opt.Present {
 		offered[g.Index] = true

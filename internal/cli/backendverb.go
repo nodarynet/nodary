@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/backend"
+	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/store"
 )
 
 // cmdBackend is docs/specs/04-backends.md §9.
@@ -59,7 +62,7 @@ func cmdBackendList(e env, args []string) int {
 		return code
 	}
 
-	reports, ok := backendReports(e, "backend list", rem)
+	reports, ok := backendReports(e, "backend list", rem, *dbPath)
 	if !ok {
 		return ExitFailure
 	}
@@ -102,6 +105,13 @@ func cmdBackendShow(e env, args []string) int {
 			fmt.Fprintf(e.stderr, "nodary backend show: %v\n", err)
 			return exitFor(err)
 		}
+	} else if db, ok := registryDB(e, "backend show", *dbPath); ok {
+		defer db.Close()
+		var err error
+		if b, err = config.BackendReport(context.Background(), db.Read(), name); err != nil {
+			fmt.Fprintf(e.stderr, "nodary backend show: %v\n", err)
+			return ExitFailure
+		}
 	} else {
 		d, err := backend.Get(name)
 		if err != nil {
@@ -138,7 +148,7 @@ func cmdBackendShow(e env, args []string) int {
 }
 
 // backendReports is the listing, from whichever side this invocation reads.
-func backendReports(e env, verb string, rem *remote) ([]backend.Report, bool) {
+func backendReports(e env, verb string, rem *remote, dbPath string) ([]backend.Report, bool) {
 	if rem != nil {
 		out, err := remoteList[backend.Report](rem, "/backends", "backends", nil)
 		if err != nil {
@@ -147,12 +157,49 @@ func backendReports(e env, verb string, rem *remote) ([]backend.Report, bool) {
 		}
 		return out, true
 	}
-	all, err := backend.Builtins()
+	db, ok := registryDB(e, verb, dbPath)
+	if !ok {
+		// No registry reachable, so the built-ins are the whole answer — and
+		// they are a complete one on a machine with no control plane on it,
+		// which is where `backend list` is most often run.
+		all, err := backend.Builtins()
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+			return nil, false
+		}
+		return backend.Reports(all), true
+	}
+	defer db.Close()
+	out, err := config.BackendReports(context.Background(), db.Read())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return nil, false
 	}
-	return backend.Reports(all), true
+	return out, true
+}
+
+// registryDB opens the control plane's database if this machine has one.
+//
+// Absent is not an error here. The built-in descriptors are compiled into this
+// binary and are the whole answer on an operator's laptop; what an unreadable
+// registry costs is the *registered* ones, so it is said once rather than
+// failing a read that can be answered.
+func registryDB(e env, verb, dbPath string) (*store.DB, bool) {
+	path, explicit := resolveDB(dbPath)
+	db, err := store.OpenReadOnly(context.Background(), path)
+	if err != nil {
+		if explicit {
+			// Named explicitly and not readable is a mistake worth reporting:
+			// the operator meant that file.
+			fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		} else {
+			fmt.Fprintf(e.stderr,
+				"nodary %s: no control plane on this machine, so this is what the binary "+
+					"carries; registered backends live on the control plane (--server).\n", verb)
+		}
+		return nil, false
+	}
+	return db, true
 }
 
 // capabilityLine renders only what a backend *has*.
