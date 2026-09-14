@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strconv"
 
 	"github.com/nodarynet/nodary/internal/audit"
@@ -81,6 +82,7 @@ func cmdLimitsShow(e env, args []string) int {
 func cmdLimitsSet(e env, args []string) int {
 	fs := newFlagSet(e, "limits set")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	kind := fs.String("kind", "user", "what the limit applies to: user, role or global")
@@ -103,14 +105,33 @@ func cmdLimitsSet(e env, args []string) int {
 		return ExitUsage
 	}
 
+	want := config.Limit{SubjectKind: *kind, SubjectID: *subject,
+		RPM: *rpm, TPM: *tpm, DailyTokens: *daily, MaxConcurrent: *concurrent}
+
+	rem, code := remoteFor(e, "limits set", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if rem != nil {
+		// No If-Match, and not by oversight: this verb builds the whole limit
+		// out of its flags and reads nothing first, so there is nothing for it
+		// to have raced with. `route set` reads the object it edits and does
+		// send one.
+		_, applied, code := rem.attested(e, "limits set", remoteAct{method: "PUT",
+			path: "/limits/" + url.PathEscape(want.SubjectKind) + "/" + url.PathEscape(want.SubjectID),
+			body: want}, cer, *format)
+		if !applied {
+			return code
+		}
+		noteLimitsAreEnforced(e)
+		return ExitOK
+	}
+
 	s, ok := openSession(e, "limits set", *dbPath, *keyPath, *credsPath)
 	if !ok {
 		return ExitFailure
 	}
 	defer s.Close()
-
-	want := config.Limit{SubjectKind: *kind, SubjectID: *subject,
-		RPM: *rpm, TPM: *tpm, DailyTokens: *daily, MaxConcurrent: *concurrent}
 
 	// Through the same config applier every other configuration change uses, so
 	// a limit is a revision like anything else rather than a second writer.

@@ -146,21 +146,38 @@ func credentialsPath(flagValue string) (string, error) {
 
 // do makes one API call and decodes the answer into out, which may be nil.
 func (r *remote) do(method, path string, body, out any) error {
-	return r.doWith(method, path, body, out, nil)
+	_, err := r.doWith(method, path, body, out, nil)
+	return err
 }
 
-func (r *remote) doWith(method, path string, body, out any, headers map[string]string) error {
+// get reads one object and returns the revision it was read at.
+//
+// The ETag is docs/specs/09-api.md §2's version of the whole configuration,
+// and it is what a read-modify-write over the network sends back as If-Match.
+// The local route has no use for one — it reads and writes inside a single
+// transaction — but this one reads the object in one request and replaces it
+// in another, which is a lost-update window the local route does not have.
+func (r *remote) get(path string, out any) (etag string, err error) {
+	h, err := r.doWith("GET", path, nil, out, nil)
+	if err != nil {
+		return "", err
+	}
+	return h.Get(api.HeaderETag), nil
+}
+
+func (r *remote) doWith(method, path string, body, out any,
+	headers map[string]string) (http.Header, error) {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rdr = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, r.base+api.Prefix+path, rdr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -180,9 +197,9 @@ func (r *remote) doWith(method, path string, body, out any, headers map[string]s
 		// that is down, and an operator told to check the network will not
 		// find it.
 		if errors.Is(err, agent.ErrPin) {
-			return fmt.Errorf("%s does not present the certificate pinned for it: %w", r.base, err)
+			return nil, fmt.Errorf("%s does not present the certificate pinned for it: %w", r.base, err)
 		}
-		return fmt.Errorf("%w: %s: %v", errUnreachable, r.base, err)
+		return nil, fmt.Errorf("%w: %s: %v", errUnreachable, r.base, err)
 	}
 	defer resp.Body.Close()
 
@@ -191,18 +208,18 @@ func (r *remote) doWith(method, path string, body, out any, headers map[string]s
 	// than fill this machine's memory.
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
-		return fmt.Errorf("%w: reading the answer from %s: %v", errUnreachable, r.base, err)
+		return nil, fmt.Errorf("%w: reading the answer from %s: %v", errUnreachable, r.base, err)
 	}
 	if resp.StatusCode >= 400 {
-		return remoteFailure(resp.StatusCode, raw)
+		return resp.Header, remoteFailure(resp.StatusCode, raw)
 	}
 	if out == nil {
-		return nil
+		return resp.Header, nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s answered with something this release cannot read: %v", r.base, err)
+		return resp.Header, fmt.Errorf("%s answered with something this release cannot read: %v", r.base, err)
 	}
-	return nil
+	return resp.Header, nil
 }
 
 // remoteList reads a whole listing, following docs/specs/09-api.md §2's cursor
@@ -248,6 +265,17 @@ func remoteList[T any](r *remote, path, field string, q url.Values) ([]T, error)
 	}
 }
 
+// remoteAct is one mutation to make over the network.
+type remoteAct struct {
+	method, path string
+	body         any
+	// ifMatch is the revision a read-modify-write read its object at, which
+	// the control plane refuses the act against if the configuration has moved
+	// since (docs/specs/09-api.md §2). Empty for a verb that reads nothing
+	// first: there is nothing for it to have raced with.
+	ifMatch string
+}
+
 // remoteOutcome is what internal/api's mutate writes, in either phase.
 type remoteOutcome struct {
 	Applied    bool           `json:"applied"`
@@ -273,7 +301,7 @@ type remoteOutcome struct {
 // place — core.Act, on the far side — rather than being re-decided here. A
 // front end that decided any of it would be the second implementation of
 // attestation this arrangement exists to prevent.
-func (r *remote) attested(e env, verb, method, path string, body any,
+func (r *remote) attested(e env, verb string, a remoteAct,
 	f ceremonyFlags, format string) (remoteOutcome, bool, int) {
 	if strings.ContainsAny(*f.justify, "\r\n") {
 		fmt.Fprintf(e.stderr, "nodary %s: --justify travels in a header over --server "+
@@ -286,7 +314,7 @@ func (r *remote) attested(e env, verb, method, path string, body any,
 	// The hash comes back and is sent with the act, which is what binds the
 	// two: what gets applied is what was on the screen.
 	var prev remoteOutcome
-	if err := r.do(method, addQuery(path, "dry_run=true"), body, &prev); err != nil {
+	if err := r.do(a.method, addQuery(a.path, "dry_run=true"), a.body, &prev); err != nil {
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return remoteOutcome{}, false, exitFor(err)
 	}
@@ -301,7 +329,7 @@ func (r *remote) attested(e env, verb, method, path string, body any,
 		}
 	}
 
-	out, err := r.act(method, path, body, prev.IntentHash, *f.justify, *f.totp)
+	out, err := r.act(a, prev.IntentHash, *f.justify, *f.totp)
 	// The one refusal a human can still satisfy, and asking is the front end's
 	// job: the control plane has nobody to prompt, so it says what is missing
 	// and each front end answers in its own way. The local route does the same
@@ -311,7 +339,7 @@ func (r *remote) attested(e env, verb, method, path string, body any,
 	if errors.As(err, &refusal) && refusal.code == "reauthentication_required" && e.interactive() {
 		var code string
 		if code, err = promptTOTP(e); err == nil {
-			out, err = r.act(method, path, body, prev.IntentHash, *f.justify, code)
+			out, err = r.act(a, prev.IntentHash, *f.justify, code)
 		}
 	}
 	if err != nil {
@@ -325,12 +353,13 @@ func (r *remote) attested(e env, verb, method, path string, body any,
 	return out, true, ExitOK
 }
 
-func (r *remote) act(method, path string, body any, intent, justify, totp string) (remoteOutcome, error) {
+func (r *remote) act(a remoteAct, intent, justify, totp string) (remoteOutcome, error) {
 	var out remoteOutcome
-	err := r.doWith(method, path, body, &out, map[string]string{
+	_, err := r.doWith(a.method, a.path, a.body, &out, map[string]string{
 		api.HeaderIntent:  intent,
 		api.HeaderJustify: justify,
 		api.HeaderTOTP:    totp,
+		api.HeaderIfMatch: a.ifMatch,
 	})
 	return out, err
 }

@@ -55,9 +55,9 @@ func cmdModelRestart(e env, args []string) int {
 		return code
 	}
 	if r != nil {
-		out, applied, code := r.attested(e, "model restart", "POST",
-			"/models/"+url.PathEscape(id)+"/restart?node="+url.QueryEscape(*node),
-			nil, cer, *format)
+		out, applied, code := r.attested(e, "model restart", remoteAct{method: "POST",
+			path: "/models/" + url.PathEscape(id) + "/restart?node=" + url.QueryEscape(*node)},
+			cer, *format)
 		if !applied {
 			return code
 		}

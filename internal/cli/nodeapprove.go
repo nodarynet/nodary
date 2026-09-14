@@ -58,8 +58,8 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 		// exists: `node approve` is the act 02 §1 builds its agreement out of,
 		// and a chain answering "who approved this node" with `root` describes
 		// nothing.
-		out, applied, code := r.attested(e, "node "+verb, "POST",
-			"/nodes/"+url.PathEscape(name)+"/"+verb, nil, cer, *format)
+		out, applied, code := r.attested(e, "node "+verb, remoteAct{
+			method: "POST", path: "/nodes/" + url.PathEscape(name) + "/" + verb}, cer, *format)
 		if !applied {
 			return code
 		}

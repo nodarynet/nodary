@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -162,6 +163,7 @@ func cmdRouteShow(e env, args []string) int {
 func cmdRouteSet(e env, args []string) int {
 	fs := newFlagSet(e, "route set")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	add := fs.String("add", "", "deployment ids to add, comma-separated")
@@ -185,6 +187,14 @@ func cmdRouteSet(e env, args []string) int {
 		return ExitUsage
 	}
 
+	rem, code := remoteFor(e, "route set", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if rem != nil {
+		return remoteRouteSet(e, rem, name, *strategy, toAdd, toRemove, cer, *format)
+	}
+
 	s, ok := openSession(e, "route set", *dbPath, *keyPath, *credsPath)
 	if !ok {
 		return ExitFailure
@@ -194,22 +204,10 @@ func cmdRouteSet(e env, args []string) int {
 	edit := func(snap *config.Snapshot) {
 		idx := slices.IndexFunc(snap.Routes, func(r config.Route) bool { return r.Name == name })
 		if idx < 0 {
-			snap.Routes = append(snap.Routes, config.Route{Name: name, Strategy: "round-robin"})
+			snap.Routes = append(snap.Routes, newRoute(name))
 			idx = len(snap.Routes) - 1
 		}
-		r := &snap.Routes[idx]
-		if *strategy != "" {
-			r.Strategy = *strategy
-		}
-		r.Members = slices.DeleteFunc(r.Members, func(m config.RouteMember) bool {
-			return slices.Contains(toRemove, m.DeploymentID)
-		})
-		for _, id := range toAdd {
-			if slices.ContainsFunc(r.Members, func(m config.RouteMember) bool { return m.DeploymentID == id }) {
-				continue
-			}
-			r.Members = append(r.Members, config.RouteMember{DeploymentID: id, Weight: 1})
-		}
+		editRoute(&snap.Routes[idx], *strategy, toAdd, toRemove)
 	}
 
 	rec, applied, code := s.attested(e, "route set", change{
@@ -247,7 +245,7 @@ func cmdRouteSet(e env, args []string) int {
 		return code
 	}
 
-	fmt.Fprintf(e.stderr, "route set: %s will be applied on the agent's next poll (up to 60s)\n", name)
+	reportRouteSet(e, name)
 	reportRecord(e, rec)
 	return ExitOK
 }
@@ -263,4 +261,72 @@ func trimmedCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+func newRoute(name string) config.Route {
+	return config.Route{Name: name, Strategy: "round-robin"}
+}
+
+// editRoute applies --add, --remove and --strategy to one route.
+//
+// Both routes to this verb call it. The local one edits the route inside a
+// whole snapshot it then applies; the remote one edits the single object it
+// read and replaces it with PUT — and the two producing different membership
+// for the same flags is the drift this exists to make impossible.
+func editRoute(r *config.Route, strategy string, toAdd, toRemove []string) {
+	if strategy != "" {
+		r.Strategy = strategy
+	}
+	r.Members = slices.DeleteFunc(r.Members, func(m config.RouteMember) bool {
+		return slices.Contains(toRemove, m.DeploymentID)
+	})
+	for _, id := range toAdd {
+		if slices.ContainsFunc(r.Members, func(m config.RouteMember) bool { return m.DeploymentID == id }) {
+			continue
+		}
+		r.Members = append(r.Members, config.RouteMember{DeploymentID: id, Weight: 1})
+	}
+}
+
+// remoteRouteSet is read, edit, replace — three steps where the local route has
+// one transaction.
+//
+// PUT /routes/{name} replaces the whole object (R2-30), so the membership this
+// sends has to be built from the membership it read, and between those two
+// requests somebody else can change the same route. That window does not exist
+// locally. If-Match closes it: the revision the read saw travels with the
+// write, and the control plane refuses it if the configuration has moved. It is
+// conservative — the version is the whole configuration's, so an unrelated
+// change also refuses — and being wrong that way is a 409 saying what to do,
+// where being wrong the other way is a member silently disappearing.
+func remoteRouteSet(e env, rem *remote, name, strategy string, toAdd, toRemove []string,
+	cer ceremonyFlags, format string) int {
+	path := "/routes/" + url.PathEscape(name)
+	route := newRoute(name)
+	etag, err := rem.get(path, &route)
+	var refusal *remoteError
+	switch {
+	case errors.As(err, &refusal) && refusal.code == "not_found":
+		// A route that does not exist yet is created, which is what the local
+		// route does. Nothing was read, so there is nothing to have raced with.
+		route, etag = newRoute(name), ""
+	case err != nil:
+		fmt.Fprintf(e.stderr, "nodary route set: %v\n", err)
+		return exitFor(err)
+	}
+	route.Name = name
+	editRoute(&route, strategy, toAdd, toRemove)
+
+	out, applied, code := rem.attested(e, "route set",
+		remoteAct{method: "PUT", path: path, body: route, ifMatch: etag}, cer, format)
+	if !applied {
+		return code
+	}
+	reportRouteSet(e, name)
+	reportRecord(e, audit.Record{Seq: out.AuditSeq})
+	return ExitOK
+}
+
+func reportRouteSet(e env, name string) {
+	fmt.Fprintf(e.stderr, "route set: %s will be applied on the agent's next poll (up to 60s)\n", name)
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -376,5 +377,110 @@ func TestNodeNarrowsAToggleOverServer(t *testing.T) {
 	}
 	if !strings.Contains(out, `"disabled": true`) {
 		t.Errorf("the node named was not disabled:\n%s", out)
+	}
+}
+
+// `route set` reads the route and replaces it, which is three steps where the
+// local route has one transaction — so the membership it writes has to be
+// built from what it read, and the revision it read at has to travel with the
+// write.
+func TestRouteSetOverServerEditsRatherThanReplaces(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	members := func() []string {
+		t.Helper()
+		code, out, stderr := run(t, "route", "show", "tiny", "--server", base,
+			"--credentials", a.creds, "--format", "json")
+		if code != ExitOK {
+			t.Fatalf("route show: exit %d, %s", code, stderr)
+		}
+		var route struct {
+			Members []struct {
+				DeploymentID string `json:"deployment_id"`
+			} `json:"members"`
+		}
+		if err := json.Unmarshal([]byte(out), &route); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		ids := []string{}
+		for _, m := range route.Members {
+			ids = append(ids, m.DeploymentID)
+		}
+		return ids
+	}
+
+	// A second real deployment to move in and out of the route. A member the
+	// control plane does not have is refused by the applier, which is a
+	// different test below.
+	a.registerModelOnGPU(t, "acme/other", "gpu-01", 1)
+	second := "other-gpu-01"
+
+	// register put one member in. Adding a second must keep the first: a PUT
+	// built from flags alone rather than from what was read would drop it.
+	before := members()
+	if len(before) != 1 {
+		t.Fatalf("fixture: members = %v, want one", before)
+	}
+	if code, _, stderr := run(t, "route", "set", "tiny", "--add", second,
+		"--server", base, "--credentials", a.creds, "--justify", "adding a replica"); code != ExitOK {
+		t.Fatalf("route set --add: exit %d, %s", code, stderr)
+	}
+	after := members()
+	if len(after) != 2 || !slices.Contains(after, before[0]) || !slices.Contains(after, second) {
+		t.Errorf("members = %v, want %v plus %s", after, before, second)
+	}
+
+	// And removing takes one away rather than emptying the route.
+	if code, _, stderr := run(t, "route", "set", "tiny", "--remove", second,
+		"--server", base, "--credentials", a.creds, "--justify", "removing it again"); code != ExitOK {
+		t.Fatalf("route set --remove: exit %d, %s", code, stderr)
+	}
+	if got := members(); len(got) != 1 || got[0] != before[0] {
+		t.Errorf("members = %v, want %v", got, before)
+	}
+
+	// A route that does not exist yet is created, the way the local verb
+	// creates one, rather than refused for not being there to read.
+	if code, _, stderr := run(t, "route", "set", "fresh", "--add", second,
+		"--server", base, "--credentials", a.creds, "--justify", "a new route"); code != ExitOK {
+		t.Fatalf("route set on a new route: exit %d, %s", code, stderr)
+	}
+	code, out, stderr := run(t, "route", "list", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("route list: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, `"fresh"`) {
+		t.Errorf("the new route was not created:\n%s", out)
+	}
+}
+
+// limits set builds the whole object from its flags, so the remote route is a
+// plain replace and the values have to arrive intact.
+func TestLimitsSetOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	if code, _, stderr := run(t, "limits", "set", "--kind", "global", "--rpm", "60",
+		"--tpm", "9000", "--server", base, "--credentials", a.creds,
+		"--justify", "site-wide ceiling"); code != ExitOK {
+		t.Fatalf("limits set over --server: exit %d, %s", code, stderr)
+	}
+	code, out, stderr := run(t, "limits", "show", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("limits show: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{`"rpm": 60`, `"tpm": 9000`, `"subject_kind": "global"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("limits show does not carry %s:\n%s", want, out)
+		}
 	}
 }

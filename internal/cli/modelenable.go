@@ -54,7 +54,8 @@ func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 		if *node != "" {
 			path = addQuery(path, "node="+url.QueryEscape(*node))
 		}
-		out, applied, code := r.attested(e, "model "+verb, "POST", path, nil, cer, *format)
+		out, applied, code := r.attested(e, "model "+verb,
+			remoteAct{method: "POST", path: path}, cer, *format)
 		if !applied {
 			return code
 		}
