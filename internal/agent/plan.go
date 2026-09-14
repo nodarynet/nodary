@@ -200,6 +200,8 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	for _, g := range opt.Present {
 		offered[g.Index] = true
 	}
+	// GPU index -> the deployment this plan has already given it to.
+	claims := map[int]string{}
 
 	// Reset runs before staging is evaluated, so a restage's deletion is
 	// visible to this same cycle's VerifyStaged/Downloads.Status call rather
@@ -300,9 +302,57 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			p.Refused = append(p.Refused, Refusal{Deployment: d.ID, Reason: err.Error()})
 			continue
 		}
+		// R4-23: docs/specs/03-agent.md §7 — "the control plane guarantees no
+		// two deployments on a node claim the same index, and the agent
+		// double-checks before starting."
+		//
+		// After unitFor, so a deployment that cannot run for some other reason
+		// does not hold a card away from one that can. First claimant wins, and
+		// that is stable rather than arbitrary: config.Read orders deployments
+		// by id, so the same one wins every cycle and the loser is not started
+		// and stopped alternately forever.
+		if holder := claimedBy(claims, d.GPUs); holder != "" {
+			p.Refused = append(p.Refused, Refusal{Deployment: d.ID,
+				Reason: fmt.Sprintf("GPU %s on this node %s already claimed by deployment %q; "+
+					"11 §2 makes two deployments on one card a failure mode, and starting this "+
+					"would make both of them slow rather than one of them wrong",
+					joinIndices(overlap(claims, d.GPUs)), plural(overlap(claims, d.GPUs)), holder)})
+			continue
+		}
+		for _, idx := range d.GPUs {
+			claims[idx] = d.ID
+		}
 		p.Units = append(p.Units, u)
 	}
 	return p, nil
+}
+
+// claimedBy names the deployment already holding any of these indices.
+func claimedBy(claims map[int]string, want []int) string {
+	for _, idx := range want {
+		if held, ok := claims[idx]; ok {
+			return held
+		}
+	}
+	return ""
+}
+
+// overlap is the indices already claimed, for the message.
+func overlap(claims map[int]string, want []int) []int {
+	var out []int
+	for _, idx := range want {
+		if _, ok := claims[idx]; ok {
+			out = append(out, idx)
+		}
+	}
+	return out
+}
+
+func plural(idx []int) string {
+	if len(idx) == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 // unitFor renders one deployment, or says why it cannot be rendered.

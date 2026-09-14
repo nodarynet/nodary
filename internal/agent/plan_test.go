@@ -524,3 +524,80 @@ func TestADescriptorsWSL2EnvironmentAppliesOnlyThere(t *testing.T) {
 		t.Errorf("the deployment did not override the descriptor:\n got %q\nwant %q", over, want)
 	}
 }
+
+// plan builds one document against two staged GPUs, which is what most of the
+// tests above do by hand.
+func plan(t *testing.T, deps ...api.DesiredDeployment) Plan {
+	t.Helper()
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deps...)
+	doc.Staging[0].ManifestSHA256 = digest
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// R4-23, docs/specs/03-agent.md §7: "the control plane guarantees no two
+// deployments on a node claim the same index, and the agent double-checks
+// before starting."
+//
+// The control plane's guarantee is a unique index (0006_fleet.sql), so this is
+// defense in depth — which is the point: 11 §2 makes two deployments on one
+// card a named failure mode, and a node that trusted the document would start
+// both and make each of them slow rather than making one of them refuse.
+func TestANodeRefusesASecondClaimOnOneCard(t *testing.T) {
+	first, second := deployment(), deployment()
+	first.ID, second.ID = "dep_a", "dep_b"
+	first.GPUs, second.GPUs = []int{0, 1}, []int{1}
+	second.Port = 8002
+
+	p := plan(t, first, second)
+	if len(p.Units) != 1 || p.Units[0].Deployment != "dep_a" {
+		t.Fatalf("units = %+v, want only the first claimant", p.Units)
+	}
+	if len(p.Refused) != 1 || p.Refused[0].Deployment != "dep_b" {
+		t.Fatalf("refused = %+v, want dep_b", p.Refused)
+	}
+	// It names the card and the holder, because neither is guessable from the
+	// document the node was handed.
+	for _, want := range []string{"1", "dep_a"} {
+		if !strings.Contains(p.Refused[0].Reason, want) {
+			t.Errorf("the reason does not name %s: %q", want, p.Refused[0].Reason)
+		}
+	}
+
+	// Stable across cycles: config.Read orders deployments by id, so the same
+	// one wins every time. A loser that alternated would be started and
+	// stopped forever, and an operator fixing "the one that is refused" would
+	// be chasing a moving target.
+	for range 3 {
+		again := plan(t, first, second)
+		if len(again.Refused) != 1 || again.Refused[0].Deployment != "dep_b" {
+			t.Fatalf("a later cycle refused %+v instead", again.Refused)
+		}
+	}
+}
+
+// A deployment that cannot run for some other reason must not hold a card away
+// from one that can: the claim is taken after the unit renders, not before.
+func TestAnImpossibleDeploymentHoldsNoCard(t *testing.T) {
+	broken, good := deployment(), deployment()
+	broken.ID, good.ID = "dep_a", "dep_b"
+	broken.Image = "" // a node runs pinned digests and does not choose one
+	broken.GPUs, good.GPUs = []int{0}, []int{0}
+	good.Port = 8002
+
+	p := plan(t, broken, good)
+	if len(p.Units) != 1 || p.Units[0].Deployment != "dep_b" {
+		t.Fatalf("units = %+v, want dep_b to have GPU 0 after dep_a could not use it", p.Units)
+	}
+	if len(p.Refused) != 1 || p.Refused[0].Deployment != "dep_a" {
+		t.Fatalf("refused = %+v, want only the one with no image", p.Refused)
+	}
+	if strings.Contains(p.Refused[0].Reason, "claimed") {
+		t.Errorf("dep_a was refused for a conflict rather than for its own problem: %q",
+			p.Refused[0].Reason)
+	}
+}

@@ -19,7 +19,12 @@ func withGuardrails(t *testing.T, c NodeConfig, deps ...api.DesiredDeployment) P
 	doc := desired(deps...)
 	doc.Staging[0].ManifestSHA256 = digest
 
-	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Node: c})
+	// Three cards, not two: several of these place more than one deployment,
+	// and R4-23 refuses a second claim on a card another deployment in the same
+	// plan already took — so a fixture that overlapped would be testing that
+	// refusal rather than the limit it means to.
+	p, err := Build(doc, PlanOptions{
+		ModelsDir: root, Present: []GPU{{Index: 0}, {Index: 1}, {Index: 2}}, Verify: true, Node: c})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +103,7 @@ func TestMaxDeploymentsCapsThePlanInAStableOrder(t *testing.T) {
 	first, second, third := deployment(), deployment(), deployment()
 	first.ID, second.ID, third.ID = "dep_a", "dep_b", "dep_c"
 	second.Port, third.Port = 8002, 8003
-	second.GPUs, third.GPUs = []int{0}, []int{1}
-	first.GPUs = []int{0, 1}
+	first.GPUs, second.GPUs, third.GPUs = []int{0}, []int{1}, []int{2}
 
 	node := NodeConfig{Limits: Limits{MaxDeployments: ptrInt(2)}}
 	for range 3 {
