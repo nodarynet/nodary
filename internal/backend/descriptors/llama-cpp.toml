@@ -49,6 +49,13 @@ host = "--host {v}"
 # canonical parameter for it because there is nothing to be canonical about --
 # no other backend in this build expresses the idea at all.
 gpu_layers = "-ngl {v}"
+# Divides one model's layers across cards by proportion. Deliberately *not*
+# tensor_parallel, which is why capabilities says false above -- a document
+# written for vLLM that moved here would otherwise mean something else. Named
+# here so it is reachable with a typo-checked spelling rather than only through
+# raw extra_args, and so the refusal of tensor_parallel can point at it without
+# nodary's code holding a fact about llama.cpp.
+tensor_split = "--tensor-split {v}"
 
 [backend.gpu]
 mechanism = "device-flag"

@@ -273,13 +273,37 @@ Capabilities are enforced at enable time, not discovered at crash time.
 
 | Requested | Backend says | Result |
 | :--- | :--- | :--- |
-| `tensor_parallel: 4` | `tensor_parallel = false` | Rejected: *"llama-cpp does not support tensor parallelism; use `--tensor-split` via extra_args"* |
-| `dtype: awq` | not in `quantization` | Rejected with the supported list |
+| `tensor_parallel: 4` | `tensor_parallel = false` | Rejected, naming what the backend does have instead |
+| `quantization: awq` | not in `quantization` | Rejected with the supported list |
 | GGUF model | `weights_layout = "hf-cache"` | Rejected: model artifact and backend layout disagree |
 | 2 GPUs, `tensor_parallel: 4` | — | Rejected: parallelism exceeds assigned GPUs |
 
 The model catalog records each entry's artifact kind ([05](05-catalog.md)), so
 model × backend compatibility is checked before anything is staged or started.
+
+**Enforced in the applier, not only on the node.** The agent refuses a deployment whose
+parameters the descriptor cannot render too, but that happens on a GPU host up to a minute
+later, so what an operator sees is a change that was accepted and then did not happen. The
+refusal belongs in the preview, in front of the person who wrote it.
+
+Two details of the table are worth stating, because both were decided against a plausible
+alternative.
+
+**The parameter checked against `quantization` is `quantization`, not `dtype`.** They are
+different flags on every backend that has both — `--dtype` is the compute type, `--quantization`
+is how the weights are stored — so validating a dtype against a quantization list would reject
+`bfloat16`, which is a perfectly ordinary thing to ask for. A capability list is only
+enforceable if there is a parameter it is the closed vocabulary *of*.
+
+**The alternative named in a refusal comes out of the descriptor.** Telling an operator to use
+`--tensor-split` would be a fact about llama.cpp living in nodary's code, which is the thing
+[§1](#1-why-descriptors-rather-than-plugins) argues descriptors exist to prevent, and it would
+go stale silently the first time a backend changed its options. `[backend.extra]` already
+means "options this backend names and nodary only passes through", so that is where the
+alternative to an unsupported capability is read from.
+
+A degree of `1` is not parallelism and is not refused: a document that spells out its defaults
+stays portable between backends, because there is no difference in what runs.
 
 ## 8. Routing implications
 

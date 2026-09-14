@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -231,6 +232,11 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 				return fmt.Errorf("%w: deployment %q names %s %q, which this control plane does not have",
 					ErrInvalid, d.ID, ref.what, ref.id)
 			}
+		}
+		// Before the insert, so a deployment the backend cannot serve never
+		// reaches the database and never reaches a node.
+		if err := checkCapabilities(d); err != nil {
+			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO deployment
 			(id, model_id, node_name, backend, image_digest, params_json, extra_args_json,
@@ -509,6 +515,48 @@ func nullableInt(n int64) any {
 		return nil
 	}
 	return n
+}
+
+// checkCapabilities refuses a deployment asking its backend for something the
+// descriptor says it cannot do — docs/specs/04-backends.md §7.
+//
+// Here rather than only on the node, which is the point of the task: the agent
+// refuses an unrenderable deployment too, but a minute later and on a GPU host,
+// so what an operator sees is a change that was accepted and then did not
+// happen. An unknown backend is left alone for the reason checkArtifact gives.
+//
+// Wrapped in ErrInvalid rather than returned as backend.ErrUnsupported,
+// because that is the sentinel both front ends already answer identically —
+// exit 1 and a 422 naming the refusal. An unwrapped one reaches an API client
+// as a 500 with the message withheld, which is the shape this milestone's
+// predecessor found five times.
+func checkCapabilities(d Deployment) error {
+	desc, err := backend.Get(d.Backend)
+	if err != nil {
+		return nil
+	}
+	p := backend.Params{}
+	if d.Params != "" {
+		if err := json.Unmarshal([]byte(d.Params), &p); err != nil {
+			return fmt.Errorf("%w: deployment %q has params that are not a JSON object: %v",
+				ErrInvalid, d.ID, err)
+		}
+	}
+	if err := desc.CheckParams(p, len(d.GPUs)); err != nil {
+		return fmt.Errorf("%w: deployment %q: %s", ErrInvalid, d.ID, unwrapMessage(err))
+	}
+	return nil
+}
+
+// unwrapMessage drops the sentinel's own prose, which is a category and not a
+// sentence: "the backend does not support this: llama-cpp does not support
+// tensor parallelism" says it twice.
+func unwrapMessage(err error) string {
+	msg := err.Error()
+	if _, rest, ok := strings.Cut(msg, ": "); ok {
+		return rest
+	}
+	return msg
 }
 
 // checkArtifact refuses a model whose artifact kind its backend cannot read.

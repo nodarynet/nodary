@@ -23,6 +23,7 @@ model_path      = "--model-path={v}"
 served_name     = "--served-model-name={v}"
 tensor_parallel = "--tp-size={v}"
 max_context     = "--context-length={v}"
+quantization    = "--quantization={v}"
 port            = "--port={v}"
 
 [backend.gpu]

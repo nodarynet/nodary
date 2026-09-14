@@ -20,6 +20,14 @@ import (
 // that applies a snapshot through the audited path the way both front ends do.
 func applier(t *testing.T) func(...config.Deployment) error {
 	t.Helper()
+	return applierFor(t, config.Model{
+		ID: "acme/tiny", Backend: "vllm", Source: "local", Artifact: "hf-cache"})
+}
+
+// applierFor is the same thing with the catalog spelled out, for the checks
+// that are about the model rather than about the deployment.
+func applierFor(t *testing.T, models ...config.Model) func(...config.Deployment) error {
+	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
 	if err != nil {
@@ -55,8 +63,7 @@ func applier(t *testing.T) func(...config.Deployment) error {
 				if err != nil {
 					return err
 				}
-				snap.Models = []config.Model{{
-					ID: "acme/tiny", Backend: "vllm", Source: "local", Artifact: "hf-cache"}}
+				snap.Models = models
 				snap.Deployments = deployments
 				_, err = config.Apply(ctx, m, time.Now(), snap, config.Options{})
 				return err

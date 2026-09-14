@@ -34,6 +34,11 @@ var builtinFS embed.FS
 // ErrInvalid is a descriptor that does not parse or does not hold together.
 var ErrInvalid = errors.New("invalid backend descriptor")
 
+// ErrUnsupported is a deployment asking a backend for something it has said it
+// cannot do. Separate from ErrInvalid because the descriptor is fine and the
+// request is not, and the two reach an operator as different sentences.
+var ErrUnsupported = errors.New("the backend does not support this")
+
 // ErrUnknown is a backend nothing has registered.
 var ErrUnknown = errors.New("unknown backend")
 

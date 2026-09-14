@@ -26,6 +26,12 @@ tensor_parallel     = "--tensor-parallel-size={v}"
 max_context         = "--max-model-len={v}"
 gpu_memory_fraction = "--gpu-memory-utilization={v}"
 dtype               = "--dtype={v}"
+# Distinct from dtype, on this backend and on every other that has both:
+# --dtype is the compute type and --quantization is how the weights are
+# stored. Named so that [backend.capabilities] quantization has a parameter to
+# be the closed vocabulary *of*, which is what makes the capability list
+# enforceable rather than documentation.
+quantization        = "--quantization={v}"
 port                = "--port={v}"
 
 # WSL2 has no unified virtual addressing, and vLLM's v2 model runner requires
