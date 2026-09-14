@@ -289,3 +289,27 @@ func TestAStoreThatDoesNotSayWhatItBuiltFailsTheBuild(t *testing.T) {
 		t.Errorf("the failure does not say what went wrong: %v", err)
 	}
 }
+
+// The regression that hardware found before it ran: Build used to bind the
+// proxy to the bridge's own address, which does not exist until CNI creates it
+// on first attach. A control plane that is not also a node has no nodary0, so
+// every build failed at the bind with "cannot assign requested address" — and
+// §5 puts builds on the control plane precisely so they are not on nodes.
+func TestTheBuildProxyBindsWithoutABridge(t *testing.T) {
+	f := &fakeRuntime{}
+	got, err := Build(context.Background(), Options{
+		Descriptor: derive(t, `"pip install x==1"`, `index_url = "https://pypi.internal/simple"`),
+		Tag:        "nodary/vllm-fips:abc123", Run: f.run,
+	})
+	if err != nil {
+		t.Fatalf("a build on a host with no nodary0 bridge failed: %v", err)
+	}
+	if got.Digest == "" {
+		t.Error("the build produced nothing")
+	}
+	// And the container is still pointed at the bridge gateway, which exists by
+	// the time a step runs because attaching it is what creates it.
+	if !f.saw("https_proxy=http://" + Gateway + ":") {
+		t.Errorf("a step was not pointed at the gateway: %v", f.calls)
+	}
+}

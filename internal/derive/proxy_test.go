@@ -49,6 +49,10 @@ func hostPort(t *testing.T, srv *httptest.Server) string {
 func TestTheBuildReachesTheIndexItNamed(t *testing.T) {
 	idx := index(t, "opencv-python-headless-4.12.0.88.whl")
 	p := NewProxy(hostPort(t, idx))
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -75,6 +79,10 @@ func TestReachingAnywhereElseIsRefusedAndRecorded(t *testing.T) {
 	idx := index(t, "index")
 	other := index(t, "somewhere else entirely")
 	p := NewProxy(hostPort(t, idx))
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -102,6 +110,10 @@ func TestReachingAnywhereElseIsRefusedAndRecorded(t *testing.T) {
 // something that reads like a flaky network and invites a retry.
 func TestARefusalLooksLikeARefusal(t *testing.T) {
 	p := NewProxy("index.internal:443")
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -131,6 +143,10 @@ func TestPlainHTTPIsNotForwarded(t *testing.T) {
 	defer plain.Close()
 
 	p := NewProxy(hostPort(t, plain))
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -157,6 +173,10 @@ func TestAnAllowedHostOnAnotherPortIsStillRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := NewProxy(net.JoinHostPort(host, "9999"))
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -174,6 +194,10 @@ func TestAnAllowedHostOnAnotherPortIsStillRefused(t *testing.T) {
 func TestNoIndexMeansNoEgressAtAll(t *testing.T) {
 	idx := index(t, "index")
 	p := NewProxy()
+	// Loopback, because these drive the proxy from the test process rather
+	// than from a container on the build subnet. The peer restriction has its
+	// own test; here it would refuse every case before the host is read.
+	p.OnlyFrom = nil
 	front := httptest.NewServer(p)
 	defer front.Close()
 
@@ -203,6 +227,69 @@ func TestAllowedFromReadsTheIndexURL(t *testing.T) {
 	for _, bad := range []string{"http://pypi.internal/simple", "pypi.internal", "https://"} {
 		if _, err := AllowedFrom(bad); err == nil {
 			t.Errorf("%q was accepted as an index", bad)
+		}
+	}
+}
+
+// **The bridge does not exist until a container attaches to it**, and the first
+// container to attach is the step that needs this proxy's address before it
+// starts. So the listener cannot be bound to the bridge's own address on a
+// control plane that is not also a node — which §5 makes the ordinary case,
+// since the point of building here is to keep builds off the nodes.
+//
+// The restriction that replaces the bind is this one, so it is the one that has
+// to hold: a peer outside the build's subnet is refused before it can name a
+// host, which is what stops a wildcard listener being an open proxy.
+func TestTheProxyAnswersOnlyTheBuildsOwnSubnet(t *testing.T) {
+	p := NewProxy("pypi.internal:443")
+	if p.OnlyFrom == nil {
+		t.Fatal("a proxy behind a wildcard listener defaulted to answering anybody")
+	}
+
+	// Driven at the handler, because the two outcomes have to be told apart:
+	// a refused peer is 403 before any host is named, where an allowed peer
+	// asking for a host that does not resolve is 502. A transport error at a
+	// client looks identical for both, which is how this went untested.
+	connect := func(remote string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodConnect, "//pypi.internal:443", nil)
+		r.Host = "pypi.internal:443"
+		r.RemoteAddr = remote
+		w := httptest.NewRecorder()
+		p.ServeHTTP(w, r)
+		return w
+	}
+
+	if w := connect("127.0.0.1:34567"); w.Code != http.StatusForbidden ||
+		!strings.Contains(w.Body.String(), "one build's container") {
+		t.Errorf("a peer outside the build's subnet got %d %q, want 403 refusing it",
+			w.Code, w.Body.String())
+	}
+	// And it is not recorded against the build: another process reaching this
+	// port is not this build's egress, and putting it in the record would make
+	// a build fail for something it did not do.
+	if p.RefusalError() != nil {
+		t.Errorf("somebody else's request was recorded as the build's: %v", p.RefusalError())
+	}
+	// A peer inside the subnet gets past this check and fails later, on the
+	// host — which is what proves the 403 above was the peer and not the host.
+	if w := connect("10.88.0.2:34567"); w.Code == http.StatusForbidden {
+		t.Errorf("a peer inside the build's subnet was refused as a peer: %q", w.Body.String())
+	}
+
+	// The check itself, without a socket: the subnet is what decides.
+	for _, tc := range []struct {
+		remote string
+		want   bool
+	}{
+		{"10.88.0.2:34567", true},
+		{"10.88.0.255:1", true},
+		{"127.0.0.1:34567", false},
+		{"10.89.0.2:34567", false},
+		{"192.168.1.10:80", false},
+		{"not-an-address", false},
+	} {
+		if got := p.fromAllowedPeer(tc.remote); got != tc.want {
+			t.Errorf("fromAllowedPeer(%q) = %v, want %v", tc.remote, got, tc.want)
 		}
 	}
 }

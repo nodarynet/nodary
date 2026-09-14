@@ -47,6 +47,24 @@ type Proxy struct {
 	// "the package index" is a service, not a machine.
 	allowed map[string]bool
 
+	// OnlyFrom is the network a client must come from, nil for any.
+	//
+	// **It is here rather than in the bind address, and that is not a
+	// preference.** The natural socket-level answer is to listen on the
+	// bridge's own address, which nothing outside `nodary-isolated` can
+	// reach — but CNI does not create `nodary0` until a container attaches to
+	// it, and the first container to attach is the build step that needs this
+	// proxy's address in its environment before it starts. On a control plane
+	// that is not also a node — which §5 makes the ordinary case, since the
+	// whole reason builds live here is to keep them off the nodes — that
+	// address does not exist yet and the bind fails.
+	//
+	// So the listener takes any address and the restriction moves one layer
+	// up, where it can be applied without waiting for an interface. It is the
+	// same restriction: a peer outside the subnet is refused before it can
+	// name a host.
+	OnlyFrom *net.IPNet
+
 	mu sync.Mutex
 	// refused records what was reached for, in order, so a failed build can say
 	// what it wanted rather than only that it failed. §5's whole claim is that
@@ -56,9 +74,27 @@ type Proxy struct {
 	allowedN int
 }
 
+// fromAllowedPeer reports whether a client may use this proxy at all.
+func (p *Proxy) fromAllowedPeer(remote string) bool {
+	if p.OnlyFrom == nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && p.OnlyFrom.Contains(ip)
+}
+
 // NewProxy allows exactly the hosts named, each as host:port.
+//
+// OnlyFrom defaults to the build subnet rather than to nil, because the
+// listener it sits behind is bound to a wildcard address and a proxy that
+// forgot to set this would be one anything on the network could use. A caller
+// that wants no restriction has to say so.
 func NewProxy(hosts ...string) *Proxy {
-	p := &Proxy{allowed: make(map[string]bool, len(hosts))}
+	p := &Proxy{allowed: make(map[string]bool, len(hosts)), OnlyFrom: Subnet()}
 	for _, h := range hosts {
 		if h = strings.TrimSpace(h); h != "" {
 			p.allowed[h] = true
@@ -112,6 +148,14 @@ func (p *Proxy) Allowed() int {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !p.fromAllowedPeer(r.RemoteAddr) {
+		// Not noted as a refusal: this is not the build reaching somewhere, it
+		// is somebody else reaching the build's proxy, and recording it as the
+		// build's own egress would put another process's traffic in this
+		// build's record.
+		http.Error(w, "this proxy serves one build's container", http.StatusForbidden)
+		return
+	}
 	if r.Method != http.MethodConnect {
 		// An absolute-URI request is plain HTTP through the proxy. Refused
 		// rather than forwarded: see the type comment.

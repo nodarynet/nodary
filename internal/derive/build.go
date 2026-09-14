@@ -29,6 +29,16 @@ const Gateway = "10.88.0.1"
 // gets, with no default route, no NAT and no resolver.
 const Network = "nodary-isolated"
 
+// Subnet is the network a build's containers live on, and the only network the
+// build proxy answers.
+func Subnet() *net.IPNet {
+	_, n, err := net.ParseCIDR("10.88.0.0/24")
+	if err != nil {
+		panic(err) // a constant that parses or a build that does not ship
+	}
+	return n
+}
+
 // ErrNoRuntime is a control plane with no container runtime to build with.
 var ErrNoRuntime = errors.New("no container runtime")
 
@@ -112,23 +122,42 @@ func Build(ctx context.Context, o Options) (Result, error) {
 	}
 	proxy := NewProxy(allow...)
 
+	// **Bound to any address, and restricted by peer instead.** Listening on
+	// the bridge's own address would be the stronger answer and is not
+	// available: CNI creates `nodary0` when a container first attaches, and the
+	// first container to attach is the step that needs this proxy's address
+	// before it starts. On a control plane that is not also a node — which §5
+	// makes the ordinary case — 10.88.0.1 is not yet a local address and the
+	// bind fails. Proxy.OnlyFrom applies the same restriction a layer up.
 	bind := o.listen
 	if bind == "" {
-		bind = net.JoinHostPort(Gateway, "0")
+		bind = ":0"
+	} else {
+		// A test binds loopback, where the build's subnet is not where a
+		// client comes from. Production never takes this branch.
+		proxy.OnlyFrom = nil
 	}
 	ln, err := net.Listen("tcp", bind)
 	if err != nil {
-		// The bridge is created by the agent's EnsureIsolatedNetwork. A control
-		// plane that has never run one has no address to bind, and saying so
-		// beats a build that fails later reaching an index.
-		return Result{}, fmt.Errorf("the build proxy cannot bind %s: %w — the %s bridge is "+
-			"created with the node runtime", bind, err, Network)
+		return Result{}, fmt.Errorf("the build proxy cannot bind %s: %w", bind, err)
 	}
 	srv := &http.Server{Handler: proxy}
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	proxyURL := "http://" + ln.Addr().String()
+	// The container reaches the host at the bridge gateway, which exists by the
+	// time a step runs because attaching it is what creates the bridge. The
+	// listener's own address is a wildcard, so the port is the only part of it
+	// worth reading.
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		return Result{}, err
+	}
+	proxyHost := net.JoinHostPort(Gateway, port)
+	if o.listen != "" {
+		proxyHost = ln.Addr().String()
+	}
+	proxyURL := "http://" + proxyHost
 	timeout := time.Duration(b.Derive.TimeoutS) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
