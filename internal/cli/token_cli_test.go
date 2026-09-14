@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
@@ -51,7 +52,7 @@ func TestTokenCreatePrintsTheCredentialAloneOnStdout(t *testing.T) {
 		t.Fatal(code)
 	}
 	var doc struct {
-		Tokens []tokenReport `json:"tokens"`
+		Tokens []identity.TokenReport `json:"tokens"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatalf("%v in %q", err, stdout)
@@ -167,7 +168,7 @@ func TestTokenRevoke(t *testing.T) {
 
 	_, stdout, _ = a.run("token", "list", "--format", "json")
 	var doc struct {
-		Tokens []tokenReport `json:"tokens"`
+		Tokens []identity.TokenReport `json:"tokens"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatal(err)
@@ -227,7 +228,7 @@ func TestTokenJoinMustExpire(t *testing.T) {
 		t.Fatal(code)
 	}
 	var doc struct {
-		JoinTokens []joinReport `json:"join_tokens"`
+		JoinTokens []identity.JoinReport `json:"join_tokens"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatal(err)

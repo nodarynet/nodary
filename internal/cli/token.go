@@ -399,7 +399,7 @@ func cmdTokenRevoke(e env, args []string) int {
 
 	if *format == "json" {
 		return writeJSON(e, "token revoke", map[string]any{
-			"token": newTokenReport(tok),
+			"token": identity.NewTokenReport(tok, time.Now()),
 			"seq":   rec.Seq,
 		})
 	}
@@ -456,8 +456,8 @@ func cmdTokenList(e env, args []string) int {
 
 	if *format == "json" {
 		return writeJSON(e, "token list", map[string]any{
-			"tokens":      tokenReports(tokens),
-			"join_tokens": joinReports(joins),
+			"tokens":      identity.TokenReports(tokens, time.Now()),
+			"join_tokens": identity.JoinReports(joins),
 		})
 	}
 
@@ -465,7 +465,7 @@ func cmdTokenList(e env, args []string) int {
 	fmt.Fprintln(tw, "ID\tKIND\tPREFIX\tNAME\tSTATE\tLAST USED\tEXPIRES")
 	for _, t := range tokens {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			t.ID, t.Kind, t.Prefix, orDash(t.Name), tokenState(t, time.Now()),
+			t.ID, t.Kind, t.Prefix, orDash(t.Name), identity.TokenState(t, time.Now()),
 			formatTime(t.LastUsedAt), formatTime(t.ExpiresAt))
 	}
 	for _, j := range joins {
@@ -490,84 +490,4 @@ func expiryAt(e env, verb string, now time.Time, lifetime string,
 		return time.Time{}, true
 	}
 	return now.Add(d), true
-}
-
-// tokenState says why a credential does or does not work, in one word.
-func tokenState(t identity.Token, now time.Time) string {
-	switch {
-	case t.Revoked():
-		return "revoked"
-	case t.Expired(now):
-		return "expired"
-	}
-	return "active"
-}
-
-// tokenReport is the stable shape of a credential in --format json. There is no
-// field for the secret: docs/specs/10-cli.md §4 keeps one out of every list.
-type tokenReport struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	Kind       string `json:"kind"`
-	Prefix     string `json:"prefix"`
-	Name       string `json:"name,omitempty"`
-	State      string `json:"state"`
-	ExpiresAt  string `json:"expires_at,omitempty"`
-	RevokedAt  string `json:"revoked_at,omitempty"`
-	LastUsedAt string `json:"last_used_at,omitempty"`
-	CreatedAt  string `json:"created_at"`
-}
-
-func newTokenReport(t identity.Token) tokenReport {
-	r := tokenReport{
-		ID:        t.ID,
-		UserID:    t.UserID,
-		Kind:      string(t.Kind),
-		Prefix:    t.Prefix,
-		Name:      t.Name,
-		State:     tokenState(t, time.Now()),
-		CreatedAt: t.CreatedAt.Format(audit.TimeFormat),
-	}
-	for _, f := range []struct {
-		at  time.Time
-		out *string
-	}{{t.ExpiresAt, &r.ExpiresAt}, {t.RevokedAt, &r.RevokedAt}, {t.LastUsedAt, &r.LastUsedAt}} {
-		if !f.at.IsZero() {
-			*f.out = f.at.Format(audit.TimeFormat)
-		}
-	}
-	return r
-}
-
-func tokenReports(ts []identity.Token) []tokenReport {
-	out := make([]tokenReport, len(ts))
-	for i, t := range ts {
-		out[i] = newTokenReport(t)
-	}
-	return out
-}
-
-// joinReport is the stable shape of a join token in --format json.
-type joinReport struct {
-	ID        string `json:"id"`
-	Prefix    string `json:"prefix"`
-	UsesLeft  int    `json:"uses_left"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedBy string `json:"created_by"`
-	CreatedAt string `json:"created_at"`
-}
-
-func joinReports(js []identity.JoinToken) []joinReport {
-	out := make([]joinReport, len(js))
-	for i, j := range js {
-		out[i] = joinReport{
-			ID:        j.ID,
-			Prefix:    j.Prefix,
-			UsesLeft:  j.UsesLeft,
-			ExpiresAt: j.ExpiresAt.Format(audit.TimeFormat),
-			CreatedBy: j.CreatedBy,
-			CreatedAt: j.CreatedAt.Format(audit.TimeFormat),
-		}
-	}
-	return out
 }

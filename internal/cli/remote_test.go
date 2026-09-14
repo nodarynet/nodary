@@ -171,7 +171,7 @@ func TestOneApplianceIsOneKeyHoweverItIsWritten(t *testing.T) {
 // not a poor message: it is an operator believing they acted on an appliance
 // across the room while the command edited this host's database.
 func TestAVerbThatDoesNotSpeakToAServerRefusesRatherThanActingLocally(t *testing.T) {
-	code, out, errb := run(t, "user", "list", "--server", "https://host:8443")
+	code, out, errb := run(t, "audit", "list", "--server", "https://host:8443")
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d\n%s%s", code, ExitUsage, out, errb)
 	}

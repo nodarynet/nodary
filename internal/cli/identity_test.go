@@ -137,8 +137,8 @@ func TestUserAddListShow(t *testing.T) {
 		t.Fatalf("show: exit = %d", code)
 	}
 	var doc struct {
-		User   userReport    `json:"user"`
-		Tokens []tokenReport `json:"tokens"`
+		User   userReport             `json:"user"`
+		Tokens []identity.TokenReport `json:"tokens"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatalf("show json: %v in %q", err, stdout)

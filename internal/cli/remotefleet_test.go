@@ -531,3 +531,69 @@ func TestOneRefusalCostsOneExitCodeWhicheverRoadItTook(t *testing.T) {
 		}
 	}
 }
+
+// The user verbs over --server, and the one field the listing withholds.
+func TestUserVerbsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	code, out, stderr := run(t, "user", "add", "bob", "--role", "operator",
+		"--email", "bob@example.test", "--server", base, "--credentials", a.creds,
+		"--justify", "onboarding bob")
+	if code != ExitOK {
+		t.Fatalf("user add over --server: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "operator") {
+		t.Errorf("user add did not report the account it made: %q", out)
+	}
+
+	// The same document either way. `user add --format json` is a stable schema
+	// (docs/specs/10-cli.md §2), and a caller who created the account supplied
+	// the address, so nothing here is withheld from them.
+	code, out, stderr = run(t, "user", "add", "carol", "--role", "viewer",
+		"--email", "carol@example.test", "--server", base, "--credentials", a.creds,
+		"--justify", "onboarding carol", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("user add --format json: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{`"name": "carol"`, `"role": "viewer"`,
+		`"state": "active"`, `"email": "carol@example.test"`, `"created_at"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("user add --format json is missing %s:\n%s", want, out)
+		}
+	}
+
+	// An admin's listing carries the addresses they manage.
+	code, out, stderr = run(t, "user", "list", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("user list: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "bob@example.test") {
+		t.Errorf("an admin's listing withholds the address they manage:\n%s", out)
+	}
+	if !strings.Contains(out, "created_at") {
+		t.Errorf("the listing carries no created_at, which the local verb renders:\n%s", out)
+	}
+
+	if code, _, stderr = run(t, "user", "delete", "bob", "--server", base,
+		"--credentials", a.creds, "--justify", "bob left"); code != ExitOK {
+		t.Fatalf("user delete over --server: exit %d, %s", code, stderr)
+	}
+	if code, out, _ = run(t, "user", "list", "--server", base,
+		"--credentials", a.creds); code != ExitOK || strings.Contains(out, "bob") {
+		t.Errorf("bob is still listed after being deleted:\n%s", out)
+	}
+
+	// Suspension has no endpoint, and deleting instead would answer a
+	// reversible request with an irreversible act.
+	code, _, stderr = run(t, "user", "suspend", "carol", "--server", base,
+		"--credentials", a.creds, "--justify", "on leave")
+	if code != ExitUsage {
+		t.Errorf("user suspend over --server: exit = %d, want %d (%s)", code, ExitUsage, stderr)
+	}
+	if code, out, _ = run(t, "user", "list", "--server", base,
+		"--credentials", a.creds); code != ExitOK || !strings.Contains(out, "carol") {
+		t.Errorf("a refused suspension removed the account:\n%s", out)
+	}
+}

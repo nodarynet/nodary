@@ -240,10 +240,26 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		// and a live one sharing a name, and a cursor on the name by itself
 		// would step over the second of them.
 		users, next := paginate(users, p, func(u identity.User) string { return u.Name + "\x00" + u.ID })
-		out := make([]map[string]any, len(users))
+
+		// **The email address is the one field this listing withholds**, and it
+		// is withheld by role rather than by being left out of the shape.
+		//
+		// This endpoint is gated by PermStateRead, so every viewer in the fleet
+		// can read it. 07 §1 gives a viewer "read state", and an account's
+		// contact address is not fleet state — it is personal data attached to
+		// a person, and a listing that hands every viewer every address is a
+		// harvest rather than a read. User management is the admin's, so the
+		// field travels with that permission. Nothing else is withheld: when an
+		// account was created is the same kind of fact as its role.
+		caller, _ := s.principalOf(r)
+		manages := identity.Authorize(caller.Role, identity.PermUserManage) == nil
+
+		out := make([]identity.UserReport, len(users))
 		for i, u := range users {
-			out[i] = map[string]any{"id": u.ID, "name": u.Name, "role": string(u.Role),
-				"state": string(u.State), "totp_enrolled": u.TOTPEnrolled}
+			out[i] = identity.NewUserReport(u)
+			if !manages {
+				out[i].Email = ""
+			}
 		}
 		return listBody("users", out, next), nil
 	})
@@ -278,12 +294,17 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 			return err
 		},
 	}, func(core.Outcome) any {
-		return map[string]any{"id": created.ID, "name": created.Name, "role": string(created.Role)}
+		// The whole account, not three fields of it. The caller just created it
+		// and supplied the address, so there is nothing here they do not
+		// already have — and without the rest, `nodary user add --format json`
+		// answers with a different document depending on which road it took.
+		return identity.NewUserReport(created)
 	})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	var deleted identity.User
 	s.mutate(w, r, core.Change{
 		Action: "user.delete",
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
@@ -295,10 +316,13 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		},
 		Apply: func(m audit.Mutation, _ any) error {
 			p, _ := s.principalOf(r)
-			_, err := identity.Delete(r.Context(), m, p.Role, s.now(), name)
+			var err error
+			deleted, err = identity.Delete(r.Context(), m, p.Role, s.now(), name)
 			return err
 		},
-	}, nil)
+	}, func(core.Outcome) any {
+		return identity.NewUserReport(deleted)
+	})
 }
 
 func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
@@ -307,21 +331,44 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		tokens, err := identity.ListTokens(r.Context(), d.DB.Read(), r.URL.Query().Get("user"))
+		// `?user=` is the **name**, not the id: it is what an operator writes
+		// and what `POST /tokens` already takes in its body. It used to be the
+		// id, so the two endpoints disagreed about what a user is named by and
+		// `?user=alice` silently matched nothing.
+		userID := ""
+		if name := r.URL.Query().Get("user"); name != "" {
+			u, err := identity.Get(r.Context(), d.DB.Read(), name)
+			if err != nil {
+				return nil, err
+			}
+			userID = u.ID
+		}
+		tokens, err := identity.ListTokens(r.Context(), d.DB.Read(), userID)
 		if err != nil {
 			return nil, err
 		}
 		tokens, next := paginateDesc(tokens, p, func(t identity.Token) string {
 			return t.CreatedAt.UTC().Format(audit.TimeFormat) + "\x00" + t.ID
 		})
-		out := make([]map[string]any, len(tokens))
-		for i, t := range tokens {
-			// The display prefix, never a hash and never a secret
-			// (docs/specs/10-cli.md §4).
-			out[i] = map[string]any{"id": t.ID, "user_id": t.UserID, "kind": string(t.Kind),
-				"prefix": t.Prefix, "revoked": t.Revoked(), "unattended": t.Unattended}
+
+		// Join tokens belong to nobody, so filtering by user excludes them
+		// rather than showing every enrollment credential to somebody who asked
+		// about one account. The same rule `nodary token list` applies, because
+		// this is the same listing.
+		//
+		// They are not paginated with the credentials: two sequences in one
+		// body cannot share a cursor, and an outstanding join token is the
+		// thing an operator is most often looking for here — losing it to a
+		// page boundary would be the wrong one to lose.
+		var joins []identity.JoinToken
+		if userID == "" {
+			if joins, err = identity.ListJoinTokens(r.Context(), d.DB.Read()); err != nil {
+				return nil, err
+			}
 		}
-		return listBody("tokens", out, next), nil
+		body := listBody("tokens", identity.TokenReports(tokens, s.now()), next)
+		body["join_tokens"] = identity.JoinReports(joins)
+		return body, nil
 	})
 }
 
@@ -340,6 +387,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var plaintext string
+	var minted identity.Token
 	s.mutate(w, r, core.Change{
 		Action: "token.create",
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
@@ -361,19 +409,24 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 			}
-			_, plaintext, err = identity.MintToken(r.Context(), m, p.Role, s.now(),
+			minted, plaintext, err = identity.MintToken(r.Context(), m, p.Role, s.now(),
 				body.User, kind, body.Name, s.now().AddDate(0, 0, 90), body.Unattended)
 			return err
 		},
 	}, func(core.Outcome) any {
-		// Shown exactly once, at creation (10 §4). It is never readable again
-		// and never appears in a listing.
-		return map[string]any{"token": plaintext}
+		// The secret, shown exactly once at creation (10 §4): never readable
+		// again and never in a listing. The credential's own description goes
+		// with it, because `nodary token create` tells the operator its id and
+		// when it expires — facts they cannot ask for afterwards by any means
+		// that would identify *this* one out of several.
+		return map[string]any{"token": plaintext,
+			"credential": identity.NewTokenReport(minted, s.now())}
 	})
 }
 
 func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var revoked identity.Token
 	s.mutate(w, r, core.Change{
 		Action: "token.revoke",
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
@@ -386,10 +439,13 @@ func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
 		},
 		Apply: func(m audit.Mutation, _ any) error {
 			p, _ := s.principalOf(r)
-			_, err := identity.RevokeToken(r.Context(), m, p.Role, s.now(), id)
+			var err error
+			revoked, err = identity.RevokeToken(r.Context(), m, p.Role, s.now(), id)
 			return err
 		},
-	}, nil)
+	}, func(core.Outcome) any {
+		return identity.NewTokenReport(revoked, s.now())
+	})
 }
 
 // --- audit, policy, config ---------------------------------------------------
