@@ -223,6 +223,12 @@ jobs:
         with:
           go-version: "1.27"
       - run: make test-install
+      # R5-16's chain crosses -ldflags, minisign and Go, and neither end can see
+      # the other. Both failures it has caught so far were invisible from inside
+      # Go: an -X against an unlinked package, and a prehashed signature.
+      - name: Install minisign
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+      - run: make test-selfupgrade
 
   packages:
     runs-on: ubuntu-latest

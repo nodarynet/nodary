@@ -29,7 +29,7 @@ LDFLAGS := -s -w -X $(PKG)/internal/buildinfo.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 .DEFAULT_GOAL := help
-.PHONY: help build test test-race lint vuln check fmt vet dist wheels npm packages manifest manifest-check test-install test-packages clean
+.PHONY: help build test test-race lint vuln check fmt vet dist wheels npm packages manifest manifest-check test-install test-selfupgrade test-packages clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -118,6 +118,9 @@ packages: wheels npm ## Build every distribution channel
 
 test-install: ## End-to-end test of install.sh, including tamper rejection
 	sh hack/test-install.sh
+
+test-selfupgrade: ## End-to-end test of R5-16: stamped key, real minisign, verified publish
+	sh hack/test-selfupgrade.sh
 
 clean: ## Remove build output
 	rm -rf $(DIST)

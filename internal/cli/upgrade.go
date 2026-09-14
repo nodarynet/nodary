@@ -228,8 +228,12 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 	// And this host's own binary, for the fleet. A node has no egress
 	// (docs/specs/03-agent.md §1), so the only way it ever sees a newer nodary
 	// is through the mirror it already fetches components from — R5-16.
-	report(e, []install.Step{
-		publishBinary(dataDir, filepath.Join(o.Root, paths.OptDir), versionString(), plat)})
+	// buildinfo.Version, not versionString(): the latter is decorated for
+	// display ("0.0.1 (linux/amd64)") and the install prefix is named by the
+	// bare version. And the asset separator is a dash, because that is what
+	// install.sh publishes and what a node asks the mirror for.
+	report(e, []install.Step{publishBinary(dataDir, filepath.Join(o.Root, paths.OptDir),
+		buildinfo.Version, strings.ReplaceAll(plat, "/", "-"))})
 
 	// The data plane's pin. The whole reason this verb exists.
 	if image, err := imageFor(m, "litellm", plat); err == nil {
