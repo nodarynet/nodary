@@ -188,7 +188,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show|register|remove`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -260,6 +260,8 @@ Available in this release:
                          verify-egress  Assert a deployment has no way off-box
   backend              Backend descriptors
                          list | show
+                         register  Add an operator's descriptor, -f FILE
+                         remove    Take a registered one back out
   agent                The node-side agent
                          plan    Show what this node would do, and do none of it
                          run     Reconcile this node against its desired state

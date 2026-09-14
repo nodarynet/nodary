@@ -67,6 +67,7 @@ var readOnly = map[string]bool{
 	"token list": true,
 	"node list":  true, "node show": true,
 	"route list": true, "route show": true,
+	"backend list": true, "backend show": true,
 	"audit list": true, "audit show": true, "audit export": true, "audit verify": true,
 	"policy show": true, "policy diff": true,
 	"license show": true,

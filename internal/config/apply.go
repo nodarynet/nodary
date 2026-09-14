@@ -116,7 +116,7 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 	// Backends before models and deployments, both of which name one: a
 	// document that registers a descriptor and uses it in the same apply has
 	// to work, or registration is a two-step dance for no reason.
-	if err := applyBackends(ctx, tx, now, want, have, opt, &res); err != nil {
+	if err := applyBackends(ctx, m, now, want, have, opt, &res); err != nil {
 		return res, err
 	}
 	if err := applyModels(ctx, m, now, want, have, opt, &res); err != nil {
@@ -467,8 +467,19 @@ func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 // descriptor vanished cannot render an argv at all, so what an operator would
 // see is every deployment on that backend failing at once for a reason that
 // names neither this document nor this line.
-func applyBackends(ctx context.Context, tx *sql.Tx, now time.Time,
+func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 	want, have *Snapshot, opt Options, res *Result) error {
+
+	tx := mut.Tx()
+	// 04 §9: the record carries the descriptor's digest. The revision holds
+	// the bytes, but a digest in the audit record is what an assessor can
+	// query for without decoding a snapshot — and it is the same digest the
+	// node is sent and reports back, so the three can be held to each other.
+	// Set at the end rather than deferred: a detail survives the rollback of
+	// the transaction it was added in (audit.Log.Act writes its record in one
+	// of its own), so recording a digest on the way out of a failure would
+	// state that something was registered which was not.
+	registered, removed := map[string]string{}, []string{}
 
 	if len(want.Backends) > 0 {
 		// The profile's gate (04 §5, 07 §1). Read here rather than passed in,
@@ -501,6 +512,7 @@ func applyBackends(ctx context.Context, tx *sql.Tx, now time.Time,
 				"already using it means", ErrInvalid, b.Name)
 		}
 		sum := sha256.Sum256([]byte(b.Source))
+		registered[b.Name] = hex.EncodeToString(sum[:])
 		if _, err := tx.ExecContext(ctx, `INSERT INTO backend
 			(name, body, sha256, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (name) DO UPDATE SET
@@ -532,7 +544,14 @@ func applyBackends(ctx context.Context, tx *sql.Tx, now time.Time,
 		if _, err := tx.ExecContext(ctx, `DELETE FROM backend WHERE name = ?`, b.Name); err != nil {
 			return err
 		}
+		removed = append(removed, b.Name)
 		res.Changes = append(res.Changes, "- backend "+b.Name)
+	}
+	if len(registered) > 0 {
+		mut.Detail("backends_registered", registered)
+	}
+	if len(removed) > 0 {
+		mut.Detail("backends_removed", removed)
 	}
 	return nil
 }

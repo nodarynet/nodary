@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/backend"
@@ -13,13 +15,16 @@ import (
 
 // cmdBackend is docs/specs/04-backends.md §9.
 //
-// The reads only, for now. `register` and `remove` need a registry to write to
-// — a control plane one, since a descriptor an operator copies to each node by
-// hand is two sources of truth that are guaranteed to drift — and that is
-// R2-03's table.
+// `register` and `remove` write through config.Apply rather than to the
+// backend table, which is the whole reason they are four lines of flag
+// parsing each: a descriptor is part of the configuration snapshot, so
+// registering one is a revision like anything else, records `config.apply`
+// like anything else, and works over --server without an endpoint of its own.
+// The three refusals that make registration more than an upsert live in
+// config.applyBackends, where `config apply -f` meets them too.
 func cmdBackend(e env, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(e.stderr, "nodary backend: expected a subcommand (list, show)\n")
+		fmt.Fprintf(e.stderr, "nodary backend: expected a subcommand (list, show, register, remove)\n")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -27,23 +32,156 @@ func cmdBackend(e env, args []string) int {
 		return cmdBackendList(e, args[1:])
 	case "show":
 		return cmdBackendShow(e, args[1:])
-	case "register", "remove":
-		fmt.Fprintf(e.stderr,
-			"nodary backend %s: not implemented in this release (%s).\n"+
-				"  This build serves the descriptors compiled into it: %s.\n",
-			args[0], versionString(), strings.Join(builtinNames(e), ", "))
-		return ExitFailure
+	case "register":
+		return cmdBackendRegister(e, args[1:])
+	case "remove":
+		return cmdBackendRemove(e, args[1:])
 	}
-	fmt.Fprintf(e.stderr, "nodary backend: unknown subcommand %q (want list or show)\n", args[0])
+	fmt.Fprintf(e.stderr,
+		"nodary backend: unknown subcommand %q (want list, show, register or remove)\n", args[0])
 	return ExitUsage
 }
 
-func builtinNames(e env) []string {
-	all, err := backend.Builtins()
-	if err != nil {
-		return nil
+// cmdBackendRegister adds an operator's descriptor to the catalog — 04 §9.
+//
+// The file is parsed here as well as in the applier, and the duplication is
+// the point: a descriptor with a typo refuses in front of the person holding
+// the file, naming the line, rather than three hops later as a 422. What this
+// side does *not* do is decide anything — the name comes out of the
+// descriptor rather than off the command line, so there is no second place to
+// write it and nothing for the applier's name check to disagree with.
+func cmdBackendRegister(e env, args []string) int {
+	fs := newFlagSet(e, "backend register")
+	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
+	cer := attestFlags(fs)
+	file := fs.String("file", "", "the descriptor to register, a TOML file")
+	// `-f` too: `config apply -f` is the same idea, and an operator who
+	// learned one spelling should not be told the other does not exist. Both
+	// default to "", so the second declaration resetting the variable is a
+	// no-op rather than the bug this shape usually is.
+	fs.StringVar(file, "f", "", "same as --file")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
 	}
-	return backend.Names(all)
+	if *file == "" {
+		fmt.Fprintf(e.stderr, "nodary backend register: -f FILE is required\n")
+		return ExitUsage
+	}
+	raw, err := os.ReadFile(*file)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary backend register: %v\n", err)
+		return ExitUsage
+	}
+	d, err := backend.Parse(raw)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary backend register: %s: %v\n", *file, err)
+		return ExitUsage
+	}
+	want := &config.Snapshot{Backends: []config.Backend{
+		{Name: d.Backend.Name, Source: string(raw)},
+	}}
+
+	rem, code := remoteFor(e, "backend register", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if rem != nil {
+		body, err := config.RenderTOML(want)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary backend register: %v\n", err)
+			return ExitFailure
+		}
+		code = remoteApply(e, rem, "backend register",
+			remoteAct{method: "POST", path: "/config/apply", body: rawTOML(body)}, false, cer)
+	} else {
+		code = applySnapshot(e, "backend register", want, false, false, cer, dbPath, keyPath, credsPath)
+	}
+	if code == ExitOK && !*cer.dryRun {
+		fmt.Fprintf(e.stderr,
+			"\nRegistered as %q. `nodary backend show %s` reports what it understands;\n"+
+				"`nodary model register --backend %s` places a model on it.\n",
+			d.Backend.Name, d.Backend.Name, d.Backend.Name)
+	}
+	return code
+}
+
+// cmdBackendRemove takes a registered descriptor back out of the catalog.
+//
+// **The whole configuration goes back, minus one backend, with --prune.** A
+// fragment cannot express a deletion — config.Apply creates and updates what a
+// document names and, without prune, leaves everything else alone — and a
+// fragment *with* prune would delete the fleet. So this reads live desired
+// state, drops one entry, and applies that: the change list is the single
+// `- backend NAME` line an operator confirms, and every other object is
+// present in the document and therefore untouched.
+//
+// Refusing to delete one still in use is the applier's job (config.applyBackends),
+// not this verb's, so `config apply --prune` cannot walk around it.
+func cmdBackendRemove(e env, args []string) int {
+	fs := newFlagSet(e, "backend remove")
+	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
+	cer := attestFlags(fs)
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintf(e.stderr, "nodary backend remove: expected one backend name\n")
+		return ExitUsage
+	}
+	name := fs.Arg(0)
+
+	rem, code := remoteFor(e, "backend remove", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+
+	var want *config.Snapshot
+	if rem != nil {
+		var err error
+		if want, err = remoteSnapshot(rem, 0); err != nil {
+			fmt.Fprintf(e.stderr, "nodary backend remove: %v\n", err)
+			return exitFor(err)
+		}
+	} else {
+		db, ok := openConfigRead(e, "backend remove", *dbPath)
+		if !ok {
+			return ExitFailure
+		}
+		if want, ok = revisionAt(e, "backend remove", db, 0); !ok {
+			db.Close()
+			return ExitFailure
+		}
+		db.Close()
+	}
+
+	kept := slices.DeleteFunc(want.Backends, func(b config.Backend) bool { return b.Name == name })
+	if len(kept) == len(want.Backends) {
+		if _, builtin := backend.Get(name); builtin == nil {
+			fmt.Fprintf(e.stderr,
+				"nodary backend remove: %q is built into this binary, not registered; "+
+					"there is nothing to take out of the catalog\n", name)
+		} else {
+			fmt.Fprintf(e.stderr,
+				"nodary backend remove: no registered backend named %q; "+
+					"`nodary backend list` names them\n", name)
+		}
+		return ExitFailure
+	}
+	want.Backends = kept
+
+	if rem != nil {
+		body, err := config.RenderTOML(want)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary backend remove: %v\n", err)
+			return ExitFailure
+		}
+		return remoteApply(e, rem, "backend remove",
+			remoteAct{method: "POST", path: applyPath("/config/apply", true), body: rawTOML(body)},
+			false, cer)
+	}
+	return applySnapshot(e, "backend remove", want, true, false, cer, dbPath, keyPath, credsPath)
 }
 
 func cmdBackendList(e env, args []string) int {
