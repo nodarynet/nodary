@@ -71,6 +71,21 @@ func (h Host) systemctl(ctx context.Context, args ...string) ([]byte, error) {
 	return h.Run(ctx, "systemctl", args...)
 }
 
+// systemdRun starts a transient unit on the same manager systemctl talks to.
+//
+// The user manager refuses IPAddressAllow=/IPAddressDeny= — it has no
+// delegated BPF for them — so a UserScope agent cannot filter what it stages.
+// That is left to fail loudly rather than quietly dropping the properties: a
+// control with a bypass beside it reads as a control. UserScope exists so a
+// test can drive real systemd without being root, and staging is not something
+// a test drives for real.
+func (h Host) systemdRun(ctx context.Context, args ...string) ([]byte, error) {
+	if h.UserScope {
+		args = append([]string{"--user"}, args...)
+	}
+	return h.Run(ctx, "systemd-run", args...)
+}
+
 // Report is what one reconcile did, in the shape the heartbeat sends.
 type Report struct {
 	Rev     int64            `json:"rev"`

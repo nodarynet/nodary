@@ -60,6 +60,21 @@ func (f *fakeHost) run(_ context.Context, name string, args ...string) ([]byte, 
 	if name == "journalctl" {
 		return []byte(f.journal), nil
 	}
+	if name == "systemd-run" {
+		// Real systemd refuses a --unit= name already in use, which is what
+		// stops a reconcile every minute from starting a second download for
+		// the same model. The fake has to hold that property or the test of
+		// it proves nothing.
+		for _, a := range args {
+			if u, ok := strings.CutPrefix(a, "--unit="); ok {
+				if f.active[u] {
+					return []byte("Unit " + u + " already exists."), fmt.Errorf("exit status 1")
+				}
+				f.active[u] = true
+			}
+		}
+		return nil, nil
+	}
 	switch args[0] {
 	case "is-active":
 		// systemd's own vocabulary: a unit it gave up on says `failed`, and

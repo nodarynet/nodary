@@ -109,7 +109,7 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 		log = slog.Default()
 	}
 	d := &Daemon{Config: conf, Node: node, Host: h, Log: log,
-		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader(),
+		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader(h),
 		// Beside the node's own configuration rather than under the models
 		// directory: this is state about the agent, and a `--purge-models`
 		// uninstall must not take the record of what happened with it.

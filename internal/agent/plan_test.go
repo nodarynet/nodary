@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,7 +157,7 @@ func TestBuildCarriesRestartOnlyForARealAgent(t *testing.T) {
 		t.Errorf("Restart = %v, want none: a preview (no Downloader) must not restart anything", p.Restart)
 	}
 
-	dl := &Downloader{byModel: map[string]*download{}}
+	dl, _ := stagingDownloader(t)
 	p, err = Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
 	if err != nil {
 		t.Fatal(err)
@@ -312,9 +313,16 @@ func TestBuildAppliesAReset_Restage(t *testing.T) {
 	doc.Reset = []api.DesiredReset{{Model: "acme/tiny", Layout: "hf-cache"}}
 
 	root := t.TempDir()
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{
-		"acme/tiny": {state: StateCorrupt, reason: "a previous attempt failed"},
-	}}
+	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The verdict a previous attempt left behind. It is terminal, so nothing
+	// revisits it until doc.Reset clears it — which is the whole point.
+	(&progress{path: progressPath(dir)}).set(StateCorrupt, 0, 0, "a previous attempt failed")
+
+	dl, f := stagingDownloader(t)
+	dl.BaseURL = srv.URL
 
 	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
 	if err != nil {
@@ -327,12 +335,11 @@ func TestBuildAppliesAReset_Restage(t *testing.T) {
 		t.Errorf("staging = %+v, want the stale corrupt cache entry cleared", p.Stage[0])
 	}
 
-	// Reset's redownload started in its own goroutine and outlives this
-	// call to Build; drained to completion so it is not still writing into
-	// t.TempDir() when the test's own cleanup removes it.
-	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
-	if st := waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateStaged); st.State != StateStaged {
-		t.Fatalf("the redownload never finished: %s (%s)", st.State, st.Reason)
+	// And the retry is actually under way: Reset cleared the verdict, and the
+	// same Build call started a fresh staging unit rather than leaving the
+	// model to wait for the next reconcile.
+	if !f.did("systemd-run") {
+		t.Error("Reset cleared the stale verdict but no new staging unit was started")
 	}
 }
 
@@ -349,7 +356,7 @@ func TestBuildAppliesAReset_Unstage(t *testing.T) {
 
 	doc := api.Desired{Rev: 7, Node: "gpu-01",
 		Reset: []api.DesiredReset{{Model: "acme/tiny", Layout: "hf-cache"}}}
-	dl := &Downloader{byModel: map[string]*download{}}
+	dl, _ := stagingDownloader(t)
 
 	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true, Downloads: dl})
 	if err != nil {

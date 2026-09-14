@@ -123,9 +123,29 @@ connections and receives only proxied inference traffic.
 ### Staging is separate
 
 Weight downloads run as a transient unit **on the host** — not in the isolated namespace —
-with a narrow `IPAddressAllow=` list. Here the systemd filter *does* apply, because the
-download is a direct child of the unit. It exits before the model unit starts. The serving
-path never holds network reach it does not need.
+with an IP filter. Here the systemd filter *does* apply, because the download is a direct
+child of the unit. It exits before the model unit starts. The serving path never holds
+network reach it does not need.
+
+Two things come of the separation, and the second is the larger one. The narrow one is that
+the filter is real here. The broader one is that a multi-hour transfer of attacker-supplied
+bytes stops running inside the long-lived root daemon that holds the node's mTLS key.
+
+**What the filter narrows is the enclave, not the destination.** An allowlist of the hosts
+staging needs does not survive contact with how weights are served: a weight fetch is
+answered with a redirect to a different host, whose addresses are not known until the
+redirect arrives and rotate under short TTLs — and a unit's filter cannot change while it
+runs, so a large transfer would die mid-flight and look exactly like a network outage. The
+filter therefore allows the public internet and denies the private ranges, link-local
+(169.254.169.254 is the cloud metadata endpoint, which hands role credentials to anything
+that reaches it) and loopback, with a single-address exception per entry in
+`/etc/resolv.conf` so that names still resolve. It costs staging nothing in reach, it is
+stable, and it removes the thing worth removing: a download cannot reach the control plane,
+a peer node, or the customer's own network.
+
+It leans on one documented systemd rule — the longest matching prefix wins, and an allow
+beats a deny of equal length — which is what lets a site resolver inside a denied range
+through.
 
 ### Verification is mandatory
 

@@ -36,16 +36,31 @@ func remoteFixture(t *testing.T, files map[string]string) (*httptest.Server, str
 	return httptest.NewServer(mux), manifest.String()
 }
 
-func waitFor(t *testing.T, dl *Downloader, dir, manifest, digest string, want string) Stage {
+// runStaging runs one download to completion the way the transient unit does
+// — synchronously, as the whole of a process (R4-30) — and returns the verdict
+// it recorded. The orchestration around it, which is what the agent half does,
+// is tested in stageunit_test.go.
+func runStaging(t *testing.T, baseURL, dir, manifest, digest string) Stage {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		st := dl.Status("acme/tiny", manifest, digest, dir)
-		if st.State == want || time.Now().After(deadline) {
-			return st
-		}
-		time.Sleep(5 * time.Millisecond)
+	path := requestPath(dir)
+	if err := writeStageRequest(path, stageRequest{Model: "acme/tiny", Dir: dir,
+		BaseURL: baseURL, ManifestBody: manifest, ManifestSHA256: digest}); err != nil {
+		t.Fatal(err)
 	}
+	st, err := RunStaging(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the child returns it has also written down, because the file is
+	// the only thing the agent half ever reads.
+	onDisk, ok := readProgress(progressPath(dir))
+	if !ok {
+		t.Fatalf("the staging unit finished %s and recorded nothing", st.State)
+	}
+	if onDisk.State != st.State || onDisk.Bytes != st.Bytes || onDisk.Reason != st.Reason {
+		t.Errorf("recorded %+v but returned %+v", onDisk, st)
+	}
+	return st
 }
 
 func TestDownloaderStagesAFreshModel(t *testing.T) {
@@ -61,9 +76,7 @@ func TestDownloaderStagesAFreshModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
-
-	st := waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateStaged)
+	st := runStaging(t, srv.URL, dir, manifest, hex.EncodeToString(digest[:]))
 	if st.State != StateStaged {
 		t.Fatalf("state = %s (%s), want staged", st.State, st.Reason)
 	}
@@ -79,41 +92,6 @@ func TestDownloaderStagesAFreshModel(t *testing.T) {
 	}
 	if _, err := os.Stat(dir + ".downloading"); !os.IsNotExist(err) {
 		t.Errorf("the temp directory was left behind: %v", err)
-	}
-}
-
-func TestDownloaderDoesNotStartASecondDownloadForTheSameModel(t *testing.T) {
-	var hits int
-	mux := http.NewServeMux()
-	mux.HandleFunc("/acme/tiny/resolve/main/config.json", func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Header().Set("Content-Length", "2")
-		if r.Method != http.MethodHead {
-			// Slow enough that a second Status call lands while this is
-			// still the only goroutine running.
-			time.Sleep(100 * time.Millisecond)
-			w.Write([]byte("{}"))
-		}
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	sum := sha256.Sum256([]byte("{}"))
-	manifest := hex.EncodeToString(sum[:]) + "  config.json\n"
-	digest := sha256.Sum256([]byte(manifest))
-
-	root := t.TempDir()
-	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
-
-	dl.Status("acme/tiny", manifest, hex.EncodeToString(digest[:]), dir)
-	dl.Status("acme/tiny", manifest, hex.EncodeToString(digest[:]), dir)
-	waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateStaged)
-
-	// One HEAD and one GET for the one file — two hits. A third would mean a
-	// second goroutine started for the same model.
-	if hits != 2 {
-		t.Errorf("the server saw %d requests for one file, want exactly 2 (HEAD + GET)", hits)
 	}
 }
 
@@ -144,8 +122,7 @@ func TestDownloaderResumesAFileAlreadyCorrectOnDisk(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
-	st := waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateStaged)
+	st := runStaging(t, srv.URL, dir, manifest, hex.EncodeToString(digest[:]))
 	if st.State != StateStaged {
 		t.Fatalf("state = %s (%s), want staged", st.State, st.Reason)
 	}
@@ -168,9 +145,7 @@ func TestDownloaderCatchesAWrongHash(t *testing.T) {
 
 	root := t.TempDir()
 	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
-
-	st := waitFor(t, dl, dir, manifest, hex.EncodeToString(digest[:]), StateCorrupt)
+	st := runStaging(t, srv.URL, dir, manifest, hex.EncodeToString(digest[:]))
 	if st.State != StateCorrupt {
 		t.Fatalf("state = %s, want corrupt", st.State)
 	}
@@ -181,10 +156,10 @@ func TestDownloaderCatchesAWrongHash(t *testing.T) {
 }
 
 func TestDownloaderCatchesATamperedManifest(t *testing.T) {
-	dl := &Downloader{BaseURL: "http://unused.invalid", Client: http.DefaultClient, byModel: map[string]*download{}}
 	manifest := strings.Repeat("a", 64) + "  config.json\n"
 	// A digest that does not match the manifest body at all.
-	st := waitFor(t, dl, t.TempDir(), manifest, strings.Repeat("0", 64), StateCorrupt)
+	st := runStaging(t, "http://unused.invalid",
+		filepath.Join(t.TempDir(), "models--acme--tiny"), manifest, strings.Repeat("0", 64))
 	if st.State != StateCorrupt {
 		t.Fatalf("state = %s, want corrupt", st.State)
 	}
@@ -232,12 +207,26 @@ func TestDownloaderReportsBytesAgainstTotalWhileInProgress(t *testing.T) {
 
 	root := t.TempDir()
 	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
+	if err := writeStageRequest(requestPath(dir), stageRequest{Model: "acme/tiny", Dir: dir,
+		BaseURL: srv.URL, ManifestBody: manifest, ManifestSHA256: sum}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The unit's own process, run here as a goroutine: observed through the
+	// file, which is the only channel the agent half has either.
+	done := make(chan Stage, 1)
+	go func() {
+		st, err := RunStaging(requestPath(dir))
+		if err != nil {
+			t.Error(err)
+		}
+		done <- st
+	}()
 
 	deadline := time.Now().Add(5 * time.Second)
 	var st Stage
 	for {
-		st = dl.Status("acme/tiny", manifest, sum, dir)
+		st, _ = readProgress(progressPath(dir))
 		if st.Bytes == int64(len(small)) || time.Now().After(deadline) {
 			break
 		}
@@ -256,13 +245,16 @@ func TestDownloaderReportsBytesAgainstTotalWhileInProgress(t *testing.T) {
 		t.Fatal("bytes == total while the second file was still blocked; this test proves nothing mid-flight")
 	}
 
-	final := waitFor(t, dl, dir, manifest, sum, StateStaged)
-	if final.State != StateStaged {
+	if final := <-done; final.State != StateStaged {
 		t.Fatalf("state = %s (%s), want staged", final.State, final.Reason)
 	}
 }
 
-func TestDownloaderResetClearsCacheAndRetries(t *testing.T) {
+// Weights deleted out from under a `staged` verdict: without Reset, Status
+// would replay the stale verdict forever — the bug this exists to fix, and
+// one the move to a file on disk makes longer-lived rather than shorter, since
+// restarting the agent no longer clears it either.
+func TestDownloaderResetClearsTheVerdictAndRetries(t *testing.T) {
 	srv, manifest := remoteFixture(t, map[string]string{"config.json": `{"model_type":"tiny"}`})
 	defer srv.Close()
 	digest := sha256.Sum256([]byte(manifest))
@@ -270,18 +262,17 @@ func TestDownloaderResetClearsCacheAndRetries(t *testing.T) {
 
 	root := t.TempDir()
 	dir, _ := ModelDir(root, "hf-cache", "acme/tiny")
-	dl := &Downloader{BaseURL: srv.URL, Client: srv.Client(), byModel: map[string]*download{}}
 
-	st := waitFor(t, dl, dir, manifest, sum, StateStaged)
-	if st.State != StateStaged {
+	if st := runStaging(t, srv.URL, dir, manifest, sum); st.State != StateStaged {
 		t.Fatalf("state = %s (%s), want staged", st.State, st.Reason)
 	}
-
-	// Deleted out from under a "staged" cache entry: without Reset, Status
-	// would keep replaying the stale entry forever — the bug this exists to
-	// fix.
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
+	}
+
+	dl, _ := stagingDownloader(t)
+	if st := dl.Status("acme/tiny", manifest, sum, dir); st.State != StateStaged {
+		t.Fatalf("state = %s, want the stale staged verdict — otherwise this test proves nothing", st.State)
 	}
 	if ok := dl.Reset("acme/tiny", dir); !ok {
 		t.Fatal("Reset reported failure")
@@ -290,8 +281,7 @@ func TestDownloaderResetClearsCacheAndRetries(t *testing.T) {
 		t.Errorf("Reset left something behind at %s", dir)
 	}
 
-	st = waitFor(t, dl, dir, manifest, sum, StateStaged)
-	if st.State != StateStaged {
+	if st := runStaging(t, srv.URL, dir, manifest, sum); st.State != StateStaged {
 		t.Fatalf("after Reset, state = %s (%s), want staged again", st.State, st.Reason)
 	}
 }

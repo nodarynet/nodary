@@ -37,13 +37,15 @@ func cmdAgent(e env, args []string) int {
 		return cmdAgentRun(e, args[1:])
 	case "egress-probe":
 		return cmdAgentEgressProbe(e, args[1:])
+	case "stage":
+		return cmdAgentStage(e, args[1:])
 	}
 	if what, ok := agentVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary agent %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan, run or egress-probe)\n", args[0])
+	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan, run, egress-probe or stage)\n", args[0])
 	return ExitUsage
 }
 
@@ -289,6 +291,41 @@ const systemdUnitDir = "/etc/systemd/system"
 //
 // It reads nothing and writes nothing. Running it on the host is how
 // `verify-egress` gets its control run.
+// cmdAgentStage downloads one model's weights and exits.
+//
+// This is what R4-30's transient unit runs, and nothing else invokes it: the
+// agent writes a request file, starts `systemd-run … nodary agent stage
+// --request <file>` with the IP filter attached, and reads the progress the
+// child leaves beside the weights. Documented here rather than hidden, the
+// same way `agent egress-probe` is, because an operator reading `systemctl
+// status` during a download will see this command line and should be able to
+// find out what it is.
+//
+// Exits non-zero on a failed download even though the agent reads the verdict
+// from the file rather than from the exit code, so `systemctl status` and the
+// journal agree with what the control plane is about to report.
+func cmdAgentStage(e env, args []string) int {
+	fs := newFlagSet(e, "agent stage")
+	request := fs.String("request", "", "the staging request the agent wrote")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if strings.TrimSpace(*request) == "" {
+		fmt.Fprintf(e.stderr, "nodary agent stage: --request is required; the agent writes it\n")
+		return ExitUsage
+	}
+	st, err := agent.RunStaging(*request)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent stage: %v\n", err)
+		return ExitFailure
+	}
+	fmt.Fprintf(e.stdout, "%s %s %d/%d %s\n", st.Model, st.State, st.Bytes, st.Total, st.Reason)
+	if st.State != agent.StateStaged {
+		return ExitFailure
+	}
+	return ExitOK
+}
+
 func cmdAgentEgressProbe(e env, args []string) int {
 	fs := newFlagSet(e, "agent egress-probe")
 	format := formatFlag(fs)
