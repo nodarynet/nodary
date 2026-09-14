@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/bundle"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/gateway"
 	"github.com/nodarynet/nodary/internal/identity"
@@ -70,6 +72,8 @@ func cmdServerInstall(e env, args []string) int {
 		"also install this host as a GPU node of the control plane it just created (00 §2)")
 	offline := fs.Bool("offline", false,
 		"do not contact any upstream source; the mirror is whatever is already in the data directory")
+	bundlePath := fs.String("bundle", "",
+		"fill the mirror from an offline bundle (docs/specs/01-install.md §6); implies --offline")
 	skipPreflight := fs.Bool("skip-preflight", false,
 		"do not run the host checks. Records that they were skipped; it does not make them pass")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -218,12 +222,25 @@ func cmdServerInstall(e env, args []string) int {
 	}
 
 	// 3. Resolve the node runtime into the mirror.
+	//
+	// **`--bundle` fills the mirror and then runs the ordinary resolution over
+	// it.** Not a separate install path: the bundle lays each artifact under
+	// the name the cache uses, so `components.Fetch` finds everything present,
+	// re-hashes it against the digest this binary pins, and reports `cached`.
+	// §6's "both verify identically" is that, rather than a second verifier
+	// written for the offline case — which is the one that would drift.
 	var fetched []components.Fetched
-	if *offline {
+	switch {
+	case *bundlePath != "":
+		if !openBundleIntoMirror(e, ctx, *bundlePath, filepath.Dir(s.db.Path())) {
+			return ExitFailure
+		}
+		fetched = fetchIntoMirror(e, ctx, "server install", filepath.Dir(s.db.Path()), true)
+	case *offline:
 		report(e, []install.Step{{Name: "components",
 			Detail: "skipped by --offline; nodes will fetch whatever is already in the mirror"}})
-	} else {
-		fetched = fetchIntoMirror(e, ctx, "server install", filepath.Dir(s.db.Path()))
+	default:
+		fetched = fetchIntoMirror(e, ctx, "server install", filepath.Dir(s.db.Path()), false)
 	}
 
 	// The control plane runs LiteLLM as a container ([00 §2](../specs/00-overview.md#2-topology),
@@ -640,7 +657,43 @@ func randomToken() string {
 // The platform is this host's. A control plane serving nodes of another
 // architecture needs `components fetch --platform` as well, which is what that
 // verb is for.
-func fetchIntoMirror(e env, ctx context.Context, verb, dataDir string) []components.Fetched {
+// openBundleIntoMirror verifies a bundle into the cache nodes fetch from.
+//
+// A failure here is fatal, unlike an unreachable CDN below: an operator who
+// handed this command a bundle has no second source to fall back on, and an
+// install that carried on would produce a control plane whose mirror is empty
+// on a machine with no network to fill it from.
+func openBundleIntoMirror(e env, ctx context.Context, path, dataDir string) bool {
+	m, ok := loadManifest(e)
+	if !ok {
+		return false
+	}
+	head, err := bundle.Read(path)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		return false
+	}
+	var run bundle.Runner
+	if len(head.Images) > 0 {
+		run = runNerdctl
+	}
+	_, opened, err := bundle.Open(ctx, path, bundle.OpenOptions{
+		Dist: filepath.Join(dataDir, "dist"), Pinned: m, Platform: head.Platform, Run: run})
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
+		if errors.Is(err, bundle.ErrDigestMismatch) {
+			fmt.Fprintf(e.stderr,
+				"  This is a hard stop. --offline removes the download, not the checks\n"+
+					"  (docs/specs/01-install.md §6), and there is no flag to proceed anyway.\n")
+		}
+		return false
+	}
+	report(e, []install.Step{{Name: "bundle",
+		Detail: fmt.Sprintf("%d members verified from %s", len(opened), filepath.Base(path))}})
+	return true
+}
+
+func fetchIntoMirror(e env, ctx context.Context, verb, dataDir string, offline bool) []components.Fetched {
 	m, ok := loadManifest(e)
 	if !ok {
 		return nil
@@ -657,7 +710,13 @@ func fetchIntoMirror(e env, ctx context.Context, verb, dataDir string) []compone
 	}
 
 	cache := filepath.Join(dataDir, "dist")
-	fetched, err := components.Fetch(ctx, want, components.FetchOptions{Dir: cache, Platform: plat})
+	opts := components.FetchOptions{Dir: cache, Platform: plat}
+	if offline {
+		// Anything the bundle did not carry must fail as a gap in the bundle,
+		// named, rather than as a DNS timeout on a machine with no resolver.
+		opts.Client = &http.Client{Transport: offlineTransport{}}
+	}
+	fetched, err := components.Fetch(ctx, want, opts)
 	if err != nil {
 		// A warning, not a failure. Everything else about this control plane is
 		// correct, and an install that rolled back because a CDN was

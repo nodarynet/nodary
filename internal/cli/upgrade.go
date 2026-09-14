@@ -213,7 +213,7 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 		report(e, []install.Step{{Name: "components",
 			Detail: "skipped by --offline; the mirror is whatever is already in " + dataDir}})
 	} else {
-		fetched = fetchIntoMirror(e, ctx, "upgrade", dataDir)
+		fetched = fetchIntoMirror(e, ctx, "upgrade", dataDir, false)
 	}
 	if len(fetched) > 0 {
 		record := filepath.Join(confDir, components.OwnershipFile)

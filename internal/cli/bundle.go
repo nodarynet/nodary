@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os/exec"
+	"path"
 	"path/filepath"
 
 	"github.com/nodarynet/nodary/internal/backup"
@@ -93,13 +95,21 @@ func cmdBundleCreate(e env, args []string) int {
 	if *role != "" {
 		roles = []components.Role{components.Role(*role)}
 	}
+	// **A name is resolved against the union of the roles, not against each
+	// one.** `cni-plugins` is a node component, so asking the server role for
+	// it answers "unknown component" — which is true of that role and false of
+	// the site, and a bundle is for a site. So a miss is only a miss when
+	// every role missed.
 	seen := map[string]bool{}
+	var missed error
+	var matched bool
 	for _, r := range roles {
 		got, err := m.Select(r, *comps)
 		if err != nil {
-			fmt.Fprintf(e.stderr, "nodary bundle create: %v\n", err)
-			return ExitUsage
+			missed = err
+			continue
 		}
+		matched = true
 		for _, c := range got {
 			if _, has := c.Platforms[plat]; !has || seen[c.Name] {
 				continue
@@ -107,6 +117,10 @@ func cmdBundleCreate(e env, args []string) int {
 			seen[c.Name] = true
 			wanted = append(wanted, c)
 		}
+	}
+	if !matched && missed != nil {
+		fmt.Fprintf(e.stderr, "nodary bundle create: %v\n", missed)
+		return ExitUsage
 	}
 	chosen, err := m.SelectBackends(*backends)
 	if err != nil {
@@ -281,4 +295,19 @@ func printBundle(e env, m bundle.Manifest) {
 	}
 	fmt.Fprintf(e.stdout, "  %d members, %s\n",
 		len(m.Components)+len(m.Images), backup.HumanBytes(m.Bytes()))
+}
+
+// offlineTransport is what `--offline` gives the fetcher instead of a network.
+//
+// An artifact the bundle did not carry is a gap in the bundle, and that is
+// what it has to say. Left to a real client it would surface on an air-gapped
+// host as a DNS failure or a hung connect — a symptom that names the network
+// rather than the thing actually missing, on the one machine where the network
+// was never going to answer.
+type offlineTransport struct{}
+
+func (offlineTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("%s is not in the bundle and this install is offline, so there is "+
+		"nowhere to fetch it from; rebuild the bundle with --components all",
+		path.Base(r.URL.Path))
 }

@@ -86,10 +86,19 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 ## Offline
 
-- [ ] **R5-13** `nodary bundle create --platform --backends --components -o FILE` · [01 §6](../specs/01-install.md#6-offline-install)
+- [x] **R5-13** `nodary bundle create --platform --backends --components -o FILE` · [01 §6](../specs/01-install.md#6-offline-install)
   - *done:* it resolves against the same embedded manifest the online path uses, so both verify identically
-- [ ] **R5-14** `install.sh server --offline --bundle …`
-  - *done:* `--offline` removes the download, not the checks. An invalid bundle signature aborts the install and there is no override flag · [11 §3](../specs/11-failure-modes.md#3-security-controls)
+  - **"verify identically" is a property of the layout, not a second verifier.** Each artifact lands under exactly the name [`components.ArtifactName`](../../internal/components/fetch.go) gives it in the cache, so the install that follows finds it present, re-hashes it against the digest the *embedded* manifest pins, and reports `cached` — the same check, reached by the same code. The round-trip test asserts it end to end: open a bundle, run the ordinary fetch over the cache, and every component must come back `cached`, because `fetched` would mean an offline install went to the network
+  - **two digests on open, and the second is the one that matters.** The bundle's own record catches a transfer that went wrong; the embedded manifest catches a bundle whose members and whose `bundle.json` were edited *together* — internally consistent, nothing inside it disagreeing. That is the expectation that did not travel in the archive, and it is why the bundle needs no signature of its own
+  - the bundle's record is nonetheless the **only** check an image gets: the component manifest pins a reference for the runtime to verify on load and holds no digest for an export tarball. Found by an injection that passed clean because the tampered member happened to be one the manifest also pinned
+  - it **does not download**. `components fetch` already does exactly that and verifies each digest before a file lands, so this reads the cache that verb fills — a second downloader would be a second place the verification could differ, and an operator could no longer check their cache separately before committing to a multi-gigabyte archive
+  - a name is resolved against **the union of the roles**, because a bundle carries a site: `cni-plugins` is a node component, and asking the server role about it answers "unknown component", which is true of that role and false of the site
+  - plain `.tar`, not the `.tar.zst` [01 §6](../specs/01-install.md#6-offline-install)'s example names: every member is a gzipped release archive or a container image export whose layers are already compressed, so a second pass over several gigabytes buys approximately nothing. Deliberate rather than missing
+- [x] **R5-14** `install.sh server --offline --bundle …`
+  - *done:* `--offline` removes the download, not the checks. A member that does not match what this binary pins aborts the install and there is no override flag · [11 §3](../specs/11-failure-modes.md#3-security-controls)
+  - **install.sh's whole job is download-and-verify, so offline is the one mode where it has nothing to do but hand over** — and handing over to whatever binary happens to be on the box is the failure the release signature exists to prevent. It refuses when none is placed, naming the three commands that place one, because the operator is standing at a machine with no network and no way to look it up
+  - the binary is carried to the site by the same media as the bundle, already signature-verified on the connected machine that fetched it. It is not *in* the bundle: verifying it means the release signature, and `NODARY_PUBKEY` is still `REPLACE_AT_RELEASE_TIME` — a bundle that carried an unverifiable binary and an install path that accepted it is precisely what [01 §2](../specs/01-install.md#2-the-installer)'s "verification is not optional" forbids
+  - `--bundle` fills the mirror and then runs the **ordinary** resolution over it, rather than being a second install path. Anything the bundle did not carry fails through an `offlineTransport` that names the missing artifact, instead of surfacing as a DNS timeout on the one machine where the network was never going to answer
 
 ## Lifecycle
 

@@ -15,7 +15,15 @@
 #   curl -fsSL https://nodary.net/install.sh | sh -s -- server
 #   curl -fsSL https://nodary.net/install.sh | sh -s -- node --server URL --token T
 #
-# Verification is not optional and there is no --skip flag.
+# On an air-gapped host there is nothing to download, so this script hands over
+# to a binary already placed there and the bundle carries the rest:
+#
+#   sh install.sh server --offline --bundle ./nodary-site-linux-amd64.tar
+#
+# Verification is not optional and there is no --skip flag. `--offline` removes
+# the download, not the checks: every component in a bundle is re-hashed
+# against the digest the binary pins before it is placed
+# (docs/specs/01-install.md §6).
 
 set -eu
 
@@ -206,9 +214,58 @@ Re-run as root, or set NODARY_PREFIX to a writable directory."
 
 # --- main --------------------------------------------------------------------
 
+# --offline anywhere in the arguments means this host has no network and the
+# binary cannot be downloaded. docs/specs/01-install.md §6: the bundle carries
+# the components, and the binary is carried to the site by the same media —
+# already signature-verified on the connected machine that fetched it.
+#
+# This script's own job is download-and-verify, so offline is the one mode
+# where it has nothing to do but hand over. It refuses rather than guessing:
+# an air-gapped install that silently used an unverified binary somebody left
+# on the box is the failure the signature exists to prevent.
+is_offline() {
+    for _a in "$@"; do
+        [ "$_a" = "--offline" ] && return 0
+    done
+    return 1
+}
+
+offline_binary() {
+    if [ -x "${NODARY_PREFIX}/current/nodary" ]; then
+        printf '%s\n' "${NODARY_PREFIX}/current/nodary"
+        return 0
+    fi
+    if command -v nodary >/dev/null 2>&1; then
+        command -v nodary
+        return 0
+    fi
+    die "--offline needs nodary already installed on this host, and there is none at
+${NODARY_PREFIX}/current/nodary or on PATH.
+
+Copy the binary from the machine that built the bundle — where its release
+signature was checked — and place it first:
+
+  sudo mkdir -p ${NODARY_PREFIX}/${NODARY_VERSION}
+  sudo cp ./nodary ${NODARY_PREFIX}/${NODARY_VERSION}/nodary
+  sudo chmod 0755 ${NODARY_PREFIX}/${NODARY_VERSION}/nodary
+  sudo ln -sfn ${NODARY_PREFIX}/${NODARY_VERSION} ${NODARY_PREFIX}/current
+
+Then run this command again."
+}
+
 main() {
     detect_platform
     check_role_supported "${1:-}"
+
+    if is_offline "$@"; then
+        [ "$#" -gt 0 ] || die "--offline needs a role: server or node"
+        _bin=$(offline_binary)
+        role="$1"; shift
+        say "nodary — ${PLATFORM} — offline"
+        step "using        ${_bin}"
+        say ""
+        exec "$_bin" "$role" install "$@"
+    fi
 
     ASSET="nodary-${NODARY_VERSION}-${PLATFORM}"
     url="${NODARY_BASE_URL}/releases/${NODARY_VERSION}/${ASSET}"
