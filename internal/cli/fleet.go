@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -37,25 +38,42 @@ func cmdNodeList(e env, args []string) int {
 	fs := newFlagSet(e, "node list")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-
-	path, _ := resolveDBIn(e, *dbPath)
-	db, ok := openForReading(e, "node list", path)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "node list", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
+	// Whichever way it was read, what comes back is []fleet.Node: the endpoint
+	// calls fleet.Nodes too, precisely so the two front ends cannot disagree
+	// about what a fleet looks like (R2-34). So everything below this is the
+	// same rendering for both.
 	now := time.Now()
-	nodes, err := fleet.Nodes(context.Background(), db.Read(), now)
+	var nodes []fleet.Node
+	var err error
+	if r != nil {
+		// Staleness is the control plane's clock rather than this laptop's,
+		// which is the honest answer: it is derived from when *that* machine
+		// last heard from the node.
+		nodes, err = remoteList[fleet.Node](r, "/nodes", "nodes", nil)
+	} else {
+		path, _ := resolveDBIn(e, *dbPath)
+		db, ok := openForReading(e, "node list", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		nodes, err = fleet.Nodes(context.Background(), db.Read(), now)
+	}
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary node list: %v\n", err)
-		return ExitFailure
+		return exitFor(err)
 	}
 
 	if *format == "json" {
@@ -118,6 +136,7 @@ func cmdNodeShow(e env, args []string) int {
 	fs := newFlagSet(e, "node show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -129,23 +148,32 @@ func cmdNodeShow(e env, args []string) int {
 		return ExitUsage
 	}
 	name := fs.Arg(0)
-
-	path, _ := resolveDBIn(e, *dbPath)
-	db, ok := openForReading(e, "node show", path)
-	if !ok {
-		return ExitFailure
+	r, code := remoteFor(e, "node show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
 	now := time.Now()
-	d, err := fleet.Show(context.Background(), db.Read(), name, now)
+	var d fleet.Detail
+	var err error
+	if r != nil {
+		err = r.do("GET", "/nodes/"+url.PathEscape(name), nil, &d)
+	} else {
+		path, _ := resolveDBIn(e, *dbPath)
+		db, ok := openForReading(e, "node show", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		d, err = fleet.Show(context.Background(), db.Read(), name, now)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		fmt.Fprintf(e.stderr, "nodary node show: no node named %q; `nodary node list` names them\n", name)
 		return ExitFailure
 	}
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary node show: %v\n", err)
-		return ExitFailure
+		return exitFor(err)
 	}
 
 	if *format == "json" {

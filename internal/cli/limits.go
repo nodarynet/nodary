@@ -30,32 +30,46 @@ func cmdLimitsShow(e env, args []string) int {
 	fs := newFlagSet(e, "limits show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "limits show", path)
-	if !ok {
-		return ExitFailure
+	rem, code := remoteFor(e, "limits show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	snap, err := config.Read(context.Background(), db.Read())
+	var limits []config.Limit
+	var err error
+	if rem != nil {
+		limits, err = remoteList[config.Limit](rem, "/limits", "limits", nil)
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "limits show", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		var snap *config.Snapshot
+		if snap, err = config.Read(context.Background(), db.Read()); err == nil {
+			limits = snap.Limits
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary limits show: %v\n", err)
-		return ExitFailure
+		return exitFor(err)
 	}
 	if *format == "json" {
 		return writeJSON(e, "limits show", map[string]any{
-			"limits": snap.Limits, "enforced": true})
+			"limits": limits, "enforced": true})
 	}
-	if len(snap.Limits) == 0 {
+	if len(limits) == 0 {
 		fmt.Fprintln(e.stdout, "no limits set")
 	}
-	for _, l := range snap.Limits {
+	for _, l := range limits {
 		fmt.Fprintf(e.stdout, "%-8s %-24s rpm=%s tpm=%s daily=%s concurrent=%s\n",
 			l.SubjectKind, l.SubjectID, dashIfUnset(l.RPM), dashIfUnset(l.TPM),
 			dashIfUnset(l.DailyTokens), dashIfUnset(l.MaxConcurrent))

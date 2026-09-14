@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -39,34 +40,48 @@ func cmdRouteList(e env, args []string) int {
 	fs := newFlagSet(e, "route list")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "route list", path)
-	if !ok {
-		return ExitFailure
+	rem, code := remoteFor(e, "route list", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
 	}
-	defer db.Close()
 
-	snap, err := config.Read(context.Background(), db.Read())
+	var routes []config.Route
+	var err error
+	if rem != nil {
+		routes, err = remoteList[config.Route](rem, "/routes", "routes", nil)
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "route list", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
+		var snap *config.Snapshot
+		if snap, err = config.Read(context.Background(), db.Read()); err == nil {
+			routes = snap.Routes
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary route list: %v\n", err)
-		return ExitFailure
+		return exitFor(err)
 	}
 	if *format == "json" {
-		return writeJSON(e, "route list", map[string]any{"routes": snap.Routes})
+		return writeJSON(e, "route list", map[string]any{"routes": routes})
 	}
-	if len(snap.Routes) == 0 {
+	if len(routes) == 0 {
 		fmt.Fprintln(e.stdout, "no routes")
 		return ExitOK
 	}
 	tw := tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSTRATEGY\tMEMBERS")
-	for _, r := range snap.Routes {
+	for _, r := range routes {
 		fmt.Fprintf(tw, "%s\t%s\t%d\n", r.Name, r.Strategy, len(r.Members))
 	}
 	return flush(e, "route list", tw)
@@ -76,6 +91,7 @@ func cmdRouteShow(e env, args []string) int {
 	fs := newFlagSet(e, "route show")
 	format := formatFlag(fs)
 	dbPath := dbFlag(fs)
+	server, credsPath := serverFlag(fs), credentialsFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -87,25 +103,37 @@ func cmdRouteShow(e env, args []string) int {
 		return ExitUsage
 	}
 	name := fs.Arg(0)
+	rem, code := remoteFor(e, "route show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
+	}
 
-	path, _ := resolveDB(*dbPath)
-	db, ok := openForReading(e, "route show", path)
-	if !ok {
-		return ExitFailure
-	}
-	defer db.Close()
+	var r config.Route
+	if rem != nil {
+		if err := rem.do("GET", "/routes/"+url.PathEscape(name), nil, &r); err != nil {
+			fmt.Fprintf(e.stderr, "nodary route show: %v\n", err)
+			return exitFor(err)
+		}
+	} else {
+		path, _ := resolveDB(*dbPath)
+		db, ok := openForReading(e, "route show", path)
+		if !ok {
+			return ExitFailure
+		}
+		defer db.Close()
 
-	snap, err := config.Read(context.Background(), db.Read())
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary route show: %v\n", err)
-		return ExitFailure
+		snap, err := config.Read(context.Background(), db.Read())
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary route show: %v\n", err)
+			return ExitFailure
+		}
+		idx := slices.IndexFunc(snap.Routes, func(r config.Route) bool { return r.Name == name })
+		if idx < 0 {
+			fmt.Fprintf(e.stderr, "nodary route show: no route named %q; `nodary route list` names them\n", name)
+			return ExitFailure
+		}
+		r = snap.Routes[idx]
 	}
-	idx := slices.IndexFunc(snap.Routes, func(r config.Route) bool { return r.Name == name })
-	if idx < 0 {
-		fmt.Fprintf(e.stderr, "nodary route show: no route named %q; `nodary route list` names them\n", name)
-		return ExitFailure
-	}
-	r := snap.Routes[idx]
 	if *format == "json" {
 		return writeJSON(e, "route show", r)
 	}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/agent"
@@ -62,9 +63,17 @@ type remote struct {
 // The exit code is returned rather than a bool because the two ways this fails
 // are different answers to a script: no credential is ExitAuth, a malformed
 // --server is ExitUsage.
-func remoteFor(e env, verb, target, credsPath string) (*remote, int) {
+func remoteFor(e env, verb, target, credsPath, dbPath string) (*remote, int) {
 	if strings.TrimSpace(target) == "" {
 		return nil, -1
+	}
+	// Both named is a contradiction, and the quiet resolution — remote wins,
+	// --db ignored — is the failure this whole flag is careful about: an
+	// operator who believed they were reading one database and read another.
+	if strings.TrimSpace(dbPath) != "" {
+		fmt.Fprintf(e.stderr, "nodary %s: --server and --db name different control planes; "+
+			"pass one.\n", verb)
+		return nil, ExitUsage
 	}
 	base, err := normalizeServer(target)
 	if err != nil {
@@ -180,6 +189,49 @@ func (r *remote) do(method, path string, body, out any) error {
 		return fmt.Errorf("%s answered with something this release cannot read: %v", r.base, err)
 	}
 	return nil
+}
+
+// remoteList reads a whole listing, following docs/specs/09-api.md §2's cursor
+// to the end.
+//
+// The CLI's listings are not paged — `nodary node list` prints the fleet — so
+// stopping at the first page would quietly print fifty nodes of sixty and say
+// nothing, which is the same wrong-answer-without-a-symptom that readPage
+// refuses a clamped limit over.
+func remoteList[T any](r *remote, path, field string, q url.Values) ([]T, error) {
+	if q == nil {
+		q = url.Values{}
+	}
+	q.Set("limit", strconv.Itoa(api.MaxLimit))
+	// Empty rather than nil. `--format json` is a stable schema a script reads
+	// (docs/specs/10-cli.md §2), config.Read returns an empty slice for a
+	// listing with nothing in it, and a `null` where that script expects `[]`
+	// is a difference between the two routes with no reason behind it.
+	all := []T{}
+	for {
+		var body map[string]json.RawMessage
+		if err := r.do("GET", path+"?"+q.Encode(), nil, &body); err != nil {
+			return nil, err
+		}
+		var items []T
+		if raw, ok := body[field]; ok {
+			if err := json.Unmarshal(raw, &items); err != nil {
+				return nil, fmt.Errorf("%s answered with a %s listing this release cannot read: %v",
+					r.base, field, err)
+			}
+		}
+		all = append(all, items...)
+		var next string
+		if raw, ok := body["next_cursor"]; ok {
+			_ = json.Unmarshal(raw, &next)
+		}
+		// An empty page with a cursor would loop for ever against a control
+		// plane that is wrong about having more.
+		if next == "" || len(items) == 0 {
+			return all, nil
+		}
+		q.Set("cursor", next)
+	}
 }
 
 // remoteError is a refusal the control plane stated.
