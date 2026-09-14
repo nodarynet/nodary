@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,7 +39,8 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 type Options struct {
 	// Descriptor is the derive. Its recipe is the whole input.
 	Descriptor backend.Descriptor
-	// Tag is what the result is named locally, before R6-10 records its digest.
+	// Tag is what the result is named locally — the reference a deployment
+	// pins once R6-10 records it.
 	Tag string
 	// Run drives nerdctl.
 	Run Runner
@@ -51,8 +53,20 @@ type Options struct {
 
 // Result is what a build produced.
 type Result struct {
-	// Image is the local reference the result was tagged with.
+	// Image is the local reference the result was tagged with. This is what a
+	// deployment pins, and it is content-addressed by convention: the tag
+	// carries the recipe digest, so a different recipe is a different tag and
+	// no build ever quietly replaces what another produced.
 	Image string `json:"image"`
+	// Digest is what that reference resolves to in the image store — the
+	// "digest of the image it produced" §5 requires the record to carry.
+	//
+	// Separate from Image because they answer different questions: Image is
+	// what to run, Digest is what ran. `nerdctl commit` writes into the local
+	// content store rather than pushing, so this is an image ID and not a
+	// registry digest; it identifies the bytes on this host, which is where
+	// the build happened and the only place it can be attested from.
+	Digest string `json:"digest"`
 	// Steps is how many ran.
 	Steps int `json:"steps"`
 	// Reached is the hosts the build was allowed to reach, for the record R6-10
@@ -160,7 +174,10 @@ func Build(ctx context.Context, o Options) (Result, error) {
 			return Result{}, fmt.Errorf("step %d (%s): %v: %s", i+1, step, runErr, tail(out))
 		}
 
-		committed := fmt.Sprintf("%s:step-%d", o.Tag, i+1)
+		// Named from the backend rather than from o.Tag: a tag already
+		// carrying a `:` would make "<tag>:step-1" an unparseable reference,
+		// and the intermediates are this package's business anyway.
+		committed := fmt.Sprintf("nodary-derive/%s:step-%d", b.Name, i+1)
 		if out, err := o.Run(ctx, "nerdctl", "commit", container, committed); err != nil {
 			return Result{}, fmt.Errorf("committing step %d: %v: %s", i+1, err, tail(out))
 		}
@@ -179,7 +196,35 @@ func Build(ctx context.Context, o Options) (Result, error) {
 	if refusal := proxy.RefusalError(); refusal != nil {
 		return Result{}, refusal
 	}
-	return Result{Image: o.Tag, Steps: len(b.Derive.Steps), Reached: allow}, nil
+
+	digest, err := imageDigest(ctx, o.Run, o.Tag)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Image: o.Tag, Digest: digest, Steps: len(b.Derive.Steps), Reached: allow}, nil
+}
+
+// contentID is an image ID as the store spells one.
+var contentID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// imageDigest asks the store what a reference resolves to.
+//
+// `images --no-trunc --quiet` rather than `image inspect`: it is one line of
+// output with one meaning, where inspect's schema is a docker-compatibility
+// surface whose field spelling has moved between nerdctl releases. The shape is
+// checked rather than trusted, because an unexpected line recorded as
+// provenance is worse than a build that says it could not tell.
+func imageDigest(ctx context.Context, run Runner, ref string) (string, error) {
+	out, err := run(ctx, "nerdctl", "images", "--no-trunc", "--quiet", ref)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s: %v: %s", ref, err, tail(out))
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); contentID.MatchString(line) {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("the image store does not say what %s is: %q", ref, tail(out))
 }
 
 func tail(out []byte) string {

@@ -22,6 +22,8 @@ type fakeRuntime struct {
 	// which is what a step reaching somewhere actually looks like: the build
 	// gives it HTTPS_PROXY and the step uses it.
 	reach string
+	// unresolvable makes the store answer `images` with nothing useful.
+	unresolvable bool
 }
 
 func (f *fakeRuntime) run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -31,6 +33,14 @@ func (f *fakeRuntime) run(_ context.Context, name string, args ...string) ([]byt
 	}
 	if f.fail != "" && len(args) > 0 && args[0] == f.fail {
 		return []byte(f.out), errors.New("exit status 1")
+	}
+	// The store answering what a reference resolves to, which is where the
+	// digest in the record comes from.
+	if len(args) > 0 && args[0] == "images" {
+		if f.unresolvable {
+			return []byte("<none>\n"), nil
+		}
+		return []byte("sha256:" + strings.Repeat("c", 64) + "\n"), nil
 	}
 	return nil, nil
 }
@@ -236,5 +246,46 @@ func TestBuildingSomethingThatIsNotADeriveIsRefused(t *testing.T) {
 	}
 	if len(rt.calls) != 0 {
 		t.Errorf("it started building anyway: %v", rt.calls)
+	}
+}
+
+// §5 requires the record to carry the digest of the image the build produced.
+// A tag alone would not do it: a tag is a name for whatever is behind it, and
+// the provenance record exists precisely to say what that was.
+func TestABuildReportsWhatItProduced(t *testing.T) {
+	f := &fakeRuntime{}
+	got, err := Build(context.Background(), Options{
+		Descriptor: derive(t, `"pip install x==1"`, `index_url = "https://pypi.internal/simple"`),
+		Tag:        "nodary/vllm-fips:abc123", Run: f.run, listen: "127.0.0.1:0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Digest != "sha256:"+strings.Repeat("c", 64) {
+		t.Errorf("digest = %q, want what the store said it is", got.Digest)
+	}
+	if got.Image != "nodary/vllm-fips:abc123" {
+		t.Errorf("image = %q", got.Image)
+	}
+	// An intermediate must stay a parseable reference: a tag that already
+	// carries a `:` makes "<tag>:step-1" two colons and no image.
+	if f.saw("commit nodary-derive-vllm-fips-0 nodary/vllm-fips:abc123:step-1") {
+		t.Error("an intermediate was named by appending to a tag that already had one")
+	}
+}
+
+// An unexpected line recorded as provenance is worse than a build that says it
+// could not tell.
+func TestAStoreThatDoesNotSayWhatItBuiltFailsTheBuild(t *testing.T) {
+	f := &fakeRuntime{unresolvable: true}
+	_, err := Build(context.Background(), Options{
+		Descriptor: derive(t, `"pip install x==1"`, `index_url = "https://pypi.internal/simple"`),
+		Tag:        "nodary/vllm-fips:abc123", Run: f.run, listen: "127.0.0.1:0",
+	})
+	if err == nil {
+		t.Fatal("a build whose output could not be identified succeeded")
+	}
+	if !strings.Contains(err.Error(), "does not say what") {
+		t.Errorf("the failure does not say what went wrong: %v", err)
 	}
 }
