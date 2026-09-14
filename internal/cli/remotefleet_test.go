@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -825,5 +826,124 @@ func TestConfigReadsOverServer(t *testing.T) {
 	}
 	if !strings.Contains(out, "no change") {
 		t.Errorf("a configuration exported and diffed against itself is not identical:\n%s", out)
+	}
+}
+
+// `config apply` over --server: the declarative route, which is how a site
+// keeps its configuration in version control and applies it from a laptop
+// rather than from a shell on the control plane.
+func TestConfigApplyAndRollbackOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	doc := filepath.Join(t.TempDir(), "config.toml")
+	if code, _, stderr := run(t, "config", "export", "--server", base,
+		"--credentials", a.creds, "--out", doc); code != ExitOK {
+		t.Fatalf("config export: exit %d, %s", code, stderr)
+	}
+	body, err := os.ReadFile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One edit an operator would make: a second route naming the deployment
+	// that already exists.
+	edited := string(body) + "\n[[route]]\nname = \"tiny-alias\"\nstrategy = \"round-robin\"\n" +
+		"member = [{ deployment_id = \"tiny-gpu-01\", weight = 1 }]\n"
+	if err := os.WriteFile(doc, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A dry run first: rendered and hashed on the control plane, applying
+	// nothing.
+	code, out, stderr := run(t, "config", "apply", "-f", doc, "--server", base,
+		"--credentials", a.creds, "--justify", "adding an alias", "--dry-run")
+	if code != ExitOK {
+		t.Fatalf("config apply --dry-run: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "tiny-alias") {
+		t.Errorf("the preview does not name the change:\n%s", out)
+	}
+	if code, out, _ = run(t, "route", "list", "--server", base,
+		"--credentials", a.creds); code != ExitOK || strings.Contains(out, "tiny-alias") {
+		t.Errorf("a dry run applied the change:\n%s", out)
+	}
+
+	code, out, stderr = run(t, "config", "apply", "-f", doc, "--server", base,
+		"--credentials", a.creds, "--justify", "adding an alias")
+	if code != ExitOK {
+		t.Fatalf("config apply: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, "tiny-alias") {
+		t.Errorf("the apply does not report what it changed:\n%s", out)
+	}
+	if code, out, _ = run(t, "route", "list", "--server", base,
+		"--credentials", a.creds); code != ExitOK || !strings.Contains(out, "tiny-alias") {
+		t.Fatalf("the route was not created:\n%s", out)
+	}
+
+	// The record names the person and the reason, which is the whole point.
+	code, records, stderr := a.run("audit", "list", "--action", "config.apply", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(records, "adding an alias") {
+		t.Errorf("the justification is not in the chain:\n%s", records)
+	}
+
+	// And a rollback undoes it, resolved by the control plane from its own
+	// revision rather than by shipping a snapshot back to it.
+	code, revs, stderr := run(t, "config", "list", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("config list: exit %d, %s", code, stderr)
+	}
+	var listing []struct {
+		Seq int64 `json:"seq"`
+	}
+	if err := json.Unmarshal([]byte(revs), &listing); err != nil {
+		t.Fatalf("%v\n%s", err, revs)
+	}
+	if len(listing) < 2 {
+		t.Fatalf("expected at least two revisions:\n%s", revs)
+	}
+	// config list is newest-first, so the one before the apply is the second.
+	if code, _, stderr = run(t, "config", "rollback", strconv.FormatInt(listing[1].Seq, 10),
+		"--prune", "--server", base, "--credentials", a.creds,
+		"--justify", "the alias was a mistake"); code != ExitOK {
+		t.Fatalf("config rollback: exit %d, %s", code, stderr)
+	}
+	if code, out, _ = run(t, "route", "list", "--server", base,
+		"--credentials", a.creds); code != ExitOK || strings.Contains(out, "tiny-alias") {
+		t.Errorf("the rollback did not remove the route:\n%s", out)
+	}
+}
+
+// A document this control plane cannot read is its refusal to make, and it has
+// to say what is wrong with it — not "the server failed to handle this
+// request".
+func TestAnUnreadableConfigurationIsRefusedWithItsReason(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	doc := filepath.Join(t.TempDir(), "broken.toml")
+	if err := os.WriteFile(doc, []byte("[[route]\nname = \"oops\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := run(t, "config", "apply", "-f", doc, "--server", base,
+		"--credentials", a.creds, "--justify", "a typo")
+	if code == ExitOK {
+		t.Fatal("a malformed document was applied")
+	}
+	if strings.Contains(stderr, "the server failed to handle this request") {
+		t.Errorf("a typo came back as a server failure: %q", stderr)
+	}
+	if !strings.Contains(stderr, "invalid configuration") {
+		t.Errorf("the refusal does not say the document is the problem: %q", stderr)
 	}
 }

@@ -168,7 +168,16 @@ func (r *remote) get(path string, out any) (etag string, err error) {
 func (r *remote) doWith(method, path string, body, out any,
 	headers map[string]string) (http.Header, error) {
 	var rdr io.Reader
-	if body != nil {
+	contentType := "application/json"
+	switch v := body.(type) {
+	case nil:
+	case rawTOML:
+		// A configuration document travels as itself. 08 §2 makes the exported
+		// file and the applied file one document, so the bytes the operator
+		// edited are the bytes the control plane parses.
+		contentType = "application/toml"
+		rdr = strings.NewReader(string(v))
+	default:
 		b, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
@@ -179,8 +188,8 @@ func (r *remote) doWith(method, path string, body, out any,
 	if err != nil {
 		return nil, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if rdr != nil {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if r.cred.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+r.cred.Token)

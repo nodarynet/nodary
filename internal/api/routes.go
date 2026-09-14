@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,6 +95,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/revisions/{seq}/rollback", s.rollback)
 	h("GET", "/config/export", s.exportConfig)
 	h("GET", "/config/verify", s.verifyConfig)
+	h("POST", "/config/apply", s.applyConfig)
 
 	// Nodes — R2-26. Reads, the administrative transitions, and the stored
 	// egress verdicts; enrollment is the agent's own path above.
@@ -656,6 +658,81 @@ func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// maxConfigDocument bounds an applied configuration. A whole fleet's TOML is
+// kilobytes; anything near this is not one.
+const maxConfigDocument = 4 << 20
+
+// applyConfig applies a whole configuration document, which is what
+// `nodary config apply -f FILE` sends over --server.
+//
+// **The body is the TOML, not a decoded snapshot**, and that is the decision
+// worth writing down. [08 §2](../../docs/specs/08-data-model.md) makes the
+// exported file and the applied file the same document, so the bytes an
+// operator edited are what crosses the wire — and config.DecodeTOML runs once,
+// on the machine that is about to apply them. A client that decoded first
+// would be interpreting the document on one version of this code and applying
+// it on another, and the preview would be rendered from its reading rather
+// than from the control plane's.
+//
+// A document this control plane cannot read is therefore its refusal to make,
+// and it is a 422 naming the line, not a 500.
+func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxConfigDocument))
+	if err != nil {
+		s.fail(w, r, badRequest("configuration document is larger than %d bytes", maxConfigDocument))
+		return
+	}
+	want, err := config.DecodeTOML(body)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: %v", config.ErrInvalid, err))
+		return
+	}
+	prune := r.URL.Query().Get("prune") == "true"
+
+	var result config.Result
+	s.mutate(w, r, core.Change{
+		Action: "config.apply",
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			// Rendered against live state, so an intent approved against one
+			// configuration refuses to apply to another.
+			have, err := config.Read(ctx, tx)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"changes": config.FilterChanges(config.Changes(have, want), prune),
+				"prune":   prune}, nil
+		},
+		Apply: func(m audit.Mutation, _ any) error {
+			if err := checkIfMatch(r.Context(), r, m.Tx()); err != nil {
+				return err
+			}
+			p, _ := s.principalOf(r)
+			var err error
+			if result, err = config.Apply(r.Context(), m, s.now(), want,
+				config.Options{Prune: prune}); err != nil {
+				return err
+			}
+			_, err = config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
+			return err
+		},
+	}, func(core.Outcome) any { return applyResult(result) })
+}
+
+// applyResult is what an apply did, so a client prints the same lines the CLI
+// prints on the host — including the orphans, which are the ones an operator
+// has to decide about.
+func applyResult(r config.Result) map[string]any {
+	changes, orphans := r.Changes, r.Orphans
+	if changes == nil {
+		changes = []string{}
+	}
+	if orphans == nil {
+		orphans = []string{}
+	}
+	return map[string]any{"changes": changes, "orphans": orphans}
+}
+
 func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
 	if err != nil {
@@ -668,6 +745,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prune := r.URL.Query().Get("prune") == "true"
+	var result config.Result
 	s.mutate(w, r, core.Change{
 		Action: "config.apply",
 		Target: &audit.Target{Kind: "revision", ID: strconv.FormatInt(seq, 10)},
@@ -683,14 +761,15 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			p, _ := s.principalOf(r)
-			if _, err := config.Apply(r.Context(), m, s.now(), target.Snapshot,
+			var err error
+			if result, err = config.Apply(r.Context(), m, s.now(), target.Snapshot,
 				config.Options{Prune: prune}); err != nil {
 				return err
 			}
-			_, err := config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
+			_, err = config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
 			return err
 		},
-	}, nil)
+	}, func(core.Outcome) any { return applyResult(result) })
 }
 
 // --- fleet reads -------------------------------------------------------------

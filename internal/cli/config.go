@@ -401,6 +401,7 @@ func cmdConfigDiff(e env, args []string) int {
 func cmdConfigApply(e env, args []string, forced string) int {
 	fs := newFlagSet(e, "config apply")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	file := fs.String("f", "", "the configuration to apply")
 	prune := fs.Bool("prune", false, "delete objects the configuration does not mention")
@@ -422,6 +423,21 @@ func cmdConfigApply(e env, args []string, forced string) int {
 		}
 		source = string(body)
 	}
+
+	r, code := remoteFor(e, "config apply", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		// The document goes as the operator wrote it. config.DecodeTOML runs
+		// once, on the machine that applies it, so the preview is rendered
+		// from the control plane's reading of the file rather than from this
+		// one's — and a document it cannot read is its refusal to make.
+		return remoteApply(e, r, "config apply",
+			remoteAct{method: "POST", path: applyPath("/config/apply", *prune), body: rawTOML(source)},
+			*noSync, cer)
+	}
+
 	want, err := config.DecodeTOML([]byte(source))
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary config apply: %v\n", err)
@@ -430,9 +446,62 @@ func cmdConfigApply(e env, args []string, forced string) int {
 	return applySnapshot(e, "config apply", want, *prune, *noSync, cer, dbPath, keyPath, credsPath)
 }
 
+// rawTOML marks a request body as the configuration document itself rather
+// than something to encode as JSON.
+type rawTOML string
+
+func applyPath(path string, prune bool) string {
+	if prune {
+		return addQuery(path, "prune=true")
+	}
+	return path
+}
+
+// remoteApply runs an apply or a rollback against a control plane and prints
+// what it did.
+func remoteApply(e env, r *remote, verb string, act remoteAct, noSync bool, cer ceremonyFlags) int {
+	out, applied, code := r.attested(e, verb, act, cer, "text")
+	if !applied {
+		return code
+	}
+	changes := resultStrings(out.Result, "changes")
+	for _, c := range changes {
+		fmt.Fprintf(e.stdout, "%s\n", c)
+	}
+	if len(changes) == 0 {
+		fmt.Fprintf(e.stdout, "no change\n")
+	}
+	orphans := resultStrings(out.Result, "orphans")
+	for _, o := range orphans {
+		fmt.Fprintf(e.stderr, "left in place, not in this configuration: %s\n", o)
+	}
+	if len(orphans) > 0 {
+		fmt.Fprintf(e.stderr, "pass --prune to delete them\n")
+	}
+	reportRecord(e, audit.Record{Seq: out.AuditSeq})
+
+	// **--no-sync means nothing here, so it says so rather than being ignored.**
+	// The data plane's rendering is a file on the control-plane host, written
+	// by `gateway sync` there; this machine cannot write it. What makes that
+	// acceptable rather than a gap is R3-14's timer, which re-renders every
+	// minute — so a route change applied from here is live within one, and the
+	// operator is told that instead of being left to wonder.
+	if movesTheDataPlane(changes) {
+		if noSync {
+			fmt.Fprintf(e.stderr,
+				"--no-sync has no effect over --server: the data plane is rendered on the\n"+
+					"control plane, and its sync timer runs there.\n")
+		}
+		fmt.Fprintf(e.stderr,
+			"Routes changed. The control plane re-renders the data plane within a minute.\n")
+	}
+	return ExitOK
+}
+
 func cmdConfigRollback(e env, args []string) int {
 	fs := newFlagSet(e, "config rollback")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	prune := fs.Bool("prune", false, "delete objects the target revision does not mention")
 	noSync := fs.Bool("no-sync", false, "do not re-render the data plane even if routes changed")
@@ -447,6 +516,19 @@ func cmdConfigRollback(e env, args []string) int {
 	if err != nil || seq < 1 {
 		fmt.Fprintf(e.stderr, "nodary config rollback: %q is not a revision number\n", fs.Arg(0))
 		return ExitUsage
+	}
+
+	r, code := remoteFor(e, "config rollback", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		// The control plane resolves the revision itself — it holds the
+		// snapshots, and fetching one here only to send it back would let a
+		// rollback apply something other than what that revision recorded.
+		return remoteApply(e, r, "config rollback", remoteAct{method: "POST",
+			path: applyPath("/revisions/"+strconv.FormatInt(seq, 10)+"/rollback", *prune)},
+			*noSync, cer)
 	}
 
 	path, _ := resolveDB(*dbPath)

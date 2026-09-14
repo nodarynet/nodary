@@ -22,11 +22,30 @@ Mutating requests carry `X-Nodary-Justify` and, when policy requires it, `X-Noda
 | **Usage** | `GET /usage?from&to&user&model&group_by` |
 | **Audit** | `GET /audit?from&to&actor&action` · `GET /audit/verify` · `GET /audit/export?format=jsonl\|csv` |
 | **Policy** | `GET /policy` · `POST /policy/apply` · `GET /policy/diff` |
-| **Config** | `GET /revisions` · `GET /revisions/{seq}` · `POST /revisions/{seq}/rollback` · `GET /config/export` |
+| **Config** | `GET /revisions` · `GET /revisions/{seq}` · `POST /revisions/{seq}/rollback` · `GET /config/export` · `GET /config/verify` · `POST /config/apply` |
 | **Agent** | `POST /enroll` · `GET /agent/desired` · `POST /agent/status` · `POST /agent/events` · `GET /agent/dist/{version}` ([03](03-agent.md)) |
 
 Inference is served separately on the gateway port and mirrors the OpenAI surface
 ([06](06-gateway.md)).
+
+`GET /config/verify` and `POST /config/apply` were added when `--server` reached the
+configuration verbs ([10 §2](10-cli.md#2-global-flags)). Both exist because the work belongs
+on the machine holding the revisions rather than on the operator's. Verification walks the
+whole chain and every revision carries a complete configuration snapshot, so doing it from
+outside would mean shipping the entire history across the network to perform arithmetic the
+control plane can perform in place — the same argument `GET /audit/verify` already stands on.
+
+**`POST /config/apply` takes the TOML document itself**, not a decoded snapshot, and it is the
+only endpoint on this surface whose request body is not JSON. [08 §2](08-data-model.md) makes
+the exported file and the applied file one document, so the bytes an operator edited are the
+bytes that cross the wire and `DecodeTOML` runs once, on the machine about to apply them. A
+client that decoded first would be interpreting the document on one version of this code and
+applying it on another, and the preview would be rendered from the client's reading rather
+than from the control plane's. A document the control plane cannot read is therefore its
+refusal to make, and it is a `422` naming the line.
+
+The object endpoints above remain the way a program changes one thing. This is the
+declarative route: a site keeping its configuration in version control applies the file.
 
 ## 2. Conventions
 
