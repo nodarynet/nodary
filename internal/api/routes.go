@@ -127,6 +127,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/models/{id}/enable", s.modelToggle(false))
 	h("POST", "/models/{id}/disable", s.modelToggle(true))
 	h("POST", "/models/{id}/restart", s.modelRestart)
+	h("POST", "/models/{id}/unstage", s.modelStageReset(fleet.Unstage))
+	h("POST", "/models/{id}/restage", s.modelStageReset(fleet.Restage))
 	h("GET", "/limits", s.listFleet("limits"))
 	h("PUT", "/limits/{kind}/{id}", s.putLimit)
 	h("POST", "/tokens/join", s.createJoinToken)
@@ -1307,6 +1309,38 @@ func onNode(node string) string {
 // replicas of a *model* and is the reason the guarantee exists at all. Named,
 // it narrows the roll to one host's copies; omitted, it takes every replica in
 // a fixed order.
+// modelStageReset is `model unstage` and `model restage` over the network.
+//
+// Both preconditions and the write live in internal/fleet, so this handler
+// decides nothing the CLI does not decide identically — it resolves the node
+// from the query string and hands over. `?node=` is required here as it is
+// there: without it the request names no node, and guessing one would discard
+// weights on a machine nobody asked about.
+func (s *Server) modelStageReset(verb string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		node := r.URL.Query().Get("node")
+		if node == "" {
+			s.fail(w, r, badRequest("?node= is required; it names whose copy this discards"))
+			return
+		}
+		s.mutate(w, r, core.Change{
+			Action: "model." + verb,
+			Target: &audit.Target{Kind: "model", ID: id},
+			Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+				return fleet.StageResetPreview(ctx, tx, verb, id, node)
+			},
+			Apply: func(m audit.Mutation, _ any) error {
+				p, _ := s.principalOf(r)
+				if err := identity.Authorize(p.Role, identity.PermModelStage); err != nil {
+					return err
+				}
+				return fleet.RequestStageReset(r.Context(), m, s.now(), id, node)
+			},
+		}, nil)
+	}
+}
+
 func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	node := r.URL.Query().Get("node")

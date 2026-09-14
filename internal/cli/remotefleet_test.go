@@ -1205,3 +1205,89 @@ func TestPolicyApplyOverServerReportsWhatItNowDenies(t *testing.T) {
 		t.Errorf("no policy.apply record:\n%s", out)
 	}
 }
+
+// The staging verbs over --server. Both are one-shot requests the agent picks
+// up on its next poll, and both are guarded by a precondition that now lives
+// in internal/fleet rather than in either front end.
+func TestStagingVerbsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	base := a.servedBy(t, "alice", "admin")
+	a.modelWithNoDeployment(t, "acme/loose", "local")
+	a.modelWithNoDeployment(t, "acme/rotten", "remote")
+	a.markCorrupt(t, "fractal", "acme/rotten")
+
+	for _, c := range []struct{ verb, model string }{
+		{"unstage", "acme/loose"},
+		{"restage", "acme/rotten"},
+	} {
+		code, _, stderr := run(t, "model", c.verb, c.model, "--node", "fractal", "--yes",
+			"--justify", "run from an administrator's own machine",
+			"--server", base, "--credentials", a.creds)
+		if code != ExitOK {
+			t.Fatalf("model %s over --server: exit %d, %s", c.verb, code, stderr)
+		}
+		if !strings.Contains(stderr, "next poll") {
+			t.Errorf("model %s said nothing about when it takes effect: %s", c.verb, stderr)
+		}
+	}
+
+	got := a.stageResetRows(t)
+	slices.Sort(got)
+	if len(got) != 2 || got[0] != "acme/loose" || got[1] != "acme/rotten" {
+		t.Errorf("stage_reset = %v, want both models requested", got)
+	}
+}
+
+// The preconditions are the act, so they have to refuse identically on both
+// roads — and each has to arrive as its own refusal rather than as a 500 with
+// the message withheld, which is what an unwrapped error costs over the wire.
+func TestStagingPreconditionsRefuseTheSameOnBothRoads(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	if code, _, stderr := a.run("node", "approve", "fractal", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "fractal")
+	a.modelWithNoDeployment(t, "acme/onmedia", "local")
+	// source: remote and not corrupt — the only shape that reaches restage's
+	// second precondition, since the first one refuses local weights outright.
+	a.modelWithNoDeployment(t, "acme/fetched", "remote")
+
+	for _, c := range []struct {
+		what, says string
+		args       []string
+	}{
+		{"unstaging a model a deployment still wants", "still deployed",
+			[]string{"model", "unstage", "acme/tiny", "--node", "fractal"}},
+		{"restaging something that is not corrupt", "not corrupt",
+			[]string{"model", "restage", "acme/fetched", "--node", "fractal"}},
+		{"restaging source: local weights", "source: local",
+			[]string{"model", "restage", "acme/onmedia", "--node", "fractal"}},
+		{"a model that does not exist", "no model named",
+			[]string{"model", "unstage", "acme/absent", "--node", "fractal"}},
+	} {
+		args := append(append([]string{}, c.args...), "--yes", "--justify", "a refusal either way")
+		local, _, localErr := run(t, append(append([]string{}, args...),
+			"--db", a.db, "--secret-key", a.key)...)
+		remote, _, remoteErr := run(t, append(append([]string{}, args...),
+			"--server", base, "--credentials", a.creds)...)
+
+		if local == ExitOK || remote == ExitOK {
+			t.Fatalf("%s was not refused: local %d, remote %d\n%s%s",
+				c.what, local, remote, localErr, remoteErr)
+		}
+		if local != remote {
+			t.Errorf("%s: exit %d locally and %d over --server\n  local  %s  remote %s",
+				c.what, local, remote, localErr, remoteErr)
+		}
+		if !strings.Contains(remoteErr, c.says) {
+			t.Errorf("%s over --server did not say why (want %q):\n%s", c.what, c.says, remoteErr)
+		}
+	}
+	if rows := a.stageResetRows(t); len(rows) != 0 {
+		t.Errorf("stage_reset = %v, want nothing written by any refusal", rows)
+	}
+}

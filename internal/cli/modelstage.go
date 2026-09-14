@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
@@ -34,6 +36,7 @@ import (
 func cmdModelStageReset(e env, args []string, verb string) int {
 	fs := newFlagSet(e, "model "+verb)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	node := fs.String("node", "", "the node whose copy this affects")
@@ -53,6 +56,25 @@ func cmdModelStageReset(e env, args []string, verb string) int {
 	}
 	id := fs.Arg(0)
 
+	rem, code := remoteFor(e, "model "+verb, *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if rem != nil {
+		// --node is required on this side and narrows on the far side too: a
+		// flag accepted here and dropped on the wire would turn "discard the
+		// copy on gpu-02" into a request against whichever node the control
+		// plane picked.
+		_, applied, code := rem.attested(e, "model "+verb, remoteAct{method: "POST",
+			path: addQuery("/models/"+url.PathEscape(id)+"/"+verb, "node="+url.QueryEscape(*node))},
+			cer, *format)
+		if !applied {
+			return code
+		}
+		notePoll(e, verb, id, *node)
+		return ExitOK
+	}
+
 	s, ok := openSession(e, "model "+verb, *dbPath, *keyPath, *credsPath)
 	if !ok {
 		return ExitFailure
@@ -63,45 +85,7 @@ func cmdModelStageReset(e env, args []string, verb string) int {
 		action: "model." + verb,
 		target: &audit.Target{Kind: "model", ID: id},
 		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			var source string
-			if err := tx.QueryRowContext(ctx, `SELECT source FROM model WHERE id = ?`, id).Scan(&source); err != nil {
-				if err == sql.ErrNoRows {
-					return nil, fmt.Errorf("%w: no model named %q; `nodary model register` names it first",
-						identity.ErrBadName, id)
-				}
-				return nil, err
-			}
-
-			var deployed bool
-			if err := tx.QueryRowContext(ctx,
-				`SELECT EXISTS(SELECT 1 FROM deployment WHERE model_id = ? AND node_name = ?)`,
-				id, *node).Scan(&deployed); err != nil {
-				return nil, err
-			}
-
-			if verb == "unstage" {
-				if deployed {
-					return nil, fmt.Errorf(
-						"%s is still deployed on %s; remove its [[deployment]] and re-apply with --prune first",
-						id, *node)
-				}
-			} else {
-				if source != "remote" {
-					return nil, fmt.Errorf(
-						"%s is source: local; its weights are re-verified every reconcile already — "+
-							"replace the bad file(s) under the node's models directory and the next poll reports it",
-						id)
-				}
-				var stagingState string
-				err := tx.QueryRowContext(ctx,
-					`SELECT state FROM staging WHERE model_id = ? AND node_name = ?`, id, *node).Scan(&stagingState)
-				if err == sql.ErrNoRows || stagingState != "corrupt" {
-					return nil, fmt.Errorf(
-						"%s on %s is not corrupt; restage is for the stuck state (docs/specs/05-catalog.md §3), "+
-							"not a general redownload", id, *node)
-				}
-			}
-			return map[string]any{"model": id, "node": *node, "deployed": deployed}, nil
+			return fleet.StageResetPreview(ctx, tx, verb, id, *node)
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := identity.Authorize(s.who.Role, identity.PermModelStage); err != nil {
@@ -110,19 +94,22 @@ func cmdModelStageReset(e env, args []string, verb string) int {
 			if err := s.touch(m); err != nil {
 				return err
 			}
-			_, err := m.Tx().ExecContext(context.Background(),
-				`INSERT INTO stage_reset (node_name, model_id, requested_at) VALUES (?, ?, ?)
-				 ON CONFLICT (node_name, model_id) DO UPDATE SET requested_at = excluded.requested_at`,
-				*node, id, s.now.UTC().Format(audit.TimeFormat))
-			return err
+			return fleet.RequestStageReset(context.Background(), m, s.now, id, *node)
 		},
 	}, cer, *format)
 	if !applied {
 		return code
 	}
 
-	fmt.Fprintf(e.stderr, "model %s: %s on %s will be applied on the agent's next poll (up to 60s)\n",
-		verb, id, *node)
+	notePoll(e, verb, id, *node)
 	reportRecord(e, rec)
 	return ExitOK
+}
+
+// notePoll says when the request takes effect. The agent pulls; nothing here
+// pushes (docs/specs/03-agent.md §1), so "done" means "recorded", and an
+// operator watching `node show` for an immediate change needs to know that.
+func notePoll(e env, verb, id, node string) {
+	fmt.Fprintf(e.stderr, "model %s: %s on %s will be applied on the agent's next poll (up to 60s)\n",
+		verb, id, node)
 }

@@ -543,7 +543,7 @@ machine you are standing on. These do, today:
 | | |
 | :--- | :--- |
 | Fleet | `node list`, `node show`, `node approve\|drain\|revoke` |
-| Models and routing | `model enable\|disable\|restart`, `route list\|show\|set`, `limits show\|set` |
+| Models and routing | `model enable\|disable\|restart\|restage\|unstage`, `route list\|show\|set`, `limits show\|set` |
 | Accounts | `user add\|list\|show\|suspend\|delete`, `token list\|create\|revoke` |
 | Records | `audit list`, `usage show` |
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
