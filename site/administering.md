@@ -436,6 +436,66 @@ sudo nodary audit list --action auth.login
     persisting them would put a write on every failed attempt — on the single connection this
     design exists to keep free.
 
+## Administering from your own machine
+
+Every command on this page so far has been `sudo nodary …` on the control-plane host. That
+works, and it has one cost you can see in the chain: the record says the act was performed by
+`root`, by the method `local`. If three people share that shell, the chain cannot tell you
+which of them approved a node.
+
+`--server` is the other road. An administrator mints you a personal token:
+
+```sh
+sudo nodary token create --user alice
+```
+
+That token is printed once and is never readable again. On your own machine, store it against
+the appliance it belongs to:
+
+```sh
+nodary login --server https://nodary.example.internal:8443 \
+  --ca-fingerprint sha256:…
+```
+
+It reads the token on stdin — paste it at the prompt, or pipe it in — checks it against the
+control plane before writing anything, and saves it in `~/.nodary/credentials`, mode 0600.
+The fingerprint is the one `nodary server install` printed and `nodary server status`
+reprints, and it is the same value your nodes pin. It is required the first time and
+remembered afterwards.
+
+Then the verbs take `--server`:
+
+```sh
+nodary node list    --server https://nodary.example.internal:8443
+nodary node approve gpu-02 --server https://nodary.example.internal:8443 \
+  --justify "new GPU host, ticket OPS-4120"
+```
+
+The ceremony is the same one, and it is decided by the control plane rather than by your
+laptop: the change is previewed and hashed there, you confirm what you are shown, and the
+hash travels back with the act so what is applied is what was on the screen. A policy profile
+that demands a TOTP code asks for it here too. The difference is the record:
+
+```
+actor    alice            method  token
+```
+
+**A verb that does not yet take `--server` refuses it.** It does not quietly act on the
+machine you are standing on. These do, today:
+
+| | |
+| :--- | :--- |
+| Read | `node list`, `node show`, `route list`, `route show`, `limits show` |
+| Act | `node approve\|drain\|revoke`, `model enable\|disable\|restart`, `route set`, `limits set` |
+
+Everything else is still a shell on the control plane. `nodary logout --server …` forgets one
+appliance's credential; the token itself stays valid until somebody runs `nodary token
+revoke`, which is the audited act that ends it for everyone.
+
+!!! note "`--server` and `--db` are refused together"
+    They name different control planes, and resolving that quietly — remote wins, `--db`
+    ignored — is how you end up certain you read one database while reading another.
+
 ## The record
 
 ```sh
