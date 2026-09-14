@@ -166,13 +166,20 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 				"request_id", requestID(r))
 		}
 	}
-	// A stream that produced no usage chunk is `partial`, never zero: docs/specs
-	// §3 says usage is never silently dropped, because if disconnecting erased
-	// it, metering would be trivially avoidable. Counting the tokens actually
-	// observed is R3-07 and is not in this build — what is recorded here is
-	// that accounting is incomplete, which is the half that must not be lost.
+	// R3-07: a stream that ended before its usage chunk is metered from what
+	// was actually seen go past, and flagged `partial`.
+	//
+	// Both halves matter and they are different. **Never silently dropped**,
+	// because if disconnecting erased usage, metering would be trivially
+	// avoidable by disconnecting and the quota system would be decorative — so
+	// the count is charged against tpm and the daily budget by the deferred
+	// release above, which reads these fields after this runs. And **flagged**,
+	// because a count of content-bearing chunks is not a token count from a
+	// tokenizer: prompt tokens are unknowable here at all, so a row that
+	// claimed to be complete would be claiming a total it does not have.
 	if rec.streaming && !rec.sawUsage {
 		rec.usage.Partial = true
+		rec.usage.CompletionTokens = rec.observed
 	}
 	if err := observed.RecordUsage(r.Context(), s.db, rec.usage); err != nil {
 		// Logged and not returned: the request succeeded, and failing it after
@@ -216,12 +223,36 @@ type meter struct {
 	usage     observed.Usage
 	streaming bool
 	sawUsage  bool
+	// observed counts stream chunks that carried generated text (R3-07).
+	//
+	// It is what a stream that ends before its usage chunk is metered from. One
+	// chunk is one token for a backend that streams token by token, which vLLM,
+	// SGLang and llama.cpp all do by default — so this is a count of chunks
+	// presented as a count of tokens, and a backend that batched several per
+	// chunk would undercount. That approximation is why the row it produces is
+	// flagged `partial`: it says the accounting is incomplete rather than
+	// claiming a number it cannot stand behind.
+	//
+	// The alternative is a tokenizer per model inside the gateway, which is a
+	// large dependency and a second place model vocabularies have to be kept in
+	// step, bought for an estimate on an exceptional path.
+	observed int64
 }
 
 // observe reads usage out of one JSON document and keeps only the numbers.
 func (m *meter) observe(doc []byte) {
 	var body struct {
-		Model string `json:"model"`
+		Model   string `json:"model"`
+		Choices []struct {
+			// Chat completions carry generated text in delta.content;
+			// /v1/completions carries it in text. Both are counted, and
+			// neither is retained: the length is read and the string is
+			// dropped with the chunk.
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+			Text string `json:"text"`
+		} `json:"choices"`
 		Usage *struct {
 			PromptTokens     int64 `json:"prompt_tokens"`
 			CompletionTokens int64 `json:"completion_tokens"`
@@ -234,6 +265,16 @@ func (m *meter) observe(doc []byte) {
 		// What the upstream actually served, which may differ from the route
 		// the client asked for once a route has several members.
 		m.usage.ModelID = body.Model
+	}
+	if m.streaming {
+		for _, c := range body.Choices {
+			// The chunk that only announces the assistant role, and the one
+			// that only carries finish_reason, produce no text and are not
+			// counted.
+			if c.Delta.Content != "" || c.Text != "" {
+				m.observed++
+			}
+		}
 	}
 	if body.Usage == nil {
 		return

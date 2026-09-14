@@ -529,6 +529,56 @@ func TestAStreamWithNoUsageChunkIsRecordedPartial(t *testing.T) {
 	if u[0].partial != 1 {
 		t.Errorf("row = %+v, want partial: accounting was incomplete and has to say so", u[0])
 	}
+	// R3-07: metered from what was actually seen go past, not zero. The
+	// upstream sent three content-bearing chunks and no usage.
+	if u[0].completion != 3 {
+		t.Errorf("completion = %d, want 3 — the chunks observed before the stream ended",
+			u[0].completion)
+	}
+	// Prompt tokens are not knowable without the tokenizer the gateway does
+	// not have, and a row claiming a number it cannot stand behind is worse
+	// than one that says the accounting is partial.
+	if u[0].prompt != 0 {
+		t.Errorf("prompt = %d, want 0: nothing here can count a prompt", u[0].prompt)
+	}
+}
+
+// The chunk that only announces the assistant role and the one that only
+// carries finish_reason produce no text, so counting them would bill for
+// protocol rather than for generation.
+func TestOnlyChunksThatCarryTextAreCounted(t *testing.T) {
+	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flush := func() {
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+		}
+		for _, chunk := range []string{
+			`{"id":"c1","model":"acme/tiny","choices":[{"delta":{"role":"assistant"}}]}`,
+			`{"id":"c1","model":"acme/tiny","choices":[{"delta":{"content":"one"}}]}`,
+			`{"id":"c1","model":"acme/tiny","choices":[{"delta":{"content":"two"}}]}`,
+			`{"id":"c1","model":"acme/tiny","choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		} {
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			flush()
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flush()
+	})
+
+	if resp, body := f.post("/v1/chat/completions", f.key, chatBody(true)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	u := f.usageRows()
+	if len(u) != 1 {
+		t.Fatalf("usage rows = %d, want 1", len(u))
+	}
+	if u[0].completion != 2 {
+		t.Errorf("completion = %d, want 2: the role and finish_reason chunks carry no text", u[0].completion)
+	}
 }
 
 // A chunk boundary is a network artefact and lands anywhere, including inside a

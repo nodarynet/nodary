@@ -273,3 +273,30 @@ func TestMaxConcurrentRefusesASecondInFlightRequest(t *testing.T) {
 		t.Errorf("the slot was not released: %d %s", resp.StatusCode, body)
 	}
 }
+
+// R3-07 / docs/specs/06-gateway.md §3: a stream that ends without a usage chunk
+// is still charged what it was seen to produce.
+//
+// This is the reason the spec gives for never dropping it: *"if disconnection
+// erased usage, metering would be trivially avoidable by disconnecting, and the
+// quota system would be decorative."* Recording the row and not charging it
+// would leave exactly that hole — the accounting would be honest and the budget
+// would not bind.
+func TestAnEarlyEndedStreamStillSpendsTheBudget(t *testing.T) {
+	var saw bool
+	f := newFixture(t, streamingUpstream(t, &saw, false))
+	// Three content chunks arrive; the budget is two.
+	f.setLimit("user", "bob", 0, 0, 2, 0)
+
+	if resp, body := f.post("/v1/chat/completions", f.key, chatBody(true)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the first stream: %d %s", resp.StatusCode, body)
+	}
+
+	// A daily budget may be exceeded by at most one request — admission is
+	// decided on what is already spent — so the refusal lands on the next one.
+	resp, body := f.post("/v1/chat/completions", f.key, chatBody(true))
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429: a disconnected stream cost nothing, so the budget "+
+			"can be avoided by disconnecting: %s", resp.StatusCode, body)
+	}
+}
