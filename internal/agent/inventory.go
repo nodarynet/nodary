@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -65,31 +64,12 @@ func probeGPUs(ctx context.Context) ([]GPU, string) {
 	return gpus, driver
 }
 
-// RebootPolicy is which kind of machine this is.
-//
-// docs/specs/03-agent.md §7: nodary never initiates a reboot under any of these,
-// so this records what an operator would have to do rather than granting
-// permission. WSL2 is detected because `reboot` inside the distribution does not
-// restart the Windows host, and the host's lifecycle is not nodary's to drive.
-//
-// `manual-console` is the default and the safe answer. Detecting an encrypted
-// root without a network unlock path is R4-24 and preflight's job; until it
-// exists, assuming a human is needed is the assumption that cannot strand a
-// machine.
-func RebootPolicy() string {
-	if isWSL() {
-		return "host-managed"
-	}
-	return "manual-console"
-}
+// isWSL and RebootPolicy are internal/preflight's, so preflight's check and the
+// offer this node makes at enrollment cannot disagree about the same machine.
+func isWSL() bool { return preflight.IsWSL() }
 
-func isWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" {
-		return true
-	}
-	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
+// RebootPolicy is what this host reports at enrollment (docs/specs/03-agent.md §7).
+func RebootPolicy() string { return preflight.RebootPolicy() }
 
 // CDIDevices are the device names the host's CDI specification declares.
 //

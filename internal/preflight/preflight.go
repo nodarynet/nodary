@@ -469,34 +469,43 @@ func checkRAMPerGPU(ctx context.Context, o Options) Check {
 	return c
 }
 
-// checkEncryptedRoot warns about a host that needs a human at the console.
+// checkEncryptedRoot reports how this host comes back from a restart.
 //
 // docs/specs/03-agent.md §7: a host whose root is encrypted with no automatic
 // unlock path needs somebody physically present to come back up, and the agent
-// refuses to initiate a reboot on one. This is where an operator finds out
-// before that matters rather than after.
+// refuses to initiate one on it. This is where an operator finds out before
+// that matters rather than after — and it is the same RebootPolicy the node
+// puts in its offer at enrollment, so the warning here and the value in
+// `nodary node show` are one answer rather than two.
 func checkEncryptedRoot() Check {
 	c := Check{Name: "reboot policy"}
-	body, err := os.ReadFile("/etc/crypttab")
-	if err != nil || len(nonComment(string(body))) == 0 {
-		if isWSL() {
-			c.Level = LevelWarn
-			c.Detail = "host-managed: `reboot` inside WSL2 does not restart the Windows host, and its lifecycle is not nodary's to drive"
-			return c
+	h := hostFS{}
+	switch RebootPolicy() {
+	case PolicyHostManaged:
+		c.Level = LevelWarn
+		c.Detail = "host-managed: `reboot` inside WSL2 does not restart the Windows host, " +
+			"and its lifecycle is not nodary's to drive"
+	case PolicyUnattended:
+		c.Level = LevelOK
+		if crypts, _ := rootCryptNames(h); len(crypts) > 0 {
+			c.Detail = "unattended: encrypted root that unlocks without anybody present"
+		} else {
+			c.Detail = "unattended: no encrypted root"
 		}
-		c.Level, c.Detail = LevelOK, "unattended: no encrypted root"
-		return c
-	}
-	// A keyfile or an unlock hook means it can come back on its own.
-	for _, line := range nonComment(string(body)) {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[2] != "none" && fields[2] != "-" {
-			c.Level, c.Detail = LevelOK, "unattended: encrypted root with a keyfile"
-			return c
+	default:
+		// Two different problems share this answer, and an operator acts on
+		// them differently: a machine that genuinely needs a console, and a
+		// machine this build could not read. Saying which is the difference
+		// between driving to a rack and filing a bug.
+		c.Level = LevelWarn
+		if crypts, ok := rootCryptNames(h); ok && len(crypts) > 0 {
+			c.Detail = "manual-console: encrypted root with no automatic unlock; " +
+				"this host needs somebody at the console to restart it"
+		} else {
+			c.Detail = "manual-console: this build could not read what the root filesystem " +
+				"sits on, and assumes a person is needed rather than assuming one is not"
 		}
 	}
-	c.Level = LevelWarn
-	c.Detail = "manual-console: encrypted root with no automatic unlock; this host needs somebody at the console to reboot"
 	return c
 }
 
@@ -513,16 +522,6 @@ func nonEmptyLines(s string) []string {
 	var out []string
 	for _, l := range strings.Split(s, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-func nonComment(s string) []string {
-	var out []string
-	for _, l := range nonEmptyLines(s) {
-		if !strings.HasPrefix(l, "#") {
 			out = append(out, l)
 		}
 	}
@@ -590,14 +589,14 @@ func Resolve(name string) string {
 	return name
 }
 
-// isWSL is the same detection internal/agent uses for reboot_policy.
-func isWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" {
-		return true
-	}
-	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
+func isWSL() bool { return IsWSL() }
+
+// IsWSL reports whether this host is a WSL2 distribution.
+//
+// Exported because internal/agent asks the same question about the same
+// machine, and two answers to that would put one value in the node's offer and
+// another in the preflight an operator reads beside it.
+func IsWSL() bool { return isWSLIn(hostFS{}) }
 
 // inUse reports whether a TCP port on loopback already has a listener.
 func inUse(port int) bool {
