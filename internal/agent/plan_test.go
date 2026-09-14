@@ -804,3 +804,42 @@ func TestAnUnreadableSentDescriptorDoesNotStopTheNode(t *testing.T) {
 		t.Errorf("units = %d, want the unrelated deployment still planned", len(p.Units))
 	}
 }
+
+// A node resolves a derive the same way the control plane does. Without it the
+// descriptor that reaches unitFor has no argument vocabulary, so a deployment
+// carrying vLLM's own parameters is refused for taking parameters its backend
+// does not have — a refusal naming the wrong cause on the one machine that
+// cannot be asked.
+func TestANodeResolvesADeriveAgainstItsParent(t *testing.T) {
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	d := deployment()
+	d.Backend = "vllm-fips"
+	doc := desired(d)
+	doc.Staging[0].ManifestSHA256 = digest
+	doc.Backends = []api.DesiredBackend{{Name: "vllm-fips", Source: `[backend]
+name     = "vllm-fips"
+inherits = "vllm"
+
+[backend.derive]
+from      = "vllm/vllm-openai@sha256:` + strings.Repeat("b", 64) + `"
+steps     = ["pip install --no-cache-dir opencv-python-headless==4.12.0.88"]
+index_url = "https://pypi.internal/simple"
+timeout_s = 1800
+`}}
+
+	p, err := Build(doc, PlanOptions{ModelsDir: root, Present: twoGPUs(), Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Refused) != 0 {
+		t.Fatalf("refused %+v — a derive is the backend it inherits", p.Refused)
+	}
+	if len(p.Units) != 1 {
+		t.Fatalf("units = %d, want 1", len(p.Units))
+	}
+	// vLLM's translation, reached through the derive: the parameters in the
+	// deployment are the parent's and they render as the parent's flags.
+	if got := string(p.Units[0].RenderEnv()); !strings.Contains(got, "--tensor-parallel-size") {
+		t.Errorf("the derive did not translate vllm's vocabulary:\n%s", got)
+	}
+}

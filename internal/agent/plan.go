@@ -255,6 +255,13 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		if err != nil || d.Backend.Name != b.Name {
 			continue
 		}
+		// A derive carries only its name, its parent and its recipe, so
+		// without this it would reach unitFor with no vocabulary, no layout
+		// and no probe — refused as if it were misconfigured rather than
+		// serving as the backend it inherits.
+		if d, err = backend.Resolve(d); err != nil {
+			continue
+		}
 		descriptors[b.Name] = d
 	}
 	offered := map[int]bool{}

@@ -42,6 +42,44 @@ type Report struct {
 	// built-in. §9 requires registration to record it, and this is where an
 	// operator checks what is actually in force against what they registered.
 	SHA256 string `json:"sha256,omitempty"`
+	// Recipe is the derive this descriptor declares, nil for anything else.
+	// Present even when nothing has been built, because "this backend has a
+	// recipe and no image yet" is the state `backend build` exists to leave.
+	Recipe *Derive `json:"recipe,omitempty"`
+	// Built is what a build produced, nil until one has. §5 makes rebuilding
+	// explicit, so an operator has to be able to see both that an image exists
+	// and that the recipe behind it has moved.
+	Built *Built `json:"built,omitempty"`
+}
+
+// Built is one derive's current image, as `backend show` reports it.
+type Built struct {
+	Image        string `json:"image"`
+	BaseDigest   string `json:"base_digest"`
+	RecipeSHA256 string `json:"recipe_sha256"`
+	BuiltAt      string `json:"built_at"`
+	BuiltBy      string `json:"built_by"`
+	// Stale is derived, never stored: the recipe in force no longer hashes to
+	// what was built. A stored flag would be one more thing that can disagree
+	// with the descriptor beside it, and it would need a writer on every path
+	// that edits one.
+	Stale bool `json:"stale"`
+	// Why says which half moved, because the two call for different reading:
+	// a base bump is somebody else's release, a step change is this site's own
+	// edit.
+	Why string `json:"why,omitempty"`
+}
+
+// Staleness compares a built image against the recipe now in force.
+func (b *Built) Staleness(d *Derive) {
+	if b == nil || d == nil || b.RecipeSHA256 == d.RecipeSHA256() {
+		return
+	}
+	b.Stale = true
+	b.Why = "the recipe has changed since this image was built"
+	if b.BaseDigest != d.From {
+		b.Why = "the base image has moved to " + d.From
+	}
 }
 
 // SourceBuiltIn and SourceRegistered are Report.Source.
@@ -58,7 +96,7 @@ func NewReport(d Descriptor, source, sha string) Report {
 		ContainerPort: b.ContainerPort, ImageDefault: b.ImageDefault,
 		Capabilities: b.Capabilities,
 		Args:         keys(b.Args), Extra: keys(b.Extra),
-		Probe: b.Probe, Prepare: b.Prepare, SHA256: sha,
+		Probe: b.Probe, Prepare: b.Prepare, SHA256: sha, Recipe: b.Derive,
 	}
 }
 

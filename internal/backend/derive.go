@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -32,6 +34,30 @@ type Derive struct {
 	// TimeoutS bounds the build, for prepare.timeout_s's reason: without one a
 	// wedged build is indistinguishable from a slow one, forever.
 	TimeoutS int `json:"timeout_s" toml:"timeout_s"`
+}
+
+// RecipeSHA256 is the digest of what a build consumes: the base image, the
+// steps in order, and the index they may reach.
+//
+// **The recipe and not the descriptor.** A derive whose probe timeout or
+// justification changed has the same recipe and does not need rebuilding;
+// hashing the whole document would tell an operator it does, and `stale` would
+// become noise instead of the one signal §5 gives it — "the thing this image
+// was built from has moved".
+//
+// `timeout_s` is excluded for the same reason: it is a ceiling on the build,
+// not an input to it, so raising it must not invalidate an image.
+//
+// The framing is injective because R6-08 refuses a newline in a step, so no
+// step can spell the separator and no two recipes can hash alike.
+func (d Derive) RecipeSHA256() string {
+	h := sha256.New()
+	fmt.Fprintf(h, "from\n%s\n", d.From)
+	fmt.Fprintf(h, "index_url\n%s\n", strings.TrimSpace(d.IndexURL))
+	for _, s := range d.Steps {
+		fmt.Fprintf(h, "step\n%s\n", s)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // digestPinned matches `repo@sha256:<64 hex>`, which is the only form a base
@@ -135,6 +161,24 @@ func (d Descriptor) validateDerive() error {
 			"the middle of what the build installs", ErrInvalid, b.Name, u)
 	}
 	return nil
+}
+
+// Resolve applies a derive's inheritance and returns anything else unchanged.
+//
+// **Every read of a stored descriptor goes through this**, because a derive
+// that has not been resolved is a descriptor with no argument vocabulary, no
+// weight layout and no probe. A deployment on one would be refused for the
+// reasons of a backend that does not exist, which is not what is wrong with it.
+func Resolve(d Descriptor) (Descriptor, error) {
+	if d.Backend.Inherits == "" {
+		return d, nil
+	}
+	parent, err := Get(d.Backend.Inherits)
+	if err != nil {
+		return Descriptor{}, fmt.Errorf("%w: %s inherits %s, which this build does not have: %v",
+			ErrInvalid, d.Backend.Name, d.Backend.Inherits, err)
+	}
+	return Inherit(parent, d)
 }
 
 // Inherit resolves a derive against its parent.

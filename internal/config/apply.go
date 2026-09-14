@@ -517,6 +517,14 @@ func applyBackends(ctx context.Context, mut audit.Mutation, now time.Time,
 				"a registered descriptor with that name would change what every deployment "+
 				"already using it means", ErrInvalid, b.Name)
 		}
+		// A derive of a parent this build has not got is refused here rather
+		// than becoming a row nothing can resolve: the descriptor parses, so
+		// nothing later would call it malformed — it would simply have no
+		// vocabulary, and every deployment on it would fail for the wrong
+		// reason.
+		if _, err := backend.Resolve(d); err != nil {
+			return fmt.Errorf("%w: backend %q: %v", ErrInvalid, b.Name, err)
+		}
 		sum := sha256.Sum256([]byte(b.Source))
 		registered[b.Name] = hex.EncodeToString(sum[:])
 		if _, err := tx.ExecContext(ctx, `INSERT INTO backend
@@ -660,7 +668,11 @@ func BackendFor(ctx context.Context, q Querier, name string) (backend.Descriptor
 	if err != nil {
 		return backend.Descriptor{}, err
 	}
-	return backend.Parse([]byte(body))
+	d, err := backend.Parse([]byte(body))
+	if err != nil {
+		return backend.Descriptor{}, err
+	}
+	return backend.Resolve(d)
 }
 
 // BackendReports is every backend in force, built-in and registered, as the
@@ -693,6 +705,11 @@ func BackendReports(ctx context.Context, q Querier) ([]backend.Report, error) {
 				SHA256: sum, API: "unreadable: " + err.Error()})
 			continue
 		}
+		if d, err = backend.Resolve(d); err != nil {
+			out = append(out, backend.Report{Name: name, Source: backend.SourceRegistered,
+				SHA256: sum, API: "unreadable: " + err.Error()})
+			continue
+		}
 		out = append(out, backend.NewReport(d, backend.SourceRegistered, sum))
 	}
 	return out, rows.Err()
@@ -715,6 +732,9 @@ func BackendReport(ctx context.Context, q Querier, name string) (backend.Report,
 	}
 	d, err := backend.Parse([]byte(body))
 	if err != nil {
+		return backend.Report{}, err
+	}
+	if d, err = backend.Resolve(d); err != nil {
 		return backend.Report{}, err
 	}
 	return backend.NewReport(d, backend.SourceRegistered, sum), nil
