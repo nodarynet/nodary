@@ -21,8 +21,25 @@ builds:
     binary: nodary
     # cgo-free is what makes the binary genuinely static and cross-compilable
     # (ADR 0002). modernc.org/sqlite is chosen to keep it that way.
+    #
+    # **GOFIPS140 is on the one build, not on a second one** (R5-26, ADR 0006
+    # §2). ADR 0004's decision is "one shipped artifact", and a FIPS variant
+    # beside it would give every channel two answers to "which binary is this"
+    # — so the shipped binary is the FIPS build and there is nothing to choose
+    # between.
+    #
+    # Measured before adopting it, rather than assumed free: against the plain
+    # build the binary stays statically linked, is 0.27MB *smaller*, starts no
+    # slower, hashes SHA-256 at the same rate and AES-GCM about 8% slower —
+    # which is nothing beside a model forward pass. The only build setting that
+    # differs is `fips140=on`, which the whole suite passes under.
+    #
+    # It ships in `on` and not `only`: `only` refuses HMAC-SHA-1 by *panicking*
+    # inside hmac.New, on TOTP's path, inside an audited mutation. ADR 0006 §2
+    # names the two changes that would open it.
     env:
       - CGO_ENABLED=0
+      - GOFIPS140=v1.0.0
     flags:
       - -trimpath
     ldflags:

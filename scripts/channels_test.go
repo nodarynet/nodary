@@ -113,6 +113,39 @@ func TestTheWheelTagsAreSpecificEnoughToRefuse(t *testing.T) {
 	}
 }
 
+// R5-26: the shipped binary is the FIPS build, and it is the *only* build.
+//
+// ADR 0004's decision is "one shipped artifact"; ADR 0006 §2 says that artifact
+// runs the validated module. Both are invisible to `goreleaser check`, which
+// validates the schema and has nothing to say about which env a build carries —
+// so dropping GOFIPS140 in a refactor would produce a perfectly valid
+// configuration that silently ships a different binary than the ADRs describe.
+func TestTheShippedBinaryIsTheFIPSBuild(t *testing.T) {
+	body, err := os.ReadFile(repoFile(t, ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+
+	if !strings.Contains(src, "GOFIPS140=v1.0.0") {
+		t.Error("the release build does not set GOFIPS140: the shipped binary would not be " +
+			"the FIPS build ADR 0006 §2 says ships")
+	}
+	// One build, not two. A second `- id:` under builds: would mean a channel
+	// has to choose, which is the thing ADR 0004 exists to prevent.
+	builds := src[strings.Index(src, "\nbuilds:"):]
+	builds = builds[:strings.Index(builds, "\narchives:")]
+	if n := strings.Count(builds, "\n  - id:"); n != 1 {
+		t.Errorf("builds: declares %d artifacts, want 1 — ADR 0004 ships one binary and "+
+			"every channel carries the same object", n)
+	}
+	// `only` is not shipped: it refuses HMAC-SHA-1 by panicking inside
+	// hmac.New, on TOTP's path, inside an audited mutation (ADR 0006 §2).
+	if strings.Contains(src, "fips140=only") {
+		t.Error("the release build enables fips140=only, which panics on TOTP's HMAC-SHA-1")
+	}
+}
+
 // R5-23: the Homebrew channel is a macOS cask, and two of its properties are
 // invisible to `goreleaser check` — which validates the schema and has nothing
 // to say about whether the values make sense together.

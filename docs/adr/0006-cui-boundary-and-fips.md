@@ -44,6 +44,12 @@ A `GOFIPS140=v1.0.0` build ships through the four existing channels
 is in service for every approved algorithm. It does **not** ship in `fips140=only`, which
 additionally refuses every non-approved algorithm.
 
+**It is the one artifact, not a second one.** [ADR 0004](0004-release-artifacts-and-channels.md)
+ships a single binary and every channel carries the same object; a FIPS variant beside a plain
+one would end that. The cost of making the only build the FIPS build was measured rather than
+assumed — static, 0.27MB smaller, no slower to start, SHA-256 unchanged and AES-GCM about 8%
+slower — and `GODEBUG=fips140=off` remains available to anyone who needs the non-FIPS paths.
+
 [The spike measured](../spike-fips-and-manifest.md#2-on-and-only-are-different-products-and-the-difference-is-the-finding)
 what separates them, and it is not theoretical:
 

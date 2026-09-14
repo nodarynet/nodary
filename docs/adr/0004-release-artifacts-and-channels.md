@@ -44,6 +44,27 @@ Because every channel ships the same object, they converge on the same state. `p
 nodary && nodary server install` and `curl -fsSL https://nodary.net/install.sh | sh -s --
 server` differ only in how the binary arrived.
 
+### Amended: the one artifact is the FIPS build
+
+"One shipped artifact" survives R5-26 by the artifact *becoming* the FIPS build, rather than
+by a FIPS variant appearing beside it. [ADR 0006 §2](0006-cui-boundary-and-fips.md) requires a
+`GOFIPS140=v1.0.0` binary through these channels; a second artifact would have given every
+channel two answers to "which binary is this", which is the convergence this ADR exists to
+protect.
+
+**It was measured before it was adopted, not assumed free.** Against the plain build the
+binary stays statically linked ([R0-16](../tasks/R0-release.md)'s property), is 0.27MB
+*smaller*, starts no slower, hashes SHA-256 at the same rate and AES-GCM about 8% slower —
+immaterial beside a model forward pass. Exactly one build setting differs, `fips140=on`, and
+the whole suite passes under it. `GODEBUG=fips140=off` still works at runtime, so an operator
+who needs the non-FIPS paths is not trapped by the choice.
+
+**What it does not claim.** Shipping a binary built against the validated module is not a
+statement that nodary is a validated cryptographic module, and
+[the MVP](../plans/mvp.md#6-what-an-mvp-install-cannot-claim) continues not to make one. What
+is true is [ADR 0006 §2](0006-cui-boundary-and-fips.md)'s claim: the module is in service for
+every approved algorithm on every path that protects CUI.
+
 ### Amended: the Homebrew channel is macOS only
 
 This table originally promised a formula, which covers macOS and Linux both. goreleaser

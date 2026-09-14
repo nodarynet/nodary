@@ -33,7 +33,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | **[R2](R2-control-plane.md)** | Control plane | State has one owner | task | 3 of 44 |
 | **[R3](R3-gateway.md)** | Gateway | Tokens and usage | deliverable | **0 of 16** |
 | **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 1 of 44 |
-| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 5 of 33 |
+| **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 4 of 33 |
 | **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 2 of 17 |
 | **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 of 8 |
 | **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 of 6 |
