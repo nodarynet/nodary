@@ -25,8 +25,13 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - the driver is read from **nvidia-smi, not a device node**: [the spike](../spike-fips-and-manifest.md#wsl2-binds-a-gpu-through-devdxg-and-there-is-no-devnvidia) measured that a WSL2 host has no `/dev/nvidia*` and nvidia-smi still reports the card, so a filesystem test fails wrongly there and passes vacuously elsewhere
   - clock skew lives in `doctor` rather than preflight, because it needs the other end of the connection to compare against
   - *partial:* "component sources reachable" is `components verify`, which exists but is not yet folded into the preflight list; "conflicting runtime" is not implemented
-- [ ] **R5-03** The WSL2 checks · [01 §8](../specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
+- [x] **R5-03** The WSL2 checks · [01 §8](../specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
   - *done:* systemd absent from `/etc/wsl.conf` fails with a message naming `systemd=true` and `wsl --shutdown`, not a missing `systemctl`; CUDA passthrough broken by an in-distribution NVIDIA driver fails at preflight rather than letting deployments fail at start
+  - **`systemctl --version` was reporting systemd `ok` on a host with no systemd.** It prints a version from the binary and asks PID 1 nothing, so a WSL2 distribution without `systemd=true` passed preflight and then failed at the very next `systemctl enable`. `install.sh` has always tested `/run/systemd/system` — what `sd_booted()` means — and preflight did not: the same install, two answers. It does now
+  - Measured on a working WSL2 host with an RTX 5090, and the measurement inverted the check: `/proc/driver/nvidia/` absent, `/dev/dxg` and `/dev/nvidiactl` but no `/dev/nvidia0`, and `libcuda.so.1` resolving to **both** `/usr/lib/wsl/lib` and `/lib/x86_64-linux-gnu` — the distribution's NVIDIA userland is already installed and passthrough works anyway, because WSL's directory comes first in the loader cache
+  - so the check reads the **order, not the presence**. A test for the WSL library existing would pass on exactly the broken host it exists to catch: installing an in-distribution display driver does not remove it, it gets in front of it, and the symptom is every CUDA container dying at start on a machine whose `nvidia-smi` still answers
+  - `/proc/driver/nvidia/version` is the unambiguous half: WSL2 binds the GPU through dxgkrnl, so that file exists only where somebody installed a kernel driver that cannot work here
+  - a host that is not WSL2 is **skipped, not passed**, and an unreadable `ldconfig` is skipped too — R5-01's rule that a check which cannot run is not a check that passed
 - [x] **R5-04** Warnings that do not block: no swap, SELinux or AppArmor enforcing, low RAM per GPU, encrypted root without automatic unlock, no WSL logon task, a models directory under `/mnt/c`, a low `.wslconfig` memory cap
 
 ## Install

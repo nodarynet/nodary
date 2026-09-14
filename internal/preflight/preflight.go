@@ -157,6 +157,11 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkCgroupV2())
 	add(checkDriver(ctx, o))
 	add(checkGPUs(ctx, o))
+	// After the GPU enumeration and before the disks: `nvidia-smi` answering is
+	// what makes an operator believe the GPU is reachable, and on WSL2 it
+	// answers from the Windows driver whether or not a container can open the
+	// device (R5-03).
+	add(checkWSLPassthrough(ctx, o, hostFS{}))
 	add(checkDisk("disk: models", o.ModelsDir, o.MinModelsGB))
 	add(checkDisk("disk: components", o.DataDir, o.MinDataGB))
 	add(checkPorts(o))
@@ -217,16 +222,41 @@ func checkSystemd(ctx context.Context, o Options) Check {
 	if err != nil {
 		c.Level = LevelFail
 		c.Detail = "systemctl is not usable: " + err.Error()
-		if isWSL() {
-			// The WSL2 message R5-03 asks for, given for free because the
-			// detection already exists: a missing systemctl on WSL2 is almost
-			// always this, and "command not found" sends people the wrong way.
-			c.Detail += "\n    on WSL2 this is usually systemd=true missing from /etc/wsl.conf; add it and run `wsl --shutdown`"
-		}
+		c.Detail += wslSystemdAdvice()
+		return c
+	}
+	// **Installed is not running.** `systemctl --version` prints a version from
+	// the binary and asks PID 1 nothing, so on a WSL2 distribution without
+	// `systemd=true` it succeeds while PID 1 is /init — and preflight reported
+	// systemd `ok` on a host where the very next `systemctl enable` fails.
+	// install.sh has always tested /run/systemd/system, which is what
+	// sd_booted() means; this is the same test on the other side of the same
+	// install (R5-03).
+	if _, statErr := os.Stat(runSystemdSystem); statErr != nil {
+		c.Level = LevelFail
+		c.Detail = "systemd is installed but is not running as init (" + runSystemdSystem +
+			" is absent), so nothing can be enabled or started"
+		c.Detail += wslSystemdAdvice()
 		return c
 	}
 	c.Level, c.Detail = LevelOK, firstLine(string(out))
 	return c
+}
+
+// runSystemdSystem is what sd_booted() looks for, and what install.sh's
+// check_role_supported already tested.
+var runSystemdSystem = "/run/systemd/system"
+
+// wslSystemdAdvice names the one cause that accounts for almost every instance
+// of this on WSL2. Off it, it says nothing rather than guessing.
+func wslSystemdAdvice() string {
+	if !isWSL() {
+		return ""
+	}
+	return "\n    on WSL2 this is systemd=true missing from /etc/wsl.conf. Add it and restart the\n" +
+		"    distribution from Windows:\n" +
+		"      printf '[boot]\\nsystemd=true\\n' | sudo tee -a /etc/wsl.conf\n" +
+		"      wsl.exe --shutdown"
 }
 
 // checkCgroupV2 looks for the unified hierarchy.
