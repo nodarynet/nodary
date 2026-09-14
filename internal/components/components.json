@@ -25,7 +25,7 @@
     },
     {
       "name": "containerd",
-      "version": "2.3.4",
+      "version": "2.3.5",
       "kind": "archive",
       "roles": [
         "server",
@@ -34,12 +34,12 @@
       "group": "runtime",
       "platforms": {
         "linux/amd64": {
-          "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-amd64.tar.gz",
-          "sha256": "9d68969855fbf676cdb8ed758e420fb048d61f984f61de3e53eddfebe484d168"
+          "url": "https://github.com/containerd/containerd/releases/download/v2.3.5/containerd-2.3.5-linux-amd64.tar.gz",
+          "sha256": "2f0a095a71e3262d0d91ff0e50e2e4ae73c3866c4d1ff6a15f341097fba3dd44"
         },
         "linux/arm64": {
-          "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-arm64.tar.gz",
-          "sha256": "a985fbb7e18fc0362d31a055338f5d7b0e087a3e27f14c70d1c5965399a29f95"
+          "url": "https://github.com/containerd/containerd/releases/download/v2.3.5/containerd-2.3.5-linux-arm64.tar.gz",
+          "sha256": "06f46cbc073872c5ad1fbc922a53543e9a26b798d62ff106d44639dcb9947942"
         }
       },
       "notes": "The control plane runs LiteLLM as a container (00 \u00a72, 00 \u00a77), so the runtime is not a node-only concern."
@@ -199,10 +199,10 @@
       "group": "backend",
       "platforms": {
         "linux/amd64": {
-          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:cb4d8af81c586a90235ae3739b6d4ddc5d8336f2174c8a1c6b573d2e13faf5d7"
+          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:33cd085b772947bd22b7273886539331420404e5d2a4a039945241945ff927b9"
         },
         "linux/arm64": {
-          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:297c9c04055e142d53976cb8e7e7b314b0df148bbbaeb178494a80eddd885ecf"
+          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:33cd085b772947bd22b7273886539331420404e5d2a4a039945241945ff927b9"
         }
       },
       "notes": "backend descriptor: tensorrt-llm"
