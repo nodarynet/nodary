@@ -40,6 +40,9 @@ func cmdNodeInstall(e env, args []string) int {
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
+	if !requiresLinux(e, "node install") {
+		return ExitUsage
+	}
 
 	for _, req := range []struct{ flag, value string }{
 		{"--server", *server}, {"--token", *token}, {"--ca-fingerprint", *fingerprint},

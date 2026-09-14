@@ -124,11 +124,18 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
 
 ## Channels
 
-- [ ] **R5-19** macOS is the operator CLI only · [01 §8](../specs/01-install.md#8-platform-support)
+- [x] **R5-19** macOS is the operator CLI only · [01 §8](../specs/01-install.md#8-platform-support)
   - *done:* `server install` and `node install` on macOS exit with a single clear line naming the requirement, not a systemd error
-- [ ] **R5-20** Unsupported platforms fail loudly in every channel
+  - **preflight already refused it and that was not enough.** `checkPlatform` reports a hard failure, and the install prints *every* failure at once — so a macOS operator got systemd and cgroup v2 alongside it, none of which they can do anything about, when the answer is one sentence. The gate runs before preflight and reports only the cause
+  - it is **not skippable**. `--skip-preflight` skips the checks; it does not make the host Linux, and carrying past here reaches a `systemctl` call whose error names a missing binary rather than an unsupported platform
+  - `install.sh` and the binary are two implementations of one sentence, and an operator who meets the refusal through the script and then by running the binary directly must not be told two different things. A test pins that both say it
+- [x] **R5-20** Unsupported platforms fail loudly in every channel
   - *done:* npm resolves `optionalDependencies` silently, so the shim checks for its platform package and exits with a named error; wheels carry precise tags so `pip` reports "no matching distribution" rather than installing a broken entry point
-- [ ] **R5-21** A native Windows install fails at resolution with a comprehensible message in both wrapper channels
+  - the shim tells a **missing** package from an **unsupported** one, because that is the difference between "reinstall with `--include=optional`" and "nodary does not run here", and one message for both would send an Alpine user hunting a download that was never going to exist
+  - both libc flavors are tagged. Without the `musllinux` wheel an Alpine user falls through to an sdist that does not exist and gets a build error — a third thing, and the least legible of the three
+  - the behavior was already built and had nothing pinning it. What this row adds is the tests: the shim is driven under a forced `process.platform`, which is the only way to ask what it does on a host the suite is not running on
+- [x] **R5-21** A native Windows install fails at resolution with a comprehensible message in both wrapper channels
+  - *done:* npm names `win32-x64` and lists what is supported; no Windows wheel is built, so the message comes from pip itself and says there is no matching distribution. Neither channel reaches a binary
 - [ ] **R5-22** Move npm publishing to Trusted Publishing · [ADR 0004](../adr/0004-release-artifacts-and-channels.md)
   - *done:* `NPM_TOKEN` is gone and npm authenticates by OIDC, as PyPI already does. This removes the last long-lived publishing credential and the whole class of failure that `EOTP` belongs to
 - [ ] **R5-23** Resolve the goreleaser `brews` deprecation before it is removed

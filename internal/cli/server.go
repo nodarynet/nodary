@@ -80,6 +80,10 @@ func cmdServerInstall(e env, args []string) int {
 		return code
 	}
 
+	if !requiresLinux(e, "server install") {
+		return ExitUsage
+	}
+
 	ctx := context.Background()
 	o := install.Options{Root: *root, User: *svcUser}
 
