@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,9 @@ import (
 	"github.com/nodarynet/nodary/internal/advisory"
 	"github.com/nodarynet/nodary/internal/components"
 	"github.com/nodarynet/nodary/internal/paths"
+	"github.com/nodarynet/nodary/internal/policy"
 	"github.com/nodarynet/nodary/internal/preflight"
+	"github.com/nodarynet/nodary/internal/store"
 )
 
 func cmdAdvisory(e env, args []string) int {
@@ -37,6 +40,7 @@ func feedPath() string { return filepath.Join(paths.ConfigDir, "advisories.toml"
 func cmdAdvisoryCheck(e env, args []string) int {
 	fs := newFlagSet(e, "advisory check")
 	format := formatFlag(fs)
+	dbPath := dbFlag(fs)
 	feed := fs.String("feed", "", "revision to check against (default "+feedPath()+")")
 	sigPath := fs.String("signature", "", "detached signature (default: the feed path plus .minisig)")
 	platform := fs.String("platform", "host", "which pins to check: host, linux/amd64, or all")
@@ -81,14 +85,26 @@ func cmdAdvisoryCheck(e env, args []string) int {
 	pins := pinnedDigests(m, resolvePlatform(*platform))
 	findings := f.Match(pins)
 
+	// R9-16's clock. Recorded rather than derived from the revision's
+	// `generated` stamp, and the note below says what an absent control plane
+	// costs, because a report with no clock and a report with a clock that
+	// found nothing overdue look identical otherwise.
+	known, interval, clock := recordFindings(e, *dbPath, f.Revision, findings)
+	now := time.Now()
+
 	if *format == "json" {
-		return writeJSON(e, "advisory check", map[string]any{
+		out := map[string]any{
 			"revision":  f.Revision,
 			"generated": f.Generated.UTC().Format(time.RFC3339),
 			"statement": f.Statement,
 			"pins":      len(pins),
 			"findings":  findings,
-		})
+		}
+		if clock {
+			out["decision_interval_days"] = interval
+			out["known"] = knownJSON(known, now, interval)
+		}
+		return writeJSON(e, "advisory check", out)
 	}
 
 	fmt.Fprintf(e.stdout, "revision %d, generated %s (%s ago)\n",
@@ -102,18 +118,53 @@ func cmdAdvisoryCheck(e env, args []string) int {
 		fmt.Fprintf(e.stdout, "%s no advisory in this revision applies to a digest this build pins\n",
 			mark(preflight.LevelOK))
 	}
+	// Indexed by the finding's identity so the clock can be printed beside the
+	// advisory it belongs to, without the reporting loop caring whether there
+	// is a control plane underneath it.
+	since := map[string]advisory.Known{}
+	for _, k := range known {
+		since[k.Advisory.ID+"\x00"+k.Platform] = k
+	}
+	var overdue int
 	for _, fi := range findings {
 		fix := fi.Advisory.Fixed
 		if fix == "" {
 			fix = "no fix published"
 		}
-		fmt.Fprintf(e.stdout, "%s %-16s %s (%s)\n", mark(preflight.LevelWarn),
+		level := preflight.LevelWarn
+		k, tracked := since[fi.Advisory.ID+"\x00"+fi.Platform]
+		if tracked && k.POAM(now, interval) {
+			// A POA&M item is not a worse vulnerability than the one beside
+			// it; it is the same one with nobody's name against it.
+			level = preflight.LevelFail
+			overdue++
+		}
+		fmt.Fprintf(e.stdout, "%s %-16s %s (%s)\n", mark(level),
 			fi.Advisory.ID, fi.Advisory.Component, fi.Platform)
 		fmt.Fprintf(e.stdout, "    pinned  %s\n", fi.Pinned)
 		fmt.Fprintf(e.stdout, "    fix     %s\n", fix)
+		if tracked {
+			detail := fmt.Sprintf("known %d day(s), since revision %d",
+				k.Days(now), k.FeedRevision)
+			if k.POAM(now, interval) {
+				detail += fmt.Sprintf(" — no decision after %d; this is a POA&M item", interval)
+			}
+			fmt.Fprintf(e.stdout, "    clock   %s\n", detail)
+		}
 		if fi.Advisory.Summary != "" {
 			fmt.Fprintf(e.stdout, "    %s\n", fi.Advisory.Summary)
 		}
+	}
+
+	if !clock && len(findings) > 0 {
+		fmt.Fprintf(e.stderr, "\nNo control plane here, so nothing is tracking how long these have\n"+
+			"been known; run this on the control-plane host for the decision clock.\n")
+	}
+	if overdue > 0 {
+		fmt.Fprintf(e.stderr, "\n%d finding(s) have gone %d day(s) with no decision recorded.\n"+
+			"  A decision is patch, defer with justification, or accept with a compensating\n"+
+			"  control — all three close the clock; none of them is doing nothing.\n",
+			overdue, interval)
 	}
 
 	fmt.Fprintf(e.stderr, "\n%s\n", f.Statement)
@@ -156,4 +207,56 @@ func roundDuration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// recordFindings notes what this install now knows, and reads back since when.
+//
+// A control plane is where that record lives, so a check run anywhere else
+// reports the findings and no clock — and says so, because a report with no
+// clock and a report whose clock found nothing look identical otherwise. It is
+// a plain write rather than a mutation: nobody decided anything by looking.
+func recordFindings(e env, dbPath string, revision int, findings []advisory.Finding) (
+	[]advisory.Known, int, bool) {
+
+	if len(findings) == 0 {
+		return nil, 0, false
+	}
+	ctx := context.Background()
+	path, _ := resolveDB(dbPath)
+	db, err := store.Open(ctx, path)
+	if err != nil {
+		return nil, 0, false
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		return nil, 0, false
+	}
+	active, _, err := policy.Active(ctx, db.Read())
+	if err != nil {
+		return nil, 0, false
+	}
+	known, err := advisory.Record(ctx, db, time.Now(), revision, findings)
+	if err != nil {
+		// Reported, not fatal: the findings themselves are the answer, and a
+		// check that refused to print them because a clock could not be
+		// written would withhold the useful half.
+		fmt.Fprintf(e.stderr, "nodary advisory check: %v\n", err)
+		return nil, 0, false
+	}
+	return known, active.AdvisoryDecisionDays, true
+}
+
+func knownJSON(known []advisory.Known, now time.Time, interval int) []map[string]any {
+	out := make([]map[string]any, 0, len(known))
+	for _, k := range known {
+		out = append(out, map[string]any{
+			"advisory_id":   k.Advisory.ID,
+			"platform":      k.Platform,
+			"first_seen":    k.FirstSeen.UTC().Format(time.RFC3339),
+			"feed_revision": k.FeedRevision,
+			"days_known":    k.Days(now),
+			"poam":          k.POAM(now, interval),
+		})
+	}
+	return out
 }

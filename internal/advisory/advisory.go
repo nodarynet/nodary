@@ -11,6 +11,16 @@
 // subscription sells — and gating the verb as well would only stop somebody
 // reading content we had already given them.
 //
+// **It writes one table outside the audit seam, and this is the rule it does
+// that under.** `advisory_finding` records that a revision carrying a finding
+// reached this site, and when — an observation, in the sense
+// internal/observed's exemption already uses: nobody decided anything by
+// looking, and `advisory check` is meant to be run on a whim. A chain record
+// per run would bury a month of administration under a read. The *decision*
+// that stops the clock is R9-17's and goes through audit.Log.Act like every
+// other act, which is what "the chain already is the remediation record"
+// means. Nothing else here writes.
+//
 // The feed maps **component digest → advisory → recommended digest**, never
 // version to version. A version string is what a project calls a release; a
 // digest is what is actually on the disk, and the whole point of

@@ -124,6 +124,7 @@ var fields = []field{
 	{"model_origin_allowlist", showList(func(p Profile) []string { return p.ModelOriginAllowlist }, "any origin"), allowlistLoosens, enforced},
 	{"model_origin_denylist", showList(func(p Profile) []string { return p.ModelOriginDenylist }, "none denied"), denylistLoosens, enforced},
 	{"require_model_manifest", showBool(func(p Profile) bool { return p.RequireModelManifest }), requireLoosens(func(p Profile) bool { return p.RequireModelManifest }), pending + "R4-31"},
+	{"advisory_decision_days", showInt(func(p Profile) int { return p.AdvisoryDecisionDays }), higherLoosens(func(p Profile) int { return p.AdvisoryDecisionDays }), enforced},
 	{"audit_retention_days", showInt(func(p Profile) int { return p.AuditRetentionDays }), lowerLoosens(func(p Profile) int { return p.AuditRetentionDays }), enforced},
 	{"usage_retention_days", showInt(func(p Profile) int { return p.UsageRetentionDays }), lowerLoosens(func(p Profile) int { return p.UsageRetentionDays }), enforced},
 	{"session_ttl_minutes", showInt(func(p Profile) int { return p.SessionTTLMinutes }), higherLoosens(func(p Profile) int { return p.SessionTTLMinutes }), enforced},

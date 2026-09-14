@@ -73,8 +73,11 @@ var readOnly = map[string]bool{
 	"backend list": true, "backend show": true,
 	"audit list": true, "audit show": true, "audit export": true, "audit verify": true,
 	"policy show": true, "policy diff": true,
-	"license show": true,
-	"config show":  true, "config list": true, "config diff": true,
+	// It records a sighting and takes no other state flag: the clock is
+	// written by a read (R9-16).
+	"advisory check": true,
+	"license show":   true,
+	"config show":    true, "config list": true, "config diff": true,
 	"config export": true, "config verify": true,
 }
 

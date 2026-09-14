@@ -82,9 +82,14 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
   - a missing feed and an empty feed are different answers. A site with no subscription is told there is no feed; a revision that found nothing says so and names the revision it read
   - there is **no unsigned mode**. An attacker who can substitute a feed can tell a site its runtime is fine, which is a more useful lie than any single forged advisory
   - *deps:* R9-14
-- [ ] **R9-16** A known advisory with no decision after a configured interval becomes a POA&M item with a clock
+- [x] **R9-16** A known advisory with no decision after a configured interval becomes a POA&M item with a clock
   - *done:* inaction is visible. The property that nothing changes without an explicit human act is not weakened · [pivot §6](../plans/pivot-cmmc.md#6-flaw-remediation--spec-14-adr-0007)
   - *deps:* R9-15
+  - **the clock is local first-sighting, not the revision's `generated` stamp.** The stamp was the lazier source and the wrong one: a site updating to a newer revision would see every clock reset, so *being current would make an overdue finding look new*. What an assessor asks is when this site could have known, and that is when a revision carrying it first arrived here — which is the one thing about a finding that cannot be recomputed from the feed and the manifest, and therefore the only thing stored
+  - POA&M status is **derived on every read and never stored**, so changing the interval or recording a decision cannot leave a stale flag behind (the same reasoning R4-25's `gpu missing` is built on). An interval of zero turns the reporting off rather than making everything overdue on sight
+  - the digest is part of the key: an advisory against a digest the site has since moved off is a different finding from the same advisory against the one it runs now, and upgrading a component must not inherit the old artifact's overdue status. It is normalized before it is stored for the same reason `Match` normalizes before it compares
+  - **`advisory check` writes, and `internal/advisory` is on the audit seam's exemption list for it.** A sighting is an observation in the sense `internal/observed` already carries — nobody decided anything by looking — and a chain record per run would bury a month of administration under a verb meant to be run on a whim. The alternative was exempting `internal/cli`, which is precisely what that test's own comment warns against. The decision that closes the clock is R9-17's and goes through `audit.Log.Act` like every other act
+  - a check with no control plane still reports the findings and **says there is no clock**, because a report with no clock and a clock that found nothing overdue read identically otherwise
 - [ ] **R9-17** The decision — patch, defer with justification, or accept with a compensating control — as an audited mutation
   - *done:* no parallel workflow exists, because the chain already is the remediation record
   - *deps:* R1-12, R9-16

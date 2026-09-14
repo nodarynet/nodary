@@ -297,6 +297,12 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 		// would bury a month of administration, which is 0006_fleet.sql's
 		// argument for usage rows. Its package comment carries the rule.
 		filepath.Join(root, "internal", "replay"): true,
+		// One table, one row per finding, written by a read-only verb: that a
+		// revision carrying this advisory reached this site, and when (R9-16).
+		// An observation under the same rule as internal/observed — nobody
+		// decided anything by looking — and the decision that closes it is a
+		// mutation like any other. Its package comment carries the rule.
+		filepath.Join(root, "internal", "advisory"): true,
 	})
 	if err != nil {
 		t.Fatal(err)

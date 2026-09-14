@@ -55,6 +55,12 @@ type Profile struct {
 	ModelOriginDenylist  []string `json:"model_origin_denylist" toml:"model_origin_denylist"`
 	RequireModelManifest bool     `json:"require_model_manifest" toml:"require_model_manifest"`
 
+	// AdvisoryDecisionDays is how long a known advisory may sit with no
+	// decision before it is reported as a POA&M item (R9-16). It bounds the
+	// *decision*, not the fix: patching, deferring and accepting are all
+	// decisions, and 800-171's "timely manner" is about somebody having looked.
+	AdvisoryDecisionDays int `json:"advisory_decision_days" toml:"advisory_decision_days"`
+
 	AuditRetentionDays int `json:"audit_retention_days" toml:"audit_retention_days"`
 	UsageRetentionDays int `json:"usage_retention_days" toml:"usage_retention_days"`
 	SessionTTLMinutes  int `json:"session_ttl_minutes" toml:"session_ttl_minutes"`

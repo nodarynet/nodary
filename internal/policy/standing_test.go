@@ -41,8 +41,8 @@ func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 	if got := len(Unenforced()); got != 3 {
 		t.Errorf("%d settings are unenforced, the display and the README say 3: %v", got, Unenforced())
 	}
-	if enforcedN != 11 || invariantN != 2 {
-		t.Errorf("enforced = %d, invariant = %d; want 11 and 2", enforcedN, invariantN)
+	if enforcedN != 12 || invariantN != 2 {
+		t.Errorf("enforced = %d, invariant = %d; want 12 and 2", enforcedN, invariantN)
 	}
 }
 
@@ -106,7 +106,11 @@ func TestTheGuideSaysHowManySettingsAreUnmarked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf("%s of\nits sixteen settings are marked today", spellOut(len(Unenforced())))
+	// Both numbers are derived. The total used to be spelled out here as a
+	// literal, which is the same staleness this test exists to catch — it just
+	// moved the stale number into the test.
+	want := fmt.Sprintf("%s of\nits %s settings are marked today",
+		spellOut(len(Unenforced())), strings.ToLower(spellOut(len(fields))))
 	if !strings.Contains(string(body), want) {
 		t.Errorf("the administering guide does not say %q; %d settings are unenforced: %v",
 			want, len(Unenforced()), Unenforced())
@@ -115,7 +119,8 @@ func TestTheGuideSaysHowManySettingsAreUnmarked(t *testing.T) {
 
 func spellOut(n int) string {
 	words := []string{"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
-		"Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen"}
+		"Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+		"Seventeen", "Eighteen", "Nineteen", "Twenty"}
 	if n < len(words) {
 		return words[n]
 	}

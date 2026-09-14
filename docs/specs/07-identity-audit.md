@@ -175,6 +175,7 @@ egress_default           = "deny"  # a serving deployment needs no outbound path
 model_origin_allowlist   = []      # empty: any origin
 require_model_manifest   = false
 
+advisory_decision_days   = 30
 audit_retention_days     = 365
 usage_retention_days     = 90
 session_ttl_minutes      = 10080   # a week
@@ -204,6 +205,7 @@ model_origin_denylist    = ["CN"]
 model_origin_allowlist   = ["US", "FR", "GB", "CA", "DE"]
 require_model_manifest   = true
 
+advisory_decision_days   = 14
 audit_retention_days     = 1095
 usage_retention_days     = 90
 session_ttl_minutes      = 30
