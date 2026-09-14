@@ -61,7 +61,7 @@ The rest of the node lifecycle:
 sudo nodary node drain <name>      # stop scheduling onto it, leave what is running
 sudo nodary node revoke <name>     # refuse its certificate, remove it from routes
 sudo nodary node leave              # run on the node itself: stop and remove local state
-sudo nodary node verify-egress <name>
+sudo nodary node verify-egress <deployment-id>   # on the node itself
 ```
 
 `verify-egress` runs a probe inside a live deployment's network namespace and asserts that a
@@ -69,6 +69,21 @@ route off-box, a DNS lookup and a connection to a known-external address all fai
 runs a control probe on the host, and reports `inconclusive` rather than `compliant` when
 the host itself reaches nothing — which is the honest answer on a genuinely air-gapped site,
 and worth knowing before you rely on it as your isolation evidence.
+
+It runs **on the node**, because the namespace it enters only exists there. You do not have to
+go to the node to read the answer: the agent asserts isolation after every deployment start and
+reports the verdict, so the control plane always holds the last one.
+
+```sh
+nodary node show <name>                  # an EGRESS column, per deployment
+curl .../v1/nodes/<name>/verify-egress   # the same verdicts, with their timestamps
+```
+
+That endpoint is a **read of what the node reported**, not a probe run from the control plane —
+so it answers even for a node that has gone quiet, and tells you when it last checked in so you
+can judge how much the answer is worth. A node counts as compliant only when every deployment
+on it does; one deployment with a way off the box is the node's verdict, and a deployment that
+has never run has been asked nothing and is not rounded up to compliant.
 
 All three checks cover **IPv4 and IPv6**. That matters more than it sounds: the isolated
 bridge refuses IPv6 outright, because a container on a dual-stack network can pick up a global
