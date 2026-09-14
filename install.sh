@@ -279,6 +279,13 @@ main() {
     fetch "$url"          "$tmp/nodary"
     fetch "$url.sha256"   "$tmp/nodary.sha256"
     fetch "$url.sig"      "$tmp/nodary.sig"
+    # The Ed25519 signature is fetched and *kept*, not used here: verification
+    # below is openssl, which is the only tool this script may assume. A node
+    # has no egress and can never fetch its own (03 §1), so the copy installed
+    # beside the binary is the only one it will ever be shown — R5-16. It used
+    # to be documented in the help text above and never downloaded, so a
+    # control plane had nothing to serve.
+    fetch "$url.minisig"  "$tmp/nodary.minisig"
 
     step "verifying signature"
     verify_signature "$tmp/nodary" "$tmp/nodary.sig" "$tmp/release.pem"
@@ -295,6 +302,7 @@ main() {
     chmod 0755 "$tmp/nodary"
     as_root mkdir -p "$dest"
     as_root cp "$tmp/nodary" "$dest/nodary"
+    as_root cp "$tmp/nodary.minisig" "$dest/nodary.minisig"
     as_root ln -sfn "$dest" "${NODARY_PREFIX}/current"
 
     if [ -d "$NODARY_BIN_DIR" ]; then
