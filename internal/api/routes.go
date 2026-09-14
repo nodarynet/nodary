@@ -43,6 +43,12 @@ var notIdempotent = map[string]string{
 	// a status post is an observation, not an act (docs/specs/03-agent.md §2).
 	"/enroll":       "unauthenticated by design; a join token is single-use instead",
 	"/agent/status": "an observation, replayed harmlessly",
+	// A replayed batch is *not* harmless — it writes the chain twice — but the
+	// wrapper cannot help: it scopes a key to a principal resolved from a
+	// session or a bearer token, and this caller presents a client certificate.
+	// Each event carries a node-minted id instead, so the two copies are
+	// recognisable as one event (R4-10).
+	"/agent/events": "no user principal to scope an idempotency key to",
 	"/agent/renew":  "guarded by the certificate it replaces",
 }
 
@@ -61,6 +67,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/enroll", s.enroll)
 	h("GET", "/agent/desired", s.agentDesired)
 	h("POST", "/agent/status", s.agentStatus)
+	h("POST", "/agent/events", s.agentEvents)
 	h("POST", "/agent/renew", s.agentRenew)
 	h("GET", "/agent/dist/{name}", s.serveDist)
 

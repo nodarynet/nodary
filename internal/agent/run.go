@@ -3,13 +3,16 @@ package agent
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -63,6 +66,17 @@ type Daemon struct {
 	// Handed between goroutines without a lock, the same way d.last already is:
 	// reconcile writes it and report() reads it on its own 15s timer.
 	restarting map[string]bool
+	// events is the queue on its way into the control plane's chain (R4-10).
+	// Nil is a Daemon nobody gave one to — `agent plan` and the tests — and
+	// emitting into nil is a no-op rather than a panic, because an event is a
+	// record of something that happened and must never be the reason the thing
+	// stops happening.
+	events *Events
+	// reported is the last state and egress verdict put on the wire for each
+	// deployment, so an event is emitted when one *changes* rather than every
+	// fifteen seconds. A chain carrying the same line four times a minute is a
+	// chain nobody reads.
+	reported map[string]reportedState
 	// lastRefused and lastOutOfPolicy are Reconcile's verdicts rather than
 	// Build's. Build states which placements node.toml narrows out; only
 	// Reconcile can tell an out-of-policy placement that is serving — left
@@ -95,7 +109,11 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 		log = slog.Default()
 	}
 	d := &Daemon{Config: conf, Node: node, Host: h, Log: log,
-		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader()}
+		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader(),
+		// Beside the node's own configuration rather than under the models
+		// directory: this is state about the agent, and a `--purge-models`
+		// uninstall must not take the record of what happened with it.
+		events: NewEvents(filepath.Join(filepath.Dir(conf.Certificate), "events.ndjson"))}
 	d.client.Store(client)
 
 	// A certificate that cannot be parsed is not fatal here: the pair loaded,
@@ -339,6 +357,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		if restartFinished(d.restarting, u.Deployment, state) {
 			body.RestartDone = append(body.RestartDone, u.Deployment)
 		}
+		d.noteChange(u.Deployment, state, detail, d.lastEgress[u.Deployment])
 		body.Deployments = append(body.Deployments, api.StatusUnit{
 			ID:     u.Deployment,
 			State:  state,
@@ -411,6 +430,65 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the control plane returned %s", resp.Status)
+	}
+
+	// After the heartbeat, on the same timer and the same connection. A queue
+	// with a timer of its own would be a second thing to reason about for no
+	// benefit: an event that waits fifteen seconds to reach the chain is an
+	// event that reached the chain.
+	//
+	// Its failure does not fail the heartbeat. A control plane that cannot
+	// accept events can still be told what this node is running, and losing
+	// the fleet view over a full audit sink would turn one degraded thing into
+	// two.
+	if err := d.deliverEvents(ctx); err != nil {
+		d.Log.Warn("agent", "detail", "delivering events: "+err.Error())
+	}
+	return nil
+}
+
+// deliverEvents hands the control plane what this node has queued (R4-10).
+//
+// Nothing is removed until it has been accepted, and a partial acceptance
+// removes exactly what was accepted: the control plane answers with a count
+// rather than a status alone, so a chain that stopped taking records halfway
+// through a batch does not cost the remainder.
+func (d *Daemon) deliverEvents(ctx context.Context) error {
+	if d.events == nil {
+		return nil
+	}
+	batch := d.events.Take(time.Now())
+	if len(batch) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(api.EventBatch{Events: batch})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(d.Config.Server, "/")+api.Prefix+"/agent/events", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := d.http().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("the control plane returned %s", resp.Status)
+	}
+	var out struct {
+		Accepted int `json:"accepted"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("the control plane answered with something unreadable: %w", err)
+	}
+	d.events.Delivered(out.Accepted)
+	if out.Accepted < len(batch) {
+		return fmt.Errorf("%d of %d events were accepted", out.Accepted, len(batch))
 	}
 	return nil
 }
@@ -595,4 +673,70 @@ func restartFinished(restarting map[string]bool, deployment, state string) bool 
 	}
 	delete(restarting, deployment)
 	return true
+}
+
+// reportedState is what was last put on the wire about one deployment.
+type reportedState struct {
+	state  string
+	egress string
+}
+
+// noteChange emits an event when a deployment's state or its egress verdict
+// moves, and says nothing while they hold.
+//
+// **Edge, not level.** The heartbeat already carries the level every fifteen
+// seconds; what the chain has no way to show is the transition — a deployment
+// that failed at 04:12, recovered at 04:19 and failed again at 04:31 looks,
+// in a report of the current state, exactly like one that has been failed all
+// along. docs/specs/11-failure-modes.md §3 makes a failing egress assertion a
+// critical alert, and an alert that only exists while it is still true is one
+// nobody can review afterwards.
+//
+// The first report of a deployment is not a change. A node restarting would
+// otherwise write an event for everything it is already running, which is
+// noise at exactly the moment somebody is reading the chain.
+func (d *Daemon) noteChange(deployment, state, detail string, egress EgressVerdict) {
+	if d.events == nil {
+		return
+	}
+	if d.reported == nil {
+		d.reported = map[string]reportedState{}
+	}
+	now := time.Now()
+	was, seen := d.reported[deployment]
+	d.reported[deployment] = reportedState{state: state, egress: egress.State}
+	if !seen {
+		return
+	}
+
+	if state != was.state && state == "failed" {
+		d.events.Add(api.NodeEvent{
+			ID: eventID(), At: now.UTC().Format(api.EventTimeFormat),
+			Action: "node.deployment_failed", Target: deployment,
+			Detail: map[string]any{"reason": detail, "from": was.state},
+		})
+	}
+	// Every move of the egress verdict, in both directions. A breach that
+	// cleared is the half an assessor most needs: it says the control was not
+	// in force for a window, and when.
+	if egress.State != "" && egress.State != was.egress {
+		d.events.Add(api.NodeEvent{
+			ID: eventID(), At: now.UTC().Format(api.EventTimeFormat),
+			Action: "node.egress_" + strings.ReplaceAll(egress.State, "-", "_"),
+			Target: deployment,
+			Detail: map[string]any{"reason": egress.Reason, "from": orDefault(was.egress, "unasserted")},
+		})
+	}
+}
+
+// eventID is minted on the node so a re-delivered batch is recognisable as the
+// same events rather than as new ones. Delivery is at-least-once and an
+// append-only chain cannot retract a duplicate, so what it can do is make one
+// identifiable.
+func eventID() string {
+	b := make([]byte, 8)
+	if _, err := cryptorand.Read(b); err != nil {
+		return ""
+	}
+	return "ev_" + hex.EncodeToString(b)
 }

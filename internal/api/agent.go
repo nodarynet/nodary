@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/fleet"
@@ -314,4 +316,107 @@ func rawOrLiteral(s, empty string) json.RawMessage {
 func fingerprintOfDER(der []byte) string {
 	sum := sha256.Sum256(der)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// EventTimeFormat is the instant an event carries: the node's clock, at the
+// moment the thing happened.
+//
+// It is kept separate from the record's own timestamp, which is the control
+// plane's clock at the moment the event arrived. A node that was unreachable
+// for an hour delivers an hour-old event, and collapsing the two would put the
+// wrong time on it — while trusting the node's clock for the chain's ordering
+// would let a node with a wrong clock write records out of sequence.
+const EventTimeFormat = audit.TimeFormat
+
+// NodeEvent is something that happened on a node, on its way into the chain.
+//
+// docs/specs/03-agent.md §1 describes /agent/events as "audit records and
+// lifecycle events generated on the node", and that is what this is: the
+// control plane writes one record per event, attributed to the node.
+type NodeEvent struct {
+	// ID is minted on the node so a duplicate is identifiable. Delivery is
+	// at-least-once — a batch whose response was lost is sent again — and an
+	// append-only chain cannot retract the first copy, so what it can do
+	// instead is make the two recognisable as one event.
+	ID string `json:"id"`
+	// At is the node's clock when this happened.
+	At string `json:"at"`
+	// Action is the vocabulary of docs/specs/07-identity-audit.md §3, prefixed
+	// `node.` so an event is never mistaken for an administrative act.
+	Action string         `json:"action"`
+	Target string         `json:"target,omitempty"`
+	Detail map[string]any `json:"detail,omitempty"`
+}
+
+// EventBatch is one delivery.
+type EventBatch struct {
+	Events []NodeEvent `json:"events"`
+}
+
+// maxEventBatch bounds one delivery. The agent sends at most 64; anything
+// larger is not this agent.
+const maxEventBatch = 1 << 20
+
+// agentEvents writes a node's events into the audit chain (R4-10).
+//
+// **One record per event, attributed to the node.** The node is the actor
+// because it is: nobody asked for a deployment to fail, and recording it
+// against the administrator who last touched the model would put somebody's
+// name on a thing they did not do.
+//
+// The outcome is `success` for every one of them, and that reads oddly for an
+// event reporting a failure — but the field says whether the *recording*
+// happened, not whether the thing reported was good news. A `node.deployment_failed`
+// record with outcome `failure` would mean the chain failed to record it.
+func (s *Server) agentEvents(w http.ResponseWriter, r *http.Request) {
+	n, err := s.agentNode(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var body EventBatch
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEventBatch)).Decode(&body); err != nil {
+		s.fail(w, r, badRequest("expected {\"events\":[…]}"))
+		return
+	}
+
+	accepted := 0
+	for _, ev := range body.Events {
+		action := strings.TrimSpace(ev.Action)
+		if action == "" || !strings.HasPrefix(action, "node.") {
+			// Refused rather than recorded under a name it chose: the action
+			// vocabulary is what an operator filters the chain by, and a node
+			// that could write any action into it could write `user.delete`.
+			s.fail(w, r, badRequest("event action %q must begin with \"node.\"", ev.Action))
+			return
+		}
+		req := audit.Request{
+			Actor:  audit.Actor{ID: n.name, Method: "node"},
+			Action: action,
+		}
+		if ev.Target != "" {
+			req.Target = &audit.Target{Kind: "deployment", ID: ev.Target}
+		}
+		if _, err := s.log.Act(r.Context(), req, func(m audit.Mutation) error {
+			for k, v := range ev.Detail {
+				m.Detail(k, v)
+			}
+			// The node's clock, beside the chain's own. They are different
+			// questions — when it happened, and when it was recorded — and a
+			// node delivering an hour-old event after an outage answers them
+			// differently.
+			m.Detail("node_time", ev.At)
+			m.Detail("event_id", ev.ID)
+			m.Detail("request_id", requestID(r))
+			return nil
+		}); err != nil {
+			// Partial acceptance, reported as such. The agent removes what was
+			// accepted and sends the rest again, so a chain that stopped
+			// accepting halfway through a batch does not cost the remainder.
+			writeJSON(w, http.StatusOK, map[string]any{"accepted": accepted})
+			return
+		}
+		accepted++
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accepted": accepted})
 }
