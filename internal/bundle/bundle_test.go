@@ -446,3 +446,142 @@ func keepFirstEntry(src, dest string) error {
 	}
 	return tw.Close()
 }
+
+// feedFiles writes a revision and its detached signature. The bytes are
+// arbitrary: this package never reads either, which is the property under test.
+func feedFiles(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "advisories.toml")
+	sig := src + ".minisig"
+	if err := os.WriteFile(src, []byte("revision = 12\nstatement = \"a report\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sig, []byte("untrusted comment: sig\nRWQf6L…\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return src, sig
+}
+
+// R9-18: a site with no network has no other way to receive a feed revision,
+// so the revision and its signature have to survive the round trip byte for
+// byte — a signature is over exact bytes and nothing here may reshape them.
+func TestAFeedRevisionReachesAnAirGappedSiteThroughTheBundle(t *testing.T) {
+	dist, archives, _ := site(t)
+	src, sig := feedFiles(t)
+	before, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "site.tar")
+	made, err := Create(context.Background(), CreateOptions{
+		Out: out, Platform: "linux/amd64", Dist: dist, Components: archives,
+		Config: []string{src, sig}, NodaryVersion: "0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	if len(made.Config) != 2 {
+		t.Fatalf("want two carried files, got %+v", made.Config)
+	}
+
+	conf := t.TempDir()
+	_, opened, err := Open(context.Background(), out, OpenOptions{
+		Dist: t.TempDir(), Pinned: pinned(archives), Platform: "linux/amd64", Config: conf})
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+
+	landed := filepath.Join(conf, "advisories.toml")
+	after, err := os.ReadFile(landed)
+	if err != nil {
+		t.Fatalf("the feed did not land: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the feed changed in transit:\n%q\n%q", before, after)
+	}
+	// The signature has to arrive too: `advisory check` refuses a revision
+	// without one, so a bundle that dropped it would deliver something
+	// unreadable.
+	if _, err := os.Stat(landed + ".minisig"); err != nil {
+		t.Errorf("the signature did not land: %v", err)
+	}
+	// And the carried files are members like any other, so a bundle that
+	// records them and does not carry them is refused by the count check.
+	var placed int
+	for _, o := range opened {
+		if o.Config {
+			placed++
+		}
+	}
+	if placed != 2 {
+		t.Errorf("want two placed, got %d of %+v", placed, opened)
+	}
+}
+
+// The bundle's own digest is what covers the transfer. The signature covers the
+// content, and is checked where the feed is read — but a revision corrupted on
+// the media must not reach the configuration directory at all.
+func TestATamperedFeedIsRefusedBeforeItIsPlaced(t *testing.T) {
+	dist, archives, _ := site(t)
+	src, sig := feedFiles(t)
+	out := filepath.Join(t.TempDir(), "site.tar")
+	if _, err := Create(context.Background(), CreateOptions{
+		Out: out, Platform: "linux/amd64", Dist: dist, Components: archives,
+		Config: []string{src, sig}, NodaryVersion: "0.0.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Same length, so only the bytes change and not the tar headers — the
+	// case under test is a member that no longer matches its digest.
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swapped := []byte(strings.Replace(string(body), "revision = 12", "revision = 99", 1))
+	if len(swapped) != len(body) {
+		t.Fatal("the fixture changed the archive's length")
+	}
+	if err := os.WriteFile(out, swapped, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	conf := t.TempDir()
+	_, _, err = Open(context.Background(), out, OpenOptions{
+		Dist: t.TempDir(), Pinned: pinned(archives), Platform: "linux/amd64", Config: conf})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("a rewritten feed was accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(conf, "advisories.toml")); !os.IsNotExist(err) {
+		t.Error("the rewritten feed was left in the configuration directory")
+	}
+}
+
+// Opening for the cache alone is a real thing to want — `bundle open --dir`
+// against scratch, to check media — and it must not write into /etc on the way
+// past. The member still counts, because it is present.
+func TestOpeningWithNoConfigDirectoryWritesNoConfiguration(t *testing.T) {
+	dist, archives, _ := site(t)
+	src, sig := feedFiles(t)
+	out := filepath.Join(t.TempDir(), "site.tar")
+	if _, err := Create(context.Background(), CreateOptions{
+		Out: out, Platform: "linux/amd64", Dist: dist, Components: archives,
+		Config: []string{src, sig}, NodaryVersion: "0.0.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, opened, err := Open(context.Background(), out, OpenOptions{
+		Dist: t.TempDir(), Pinned: pinned(archives), Platform: "linux/amd64"})
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+	if len(opened) != 4 {
+		t.Fatalf("want four members counted, got %d", len(opened))
+	}
+	for _, o := range opened {
+		if o.Config && o.Path != "" {
+			t.Errorf("%s was written to %s with no config directory", o.Name, o.Path)
+		}
+	}
+}

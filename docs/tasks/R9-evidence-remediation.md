@@ -88,8 +88,12 @@ R9-10, R9-11, R9-13, R9-14 and R9-15 as stubs, and leaves the rest.
 - [ ] **R9-17** The decision — patch, defer with justification, or accept with a compensating control — as an audited mutation
   - *done:* no parallel workflow exists, because the chain already is the remediation record
   - *deps:* R1-12, R9-16
-- [ ] **R9-18** Offline sites receive feed revisions through `nodary bundle create`
+- [x] **R9-18** Offline sites receive feed revisions through `nodary bundle create`
   - *deps:* R5-13, R9-14
+  - *done:* the bundle carries the revision and its detached signature and **verifies neither**. `advisory check` verifies the signature on every read, unconditionally and with no unsigned mode, and that is the verification that means something — a second one in the bundle would either duplicate it or, worse, look like the one that counted. The bundle's own digest covers the transfer; the signature covers the content
+  - what *is* checked at create time is that the signature is **present**, which needs no key. A revision arriving without one is unreadable at the far end, and discovering that on the air-gapped machine is the exact failure this verb exists to avoid
+  - **a feed-only bundle is the recurring case, not a degenerate one.** A site installs the gigabytes once and then receives a revision every month; if receiving revision 13 meant re-carrying every container image, the site would simply stop. `--components none` is how, and `bundle create` refuses only when components, backends *and* feed are all empty
+  - `server install --bundle` places it too. An install that opened the cache and left the feed in the archive would have thrown away the only copy that was going to arrive
 
 ## The mapping
 

@@ -678,7 +678,11 @@ func openBundleIntoMirror(e env, ctx context.Context, path, dataDir string) bool
 		run = runNerdctl
 	}
 	_, opened, err := bundle.Open(ctx, path, bundle.OpenOptions{
-		Dist: filepath.Join(dataDir, "dist"), Pinned: m, Platform: head.Platform, Run: run})
+		Dist: filepath.Join(dataDir, "dist"), Pinned: m, Platform: head.Platform, Run: run,
+		// R9-18: an offline site receives feed revisions this way and no other,
+		// so an install that opened the cache and left the feed in the archive
+		// would have thrown away the only copy that was going to arrive.
+		Config: paths.ConfigDir})
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		if errors.Is(err, bundle.ErrDigestMismatch) {

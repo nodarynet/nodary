@@ -51,6 +51,10 @@ const (
 	ComponentsName = "components.json"
 	DistDir        = "dist"
 	ImagesDir      = "images"
+	// ConfigDir holds files that belong beside the configuration rather than
+	// in the cache — today the advisory feed and its detached signature, which
+	// an air-gapped site has no other way to receive (R9-18).
+	ConfigDir = "config"
 )
 
 // ErrNotABundle is a file that is not one, or is one this binary is too old to
@@ -93,6 +97,15 @@ type Manifest struct {
 	CreatedAt     string   `json:"created_at"`
 	Components    []Member `json:"components"`
 	Images        []Image  `json:"images"`
+	// Config are files carried verbatim into the configuration directory.
+	//
+	// **Not verified here, and that is deliberate.** The advisory feed's
+	// verification is its detached minisign signature, which travels beside it
+	// and is checked by `advisory check` on every read — unconditionally, with
+	// no way to skip it. A second check in this package would either duplicate
+	// that or, worse, look like the one that mattered. The bundle's own digest
+	// covers the transfer; the signature covers the content.
+	Config []Member `json:"config,omitempty"`
 }
 
 // Bytes is everything the bundle carries, for a line an operator can check
@@ -104,6 +117,9 @@ func (m Manifest) Bytes() int64 {
 	}
 	for _, i := range m.Images {
 		n += i.Bytes
+	}
+	for _, c := range m.Config {
+		n += c.Bytes
 	}
 	return n
 }
@@ -127,6 +143,10 @@ type CreateOptions struct {
 	Components []components.Component
 	// Images are the container images to export, already selected.
 	Images []components.Component
+	// Config are paths to files carried into the configuration directory,
+	// taken verbatim. Their basenames become their names at the far end, so
+	// two files with the same basename cannot both be carried.
+	Config []string
 	// ManifestDoc is the component manifest this bundle was resolved against,
 	// carried so the receiving site can see what the sending binary pinned
 	// even when the two binaries differ.
@@ -212,6 +232,17 @@ func Create(ctx context.Context, o CreateOptions) (Manifest, error) {
 		m.Images = append(m.Images, Image{Component: c.Name, Version: c.Version,
 			Reference: a.Image, Path: rel, SHA256: sum, Bytes: size})
 		files = append(files, staged{rel, dest})
+	}
+
+	for _, src := range o.Config {
+		sum, size, err := hashFile(src)
+		if err != nil {
+			return Manifest{}, err
+		}
+		rel := path.Join(ConfigDir, filepath.Base(src))
+		m.Config = append(m.Config, Member{Component: filepath.Base(src),
+			Path: rel, SHA256: sum, Bytes: size})
+		files = append(files, staged{rel, src})
 	}
 
 	// Written to a temporary file and renamed, so an interrupted create leaves
@@ -378,6 +409,11 @@ type OpenOptions struct {
 	Pinned *components.Manifest
 	// Platform selects which artifact each component's digest is compared to.
 	Platform string
+	// Config is where the carried configuration files land, normally
+	// /etc/nodary. Empty skips them: a bundle can be opened for its cache
+	// alone, and writing into a configuration directory is a different act
+	// from warming a cache.
+	Config string
 	// Run drives `nerdctl load`. Nil skips the image load, which `bundle
 	// verify` wants and an install does not.
 	Run      Runner
@@ -392,6 +428,9 @@ type Opened struct {
 	Bytes  int64  `json:"bytes"`
 	// Loaded is true for an image handed to the container runtime.
 	Loaded bool `json:"loaded,omitempty"`
+	// Config is true for a file placed beside the configuration rather than in
+	// the cache.
+	Config bool `json:"config,omitempty"`
 }
 
 // Open extracts a bundle, verifying every member as it lands.
@@ -423,6 +462,15 @@ func Open(ctx context.Context, archive string, o OpenOptions) (Manifest, []Opene
 	images := map[string]Image{}
 	for _, i := range m.Images {
 		images[i.Path] = i
+	}
+	conf := map[string]Member{}
+	for _, c := range m.Config {
+		conf[c.Path] = c
+	}
+	if len(conf) > 0 && o.Config != "" {
+		if err := os.MkdirAll(o.Config, 0o755); err != nil {
+			return m, nil, err
+		}
 	}
 	// The digests this binary pins, which is the expectation that did not
 	// arrive in the archive.
@@ -463,6 +511,7 @@ func Open(ctx context.Context, archive string, o OpenOptions) (Manifest, []Opene
 		}
 		member, isComponent := want[h.Name]
 		image, isImage := images[h.Name]
+		cfg, isConfig := conf[h.Name]
 		switch {
 		case isComponent:
 			base := path.Base(h.Name)
@@ -509,11 +558,37 @@ func Open(ctx context.Context, archive string, o OpenOptions) (Manifest, []Opene
 				got.Loaded = true
 			}
 			out = append(out, got)
+
+		case isConfig:
+			base := path.Base(h.Name)
+			if o.Config == "" {
+				// Counted anyway: the member is present, and skipping the
+				// write is the caller's choice rather than a gap in the
+				// archive.
+				out = append(out, Opened{Name: cfg.Component, SHA256: cfg.SHA256,
+					Bytes: cfg.Bytes, Config: true})
+				continue
+			}
+			dest := filepath.Join(o.Config, base)
+			if o.Progress != nil {
+				o.Progress(base)
+			}
+			sum, n, err := extract(tr, o.Config, dest)
+			if err != nil {
+				return m, out, err
+			}
+			if sum != cfg.SHA256 {
+				os.Remove(dest)
+				return m, out, fmt.Errorf("%w: %s hashes to %s and the bundle records %s",
+					ErrDigestMismatch, base, sum[:12], cfg.SHA256[:12])
+			}
+			out = append(out, Opened{Name: cfg.Component, Path: dest, SHA256: sum,
+				Bytes: n, Config: true})
 		}
 	}
-	if len(out) != len(m.Components)+len(m.Images) {
+	if len(out) != len(m.Components)+len(m.Images)+len(m.Config) {
 		return m, out, fmt.Errorf("%w: %s records %d members and carries %d", ErrNotABundle,
-			archive, len(m.Components)+len(m.Images), len(out))
+			archive, len(m.Components)+len(m.Images)+len(m.Config), len(out))
 	}
 	return m, out, nil
 }

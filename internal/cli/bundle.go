@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -63,10 +64,13 @@ func cmdBundleCreate(e env, args []string) int {
 	fs := newFlagSet(e, "bundle create")
 	format := formatFlag(fs)
 	platform := fs.String("platform", "host", "platform to resolve for: host, or linux/amd64")
-	comps := fs.String("components", "all", "component groups to carry: all, minimal, or a list")
+	comps := fs.String("components", "all",
+		"component groups to carry: all, minimal, none, or a list")
 	backends := fs.String("backends", "", "backend images to carry: all, or a list; none by default")
 	role := fs.String("role", "", "only components for this role: server or node")
 	dir := fs.String("dir", "", "the cache to read (default /var/lib/nodary/dist)")
+	feed := fs.String("feed", "", "advisory feed revision to carry (default "+feedPath()+
+		" when it exists; \"none\" to omit)")
 	out := fs.String("o", "", "write the bundle here")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -102,8 +106,11 @@ func cmdBundleCreate(e env, args []string) int {
 	// every role missed.
 	seen := map[string]bool{}
 	var missed error
-	var matched bool
+	matched := *comps == "none"
 	for _, r := range roles {
+		if matched {
+			break
+		}
 		got, err := m.Select(r, *comps)
 		if err != nil {
 			missed = err
@@ -122,6 +129,10 @@ func cmdBundleCreate(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary bundle create: %v\n", missed)
 		return ExitUsage
 	}
+	carried, code := feedToCarry(e, *feed)
+	if code >= 0 {
+		return code
+	}
 	chosen, err := m.SelectBackends(*backends)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary bundle create: %v\n", err)
@@ -139,8 +150,13 @@ func cmdBundleCreate(e env, args []string) int {
 		}
 		archives = append(archives, c)
 	}
-	if len(archives) == 0 && len(images) == 0 {
-		fmt.Fprintf(e.stderr, "nodary bundle create: nothing selected for %s\n", plat)
+	// A bundle carrying only a feed revision is the *recurring* case, not a
+	// degenerate one: an offline site installs the gigabytes once and then
+	// receives R9-18's revisions monthly, and making it re-carry every image
+	// to do so would mean it simply would not. `--components none` is how.
+	if len(archives) == 0 && len(images) == 0 && len(carried) == 0 {
+		fmt.Fprintf(e.stderr, "nodary bundle create: nothing selected for %s; name components, "+
+			"backends, or a feed to carry\n", plat)
 		return ExitUsage
 	}
 
@@ -157,7 +173,7 @@ func cmdBundleCreate(e env, args []string) int {
 	}
 	res, err := bundle.Create(context.Background(), bundle.CreateOptions{
 		Out: *out, Platform: plat, Dist: cache,
-		Components: archives, Images: images,
+		Components: archives, Images: images, Config: carried,
 		ManifestDoc:   components.Document(),
 		NodaryVersion: versionString(),
 		Run:           run,
@@ -218,6 +234,8 @@ func cmdBundleOpen(e env, args []string) int {
 	dir := fs.String("dir", "", "the cache to fill (default /var/lib/nodary/dist)")
 	noImages := fs.Bool("no-images", false,
 		"verify the images but do not load them into the container runtime")
+	confDir := fs.String("config-dir", "",
+		"where carried configuration lands (default "+paths.ConfigDir+")")
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -248,6 +266,7 @@ func cmdBundleOpen(e env, args []string) int {
 	}
 	_, got, err := bundle.Open(context.Background(), fs.Arg(0), bundle.OpenOptions{
 		Dist: cache, Pinned: m, Platform: head.Platform, Run: run,
+		Config: orElse(*confDir, paths.ConfigDir),
 		Progress: func(what string) {
 			if *format != "json" {
 				fmt.Fprintf(e.stderr, "  %s\n", what)
@@ -270,8 +289,11 @@ func cmdBundleOpen(e env, args []string) int {
 	}
 	for _, o := range got {
 		what := "cached"
-		if o.Loaded {
+		switch {
+		case o.Loaded:
 			what = "loaded"
+		case o.Config:
+			what = "placed"
 		}
 		fmt.Fprintf(e.stdout, "%-14s %-8s %s\n", o.Name, what, o.Path)
 	}
@@ -293,8 +315,12 @@ func printBundle(e env, m bundle.Manifest) {
 		fmt.Fprintf(e.stdout, "  %-14s %-12s %9s  image\n", i.Component, i.Version,
 			backup.HumanBytes(i.Bytes))
 	}
+	for _, c := range m.Config {
+		fmt.Fprintf(e.stdout, "  %-14s %-12s %9s  %s\n", c.Component, "config",
+			backup.HumanBytes(c.Bytes), c.SHA256[:12])
+	}
 	fmt.Fprintf(e.stdout, "  %d members, %s\n",
-		len(m.Components)+len(m.Images), backup.HumanBytes(m.Bytes()))
+		len(m.Components)+len(m.Images)+len(m.Config), backup.HumanBytes(m.Bytes()))
 }
 
 // offlineTransport is what `--offline` gives the fetcher instead of a network.
@@ -310,4 +336,36 @@ func (offlineTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("%s is not in the bundle and this install is offline, so there is "+
 		"nowhere to fetch it from; rebuild the bundle with --components all",
 		path.Base(r.URL.Path))
+}
+
+// feedToCarry is R9-18: an air-gapped site's only route to a feed revision.
+//
+// The bundle carries the revision and its detached signature and checks
+// neither. `advisory check` verifies the signature on every read, with no way
+// to skip it, and that verification is the one that means something — a second
+// one here would either duplicate it or, worse, look like the one that
+// counted. What this does check is that the signature is *present*, because a
+// revision that arrives without one is unreadable at the far end and the whole
+// point of the exercise is not to discover that on the air-gapped machine.
+func feedToCarry(e env, flag string) ([]string, int) {
+	if flag == "none" {
+		return nil, -1
+	}
+	path := orElse(flag, feedPath())
+	if _, err := os.Stat(path); err != nil {
+		// Named only when it was asked for. A site with no subscription has no
+		// feed, and a bundle without one is ordinary rather than broken.
+		if flag == "" {
+			return nil, -1
+		}
+		fmt.Fprintf(e.stderr, "nodary bundle create: %v\n", err)
+		return nil, ExitFailure
+	}
+	sig := path + ".minisig"
+	if _, err := os.Stat(sig); err != nil {
+		fmt.Fprintf(e.stderr, "nodary bundle create: %s has no signature at %s, and an unsigned\n"+
+			"  revision is one the receiving site will refuse to read\n", path, sig)
+		return nil, ExitFailure
+	}
+	return []string{path, sig}, -1
 }

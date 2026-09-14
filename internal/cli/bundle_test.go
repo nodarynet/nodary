@@ -141,3 +141,104 @@ func TestBundleCreateResolvesAgainstTheWholeSite(t *testing.T) {
 		t.Errorf("the refusal should be about the cache, not selection: %s", stderr)
 	}
 }
+
+// A revision arriving without its signature is unreadable at the far end:
+// `advisory check` refuses one and offers no unsigned mode. Discovering that on
+// the air-gapped machine is the exact failure this whole verb exists to avoid,
+// so it is refused where the operator can still do something about it.
+func TestAFeedWithNoSignatureIsNotBundled(t *testing.T) {
+	dir := t.TempDir()
+	feed := filepath.Join(dir, "advisories.toml")
+	if err := os.WriteFile(feed, []byte("revision = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "site.tar")
+	code, _, stderr := run(t, "bundle", "create", "--platform", "linux/amd64",
+		"--components", "minimal", "--dir", t.TempDir(), "--feed", feed, "-o", out)
+	if code == ExitOK {
+		t.Fatal("an unsigned feed was bundled")
+	}
+	if !strings.Contains(stderr, "no signature") {
+		t.Errorf("the refusal does not name the missing signature: %s", stderr)
+	}
+}
+
+// A --feed the operator named and that is not there is a mistake worth saying
+// so about. An *absent default* is not: a site with no subscription has no
+// feed, and its bundles are ordinary rather than broken.
+func TestAFeedIsOnlyDemandedWhenItWasAskedFor(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nowhere.toml")
+	_, _, stderr := run(t, "bundle", "create", "--platform", "linux/amd64",
+		"--components", "minimal", "--dir", t.TempDir(), "--feed", missing,
+		"-o", filepath.Join(t.TempDir(), "site.tar"))
+	if !strings.Contains(stderr, "nowhere.toml") {
+		t.Errorf("a named feed that is absent was not reported: %s", stderr)
+	}
+
+	// Without the flag the run gets as far as the cache, which is where an
+	// empty one stops it — so selection and the feed both got out of the way.
+	_, _, stderr = run(t, "bundle", "create", "--platform", "linux/amd64",
+		"--components", "minimal", "--dir", t.TempDir(),
+		"-o", filepath.Join(t.TempDir(), "site.tar"))
+	if strings.Contains(stderr, "advisories.toml") {
+		t.Errorf("a bundle demanded a feed nobody asked it to carry: %s", stderr)
+	}
+}
+
+// The recurring case, and the one that decides whether an offline site stays
+// current: the gigabytes are installed once and a feed revision arrives every
+// month. If receiving revision 13 meant re-carrying every container image, a
+// site simply would not do it.
+func TestAFeedOnlyBundleRoundTripsThroughTheVerb(t *testing.T) {
+	dir := t.TempDir()
+	feed := filepath.Join(dir, "advisories.toml")
+	body := []byte("revision = 12\nstatement = \"a report, not a warranty\"\n")
+	if err := os.WriteFile(feed, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(feed+".minisig", []byte("untrusted comment: sig\nRWQf\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "feed.tar")
+	code, _, stderr := run(t, "bundle", "create", "--platform", "linux/amd64",
+		"--components", "none", "--feed", feed, "-o", out)
+	if code != ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+
+	// It is in the archive, not merely in the manifest: `bundle open` counts
+	// members and refuses a bundle that names more than it carries.
+	conf := t.TempDir()
+	code, stdout, stderr := run(t, "bundle", "open", "--dir", t.TempDir(),
+		"--config-dir", conf, out)
+	if code != ExitOK {
+		t.Fatalf("open exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "placed") {
+		t.Errorf("the feed was not reported as placed:\n%s", stdout)
+	}
+	got, err := os.ReadFile(filepath.Join(conf, "advisories.toml"))
+	if err != nil {
+		t.Fatalf("the feed did not land: %v", err)
+	}
+	// Byte for byte: the detached signature is over these exact bytes.
+	if string(got) != string(body) {
+		t.Errorf("the feed changed in transit:\n%q\n%q", body, got)
+	}
+	if _, err := os.Stat(filepath.Join(conf, "advisories.toml.minisig")); err != nil {
+		t.Errorf("the signature did not land: %v", err)
+	}
+}
+
+// A bundle with nothing in it at all is a mistake worth naming, and stays one.
+func TestABundleWithNothingSelectedIsRefused(t *testing.T) {
+	code, _, stderr := run(t, "bundle", "create", "--platform", "linux/amd64",
+		"--components", "none", "-o", filepath.Join(t.TempDir(), "empty.tar"))
+	if code == ExitOK {
+		t.Fatal("an empty bundle was written")
+	}
+	if !strings.Contains(stderr, "nothing selected") {
+		t.Errorf("wrong refusal: %s", stderr)
+	}
+}

@@ -188,6 +188,18 @@ removes the download, not the checks.
 GPU hosts still need nothing but the control plane: it serves the bundle's contents from its
 mirror exactly as it serves resolved components.
 
+A bundle also carries the advisory feed revision and its detached signature, which is the only
+route an air-gapped site has to receive one (R9-18,
+[ADR 0005](../adr/0005-editions-and-the-advisory-feed.md)). The bundle does not
+verify it: `advisory check` verifies the signature on every read and offers no unsigned
+mode, so the check that matters already exists at the point of use. Carrying a revision needs
+no components at all — a site installs the gigabytes once and then receives revisions monthly:
+
+```sh
+nodary bundle create --components none --feed /etc/nodary/advisories.toml -o feed-13.tar
+nodary bundle open feed-13.tar
+```
+
 ## 7. Package-manager channels
 
 Every channel ships the binary and nothing else, so all of them reach the same state
