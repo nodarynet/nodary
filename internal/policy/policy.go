@@ -30,27 +30,35 @@ var ErrInvalid = errors.New("invalid policy profile")
 
 // Profile is the whole posture. Every field maps to a key in
 // docs/specs/07-identity-audit.md §4, and there are no fields that do not.
+// The json tags are not decoration and are deliberately the same words as the
+// toml ones. `--format json` is a schema a script reads (docs/specs/10-cli.md
+// §4), and without them `policy show --format json` answered in Go field names
+// — so an operator reading `RequireTOTP` had no way to connect it to the
+// `require_totp` they write in the file, and `policy show` was the one verb on
+// the surface not answering in snake_case. Safe to add because a profile is
+// not in a revision's hash preimage: the snapshot stores config.Policy, the
+// name and the source, and nothing puts a Profile in an audit detail.
 type Profile struct {
-	Name string `toml:"name"`
+	Name string `json:"name" toml:"name"`
 
-	RequireTOTP            bool `toml:"require_totp"`
-	RequireJustification   bool `toml:"require_justification"`
-	MinJustificationLength int  `toml:"min_justification_length"`
-	RequireSignedArtifacts bool `toml:"require_signed_artifacts"`
-	AllowUnattendedTokens  bool `toml:"allow_unattended_tokens"`
-	AllowCustomBackends    bool `toml:"allow_custom_backends"`
-	AllowDerivedImages     bool `toml:"allow_derived_images"`
-	RequirePinnedDerives   bool `toml:"require_pinned_derives"`
+	RequireTOTP            bool `json:"require_totp" toml:"require_totp"`
+	RequireJustification   bool `json:"require_justification" toml:"require_justification"`
+	MinJustificationLength int  `json:"min_justification_length" toml:"min_justification_length"`
+	RequireSignedArtifacts bool `json:"require_signed_artifacts" toml:"require_signed_artifacts"`
+	AllowUnattendedTokens  bool `json:"allow_unattended_tokens" toml:"allow_unattended_tokens"`
+	AllowCustomBackends    bool `json:"allow_custom_backends" toml:"allow_custom_backends"`
+	AllowDerivedImages     bool `json:"allow_derived_images" toml:"allow_derived_images"`
+	RequirePinnedDerives   bool `json:"require_pinned_derives" toml:"require_pinned_derives"`
 
-	EgressDefault        string   `toml:"egress_default"`
-	ModelOriginAllowlist []string `toml:"model_origin_allowlist"`
-	ModelOriginDenylist  []string `toml:"model_origin_denylist"`
-	RequireModelManifest bool     `toml:"require_model_manifest"`
+	EgressDefault        string   `json:"egress_default" toml:"egress_default"`
+	ModelOriginAllowlist []string `json:"model_origin_allowlist" toml:"model_origin_allowlist"`
+	ModelOriginDenylist  []string `json:"model_origin_denylist" toml:"model_origin_denylist"`
+	RequireModelManifest bool     `json:"require_model_manifest" toml:"require_model_manifest"`
 
-	AuditRetentionDays int `toml:"audit_retention_days"`
-	UsageRetentionDays int `toml:"usage_retention_days"`
-	SessionTTLMinutes  int `toml:"session_ttl_minutes"`
-	TokenMaxTTLDays    int `toml:"token_max_ttl_days"`
+	AuditRetentionDays int `json:"audit_retention_days" toml:"audit_retention_days"`
+	UsageRetentionDays int `json:"usage_retention_days" toml:"usage_retention_days"`
+	SessionTTLMinutes  int `json:"session_ttl_minutes" toml:"session_ttl_minutes"`
+	TokenMaxTTLDays    int `json:"token_max_ttl_days" toml:"token_max_ttl_days"`
 }
 
 type document struct {

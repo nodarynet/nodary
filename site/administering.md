@@ -547,6 +547,7 @@ machine you are standing on. These do, today:
 | Accounts | `user add\|list\|show\|suspend\|delete`, `token list\|create\|revoke` |
 | Records | `audit list`, `usage show` |
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
+| Policy | `policy show\|diff\|apply` |
 
 So the loop closes: an administrator with a credential can mint the next administrator's,
 without anybody opening a shell on the control plane.
@@ -568,6 +569,22 @@ nodary config apply -f fleet.toml --server https://nodary.example.internal:8443 
 
 The file itself is what crosses the wire, so the control plane parses the document it is
 about to apply and the preview you approve is its reading of your file, not your machine's.
+
+The posture works the same way. A built-in profile travels as its name — the control plane
+already has it — and a profile you wrote travels as the file:
+
+```sh
+nodary policy diff regulated --server https://nodary.example.internal:8443
+nodary policy apply ./site-posture.toml --server https://nodary.example.internal:8443 \
+  --justify "OPS-4140: adopting the site posture"
+```
+
+Two things are reported before and after that are worth watching for. Anything the new
+profile *relaxes* is printed first, before the confirmation, because a posture loosened
+quietly is the one that goes unnoticed. And anything the new profile now refuses that is
+already registered is printed after — computed on the control plane, since the catalog is
+there and not on your laptop. Nothing is stopped: the models keep serving, and turning one
+off stays your decision and an audited one.
 One difference worth knowing: the gateway's rendering is a file on the control-plane host, so
 a route change applied from here goes live when that host's sync timer next runs — within a
 minute — rather than immediately. The command says so when it happens.

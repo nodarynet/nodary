@@ -632,7 +632,21 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 			_, err := config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
 			return err
 		},
-	}, nil)
+	}, func(out core.Outcome) any {
+		// What the profile just applied refuses and is still serving, carried
+		// back in the applied response rather than only in the preview.
+		//
+		// A caller that passed --yes never saw the preview, and the catalog
+		// this is computed from is on this machine — so without it the only
+		// way to learn what a policy change now denies is a second command
+		// against a different endpoint. Flagged, not stopped, on both routes
+		// (docs/specs/11-failure-modes.md).
+		m, ok := out.Preview.(map[string]any)
+		if !ok || m["denies"] == nil {
+			return nil
+		}
+		return map[string]any{"denies": m["denies"]}
+	})
 }
 
 func resolveProfile(name, source string) (policy.Profile, []byte, error) {

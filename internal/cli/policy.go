@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -64,15 +65,20 @@ func loadCandidate(e env, verb, arg string) (policy.Profile, []byte, bool) {
 
 // activeProfile reads the profile in force without opening the database for
 // writing, so `show` and `diff` work against a read-only copy.
-func activeProfile(e env, verb, dbPath string) (policy.Profile, bool) {
-	db, err := store.OpenReadOnly(context.Background(), dbPath)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
-		return policy.Profile{}, false
+func activeProfile(e env, verb string, rem *remote, dbPath string) (policy.Profile, bool) {
+	var p policy.Profile
+	var err error
+	if rem != nil {
+		// GET /policy answers with the profile itself, so the far side's
+		// policy.Active is the only reader of the row either way.
+		_, err = rem.get("/policy", &p)
+	} else {
+		var db *store.DB
+		if db, err = store.OpenReadOnly(context.Background(), dbPath); err == nil {
+			defer db.Close()
+			p, _, err = policy.Active(context.Background(), db.Read())
+		}
 	}
-	defer db.Close()
-
-	p, _, err := policy.Active(context.Background(), db.Read())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return policy.Profile{}, false
@@ -80,18 +86,35 @@ func activeProfile(e env, verb, dbPath string) (policy.Profile, bool) {
 	return p, true
 }
 
+// reportLoosens is 07 §4's rule: loosening is permitted, doing it silently is
+// not. To stderr and before the change, so it is visible even when stdout is
+// being parsed as JSON — and shared by both routes, because a posture relaxed
+// without saying so over the network is the same failure as locally.
+func reportLoosens(e env, active, candidate policy.Profile) {
+	for _, c := range policy.Diff(active, candidate) {
+		if c.Loosens {
+			fmt.Fprintf(e.stderr, "loosens: %s\n", c)
+		}
+	}
+}
+
 func cmdPolicyShow(e env, args []string) int {
 	fs := newFlagSet(e, "policy show")
 	format := formatFlag(fs)
-	dbPath, _, _ := stateFlags(fs)
+	dbPath, _, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
 	if !checkFormat(e, *format) {
 		return ExitUsage
 	}
+	rem, code := remoteFor(e, "policy show", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
+	}
 
-	p, ok := activeProfile(e, "policy show", *dbPath)
+	p, ok := activeProfile(e, "policy show", rem, *dbPath)
 	if !ok {
 		return ExitFailure
 	}
@@ -119,7 +142,8 @@ func cmdPolicyShow(e env, args []string) int {
 func cmdPolicyDiff(e env, args []string) int {
 	fs := newFlagSet(e, "policy diff")
 	format := formatFlag(fs)
-	dbPath, _, _ := stateFlags(fs)
+	dbPath, _, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -130,8 +154,17 @@ func cmdPolicyDiff(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary policy diff: expected one profile (a built-in name or a TOML file)\n")
 		return ExitUsage
 	}
+	rem, code := remoteFor(e, "policy diff", *server, *credsPath, *dbPath)
+	if code >= 0 {
+		return code
+	}
 
-	active, ok := activeProfile(e, "policy diff", *dbPath)
+	// Client-side on both routes, for the reason `config diff` is: policy.Diff
+	// is a pure function of two profiles, so a diff endpoint would be a second
+	// implementation of it with one caller — and the candidate is a file on
+	// this machine the control plane cannot read. What crosses is the active
+	// profile.
+	active, ok := activeProfile(e, "policy diff", rem, *dbPath)
 	if !ok {
 		return ExitFailure
 	}
@@ -165,6 +198,7 @@ func cmdPolicyApply(e env, args []string) int {
 	fs := newFlagSet(e, "policy apply")
 	format := formatFlag(fs)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
@@ -176,10 +210,24 @@ func cmdPolicyApply(e env, args []string) int {
 		fmt.Fprintf(e.stderr, "nodary policy apply: expected one profile (a built-in name or a TOML file)\n")
 		return ExitUsage
 	}
+	rem, code := remoteFor(e, "policy apply", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
 
+	// Parsed here on both routes, which is not a second implementation: a
+	// malformed file is the operator's own, on the operator's own machine, and
+	// saying so without a round trip is the difference between a typo and a
+	// failed request. What travels is the bytes, so the control plane parses
+	// them itself before applying — the same argument `config apply` sends
+	// TOML on.
 	candidate, source, ok := loadCandidate(e, "policy apply", fs.Arg(0))
 	if !ok {
 		return ExitUsage
+	}
+
+	if rem != nil {
+		return policyApplyRemote(e, rem, candidate, source, fs.Arg(0), cer, *format, *dbPath)
 	}
 
 	s, ok := openSession(e, "policy apply", *dbPath, *keyPath, *credsPath)
@@ -194,15 +242,8 @@ func cmdPolicyApply(e env, args []string) int {
 		return ExitFailure
 	}
 
-	// 07 §4: loosening is permitted; doing it silently is not. The report goes
-	// to stderr before the change, so it is visible even when stdout is being
-	// parsed as JSON.
 	changes := policy.Diff(active, candidate)
-	for _, c := range changes {
-		if c.Loosens {
-			fmt.Fprintf(e.stderr, "loosens: %s\n", c)
-		}
-	}
+	reportLoosens(e, active, candidate)
 
 	rec, applied, code := s.attested(e, "policy apply", change{
 		action: "policy.apply",
@@ -268,6 +309,55 @@ func cmdPolicyApply(e env, args []string) int {
 	return ExitOK
 }
 
+// policyApplyRemote is the same act against a control plane over the network.
+//
+// The profile travels as a **name when it is a built-in and as bytes when it is
+// a file**, because those are two different acts: a built-in is a thing the far
+// side already has and can name in its own records, and a file is a document
+// this machine holds that the control plane has never seen. Sending the parsed
+// profile instead would make this side's reading of the document the one that
+// gets applied, which is the divergence `config apply` sends raw TOML to avoid.
+func policyApplyRemote(e env, rem *remote, candidate policy.Profile, source []byte,
+	arg string, cer ceremonyFlags, format, dbPath string) int {
+	active, ok := activeProfile(e, "policy apply", rem, dbPath)
+	if !ok {
+		return ExitFailure
+	}
+	changes := policy.Diff(active, candidate)
+	reportLoosens(e, active, candidate)
+
+	body := map[string]string{"source": string(source)}
+	if slices.Contains(policy.BuiltinNames(), arg) {
+		body = map[string]string{"profile": arg}
+	}
+	out, applied, code := rem.attested(e, "policy apply", remoteAct{
+		method: "POST", path: "/policy/apply", body: body}, cer, format)
+	if !applied {
+		return code
+	}
+
+	// The far side computed this against its own catalog while applying, and
+	// sends it back rather than leaving an operator to run a second command to
+	// find out what their change now refuses. Reading it from the database is
+	// not an option here: the catalog is on the other machine.
+	var denied []config.DeniedModel
+	if raw, err := json.Marshal(out.Result["denies"]); err == nil {
+		_ = json.Unmarshal(raw, &denied)
+	}
+	renderDenied(e, candidate.Name, denied)
+
+	if format == "json" {
+		return writeJSON(e, "policy apply", map[string]any{
+			"profile": candidate.Name, "changes": changes,
+			"loosens": policy.Loosens(changes), "record": out.AuditSeq,
+		})
+	}
+	fmt.Fprintf(e.stdout, "applied %s (%d %s)\n", candidate.Name,
+		len(changes), plural("change", len(changes)))
+	fmt.Fprintf(e.stderr, "recorded as audit record %d\n", out.AuditSeq)
+	return ExitOK
+}
+
 func plural(word string, n int) string {
 	if n == 1 {
 		return word
@@ -284,11 +374,21 @@ func plural(word string, n int) string {
 // edit is exactly the surprise this rule exists to prevent.
 func reportDenied(e env, s *session, p policy.Profile) {
 	denied, err := config.Denied(context.Background(), s.db.Read(), p)
-	if err != nil || len(denied) == 0 {
+	if err != nil {
+		return
+	}
+	renderDenied(e, p.Name, denied)
+}
+
+// renderDenied is the rendering both routes share. Locally the list is read
+// from the database; over the network it arrives in the applied response,
+// computed by the machine that has the catalog.
+func renderDenied(e env, profile string, denied []config.DeniedModel) {
+	if len(denied) == 0 {
 		return
 	}
 	fmt.Fprintf(e.stderr, "\n%s now denies %d already-registered %s. Nothing was stopped:\n",
-		p.Name, len(denied), plural("model", len(denied)))
+		profile, len(denied), plural("model", len(denied)))
 	for _, d := range denied {
 		serving := "not deployed"
 		if len(d.Deployments) > 0 {

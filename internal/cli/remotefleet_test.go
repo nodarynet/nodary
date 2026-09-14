@@ -1014,3 +1014,194 @@ func TestPatchingAUserWillOnlySuspend(t *testing.T) {
 		t.Errorf("bob was removed by a refused patch:\n%s", out)
 	}
 }
+
+// The policy verbs over --server. `policy apply` is the act R2-44's remainder
+// named; `show` and `diff` come with it, because an administrator who cannot
+// read the posture from their own machine has no way to decide what to apply.
+func TestPolicyReadsOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	for _, c := range []struct {
+		what string
+		args []string
+	}{
+		{"show", []string{"policy", "show", "--format", "json"}},
+		{"diff", []string{"policy", "diff", "regulated", "--format", "json"}},
+	} {
+		localCode, local, localErr := run(t, append(append([]string{}, c.args...), "--db", a.db)...)
+		remoteCode, remote, remoteErr := run(t, append(append([]string{}, c.args...),
+			"--server", base, "--credentials", a.creds)...)
+		if localCode != ExitOK || remoteCode != ExitOK {
+			t.Fatalf("policy %s: local %d (%s), remote %d (%s)",
+				c.what, localCode, localErr, remoteCode, remoteErr)
+		}
+		if local != remote {
+			t.Errorf("policy %s differs between the two roads:\n  local  %s\n  remote %s",
+				c.what, local, remote)
+		}
+	}
+}
+
+// A file on the operator's machine reaches a control plane that has never seen
+// it, and is parsed by the machine that applies it. Sending this side's
+// reading of the document instead would apply what this binary understood
+// rather than what that one did — the divergence `config apply` sends raw TOML
+// to avoid, and the reason the body carries bytes for a file and a name for a
+// built-in.
+func TestAPolicyFileTravelsToTheControlPlaneOverServer(t *testing.T) {
+	a := newAppliance(t)
+	base := a.servedBy(t, "alice", "admin")
+
+	path := filepath.Join(t.TempDir(), "site.toml")
+	if err := os.WriteFile(path, []byte(`[policy]
+name = "site"
+
+require_totp             = false
+require_justification    = true
+min_justification_length = 20
+require_signed_artifacts = true
+allow_unattended_tokens  = true
+allow_custom_backends    = true
+allow_derived_images     = true
+require_pinned_derives   = false
+
+egress_default           = "deny"
+require_model_manifest   = false
+
+audit_retention_days     = 2555
+usage_retention_days     = 90
+session_ttl_minutes      = 60
+token_max_ttl_days       = 30
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := run(t, "policy", "apply", path, "--yes",
+		"--justify", "the site's own posture, applied remotely",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("policy apply of a file over --server: exit %d, %s", code, stderr)
+	}
+
+	code, out, stderr := run(t, "policy", "show", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("policy show: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{`"name": "site"`, `"min_justification_length": 20`,
+		`"audit_retention_days": 2555`, `"token_max_ttl_days": 30`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the applied profile does not carry %s — the file's own values did not "+
+				"reach the control plane:\n%s", want, out)
+		}
+	}
+}
+
+// Applying a profile that denies something already registered has to say so,
+// and over --server the catalog it is computed from is on the other machine.
+// Flagged, not stopped: nothing is turned off, and the operator is told what
+// they would have to decide.
+func TestPolicyApplyOverServerReportsWhatItNowDenies(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+
+	models := t.TempDir()
+	dir := filepath.Join(models, "hub", "models--acme--tiny")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := a.run("model", "register", "acme/tiny", "--node", "gpu-01",
+		"--models-dir", models, "--port", "8001", "--origin-country", "CN",
+		"--yes", "--justify", "registered before the profile changed"); code != ExitOK {
+		t.Fatalf("model register: exit %d, %s", code, stderr)
+	}
+
+	code, _, stderr := run(t, "policy", "apply", "regulated", "--yes",
+		"--justify", "tightening the posture from my laptop",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("policy apply over --server: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "acme/tiny") || !strings.Contains(stderr, "now denies") {
+		t.Errorf("applying regulated over --server did not report the model it now denies.\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Nothing was stopped") {
+		t.Error("the report does not say the model is still running, which is the whole distinction")
+	}
+
+	// 07 §4: loosening is permitted, doing it silently is not — and that has
+	// to hold over the network, where the posture being left behind is read
+	// from the control plane rather than from a database on this machine.
+	// --dry-run, and that is the point rather than a convenience: the report is
+	// printed before the ceremony, so an operator sees what they are about to
+	// relax while they can still decline. (It also sidesteps regulated's TOTP
+	// requirement, which this credential correctly cannot satisfy.)
+	code, _, stderr = run(t, "policy", "apply", "default", "--dry-run",
+		"--justify", "relaxing the posture again from my laptop",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("policy apply default --dry-run over --server: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "loosens:") {
+		t.Errorf("going from regulated back to default over --server said nothing about "+
+			"loosening the posture.\n%s", stderr)
+	}
+
+	// And it is the person's act, not root's — which is the whole of what
+	// R2-44 exists for. The actor is the account id, so alice's is looked up
+	// rather than assumed to be her name.
+	code, out, stderr := run(t, "user", "show", "alice", "--format", "json",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("user show: exit %d, %s", code, stderr)
+	}
+	var who struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal([]byte(out), &who); err != nil || who.User.ID == "" {
+		t.Fatalf("user show: %v\n%s", err, out)
+	}
+
+	code, out, stderr = run(t, "audit", "list", "--limit", "50", "--format", "json",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	var got struct {
+		Records []struct {
+			Action string `json:"action"`
+			Actor  struct {
+				ID     string `json:"id"`
+				Method string `json:"method"`
+			} `json:"actor"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var found bool
+	for _, r := range got.Records {
+		if r.Action != "policy.apply" {
+			continue
+		}
+		found = true
+		if r.Actor.ID != who.User.ID || r.Actor.Method == "local" {
+			t.Errorf("policy.apply recorded actor %q method %q, want %s over the network",
+				r.Actor.ID, r.Actor.Method, who.User.ID)
+		}
+	}
+	if !found {
+		t.Errorf("no policy.apply record:\n%s", out)
+	}
+}
