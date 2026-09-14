@@ -20,9 +20,14 @@ import (
 // It is the bridge's own address, and the container can reach it **by design
 // rather than by accident**: internal/agent/network.go sets `isGateway: true`
 // so that portmap's DNAT has a route back, and records that the container can
-// address the host on its own subnet and nothing beyond it. The build proxy
-// listens there, which is why this needs no new network — the one hole §5 wants
-// is the one hole that already exists.
+// address the host on its own subnet and nothing beyond it. That is why this
+// needs no new network — the one hole §5 wants is the one hole that already
+// exists.
+//
+// It is where the container **reaches** the proxy, not where the proxy listens:
+// the address does not exist until CNI creates the bridge on first attach, and
+// the first attach is the step that needs this address in its environment. See
+// the bind in Build and Proxy.OnlyFrom.
 const Gateway = "10.88.0.1"
 
 // Network is the CNI network a build step runs on: the same one a deployment
