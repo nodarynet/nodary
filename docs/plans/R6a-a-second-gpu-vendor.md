@@ -161,7 +161,7 @@ one before it, which is why this is one slice and not four.
 
 ## 7. Steps
 
-- [ ] **R4-41** `agent.GPU` carries a vendor; `LocalInventory` detects it, `nvidia-smi` first and
+- [x] **R4-41** `agent.GPU` carries a vendor; `LocalInventory` detects it, `nvidia-smi` first and
       sysfs second, and an absent value reads as `nvidia` so an enrolled fleet keeps working
 - [ ] **R4-42** Preflight's five GPU checks ask the vendor that answered, and a host with no
       NVIDIA toolkit is a failure only where CDI is the mechanism

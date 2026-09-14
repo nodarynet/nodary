@@ -206,8 +206,11 @@ func cmdNodeShow(e env, args []string) int {
 		if i == 0 {
 			label = "gpus"
 		}
-		fmt.Fprintf(tw, "%s\t%d: %s, %d MiB%s\n", label, g.Index, g.Name, g.MemoryMiB,
-			offeredSuffix(offer, g.Index))
+		// The vendor is shown because it is what decides how the card is
+		// reached, and a card whose name does not say which silicon it is —
+		// every sysfs-enumerated one — would otherwise be unreadable here.
+		fmt.Fprintf(tw, "%s\t%d: %s, %d MiB, %s%s\n", label, g.Index, g.Name, g.MemoryMiB,
+			g.VendorName(), offeredSuffix(offer, g.Index))
 	}
 	row("offer", offerDetail(offer))
 	// R4-25: a card this node offered and the driver no longer reports is a

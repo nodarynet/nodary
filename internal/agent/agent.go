@@ -299,9 +299,20 @@ func (i Inventory) raw() api.Inventory {
 	return out
 }
 
-// LocalInventory asks the driver what is present.
+// LocalInventory asks each vendor that can answer what is present.
+//
+// Per vendor and in this order, not one enumerator for all of them:
+// docs/plans/R6a-a-second-gpu-vendor.md §1. A host where both answer has cards
+// from both, which is a real machine — so the second source numbers its cards
+// after the first rather than from zero, and an index remains this node's one
+// handle on a card.
 func LocalInventory(ctx context.Context) Inventory {
 	gpus, driver := probeGPUs(ctx)
+	next := 0
+	for _, g := range gpus {
+		next = max(next, g.Index+1)
+	}
+	gpus = append(gpus, probeDRM(next)...)
 	return Inventory{Arch: runtime.GOARCH, OS: runtime.GOOS,
 		DriverVersion: driver, GPUs: gpus}
 }
