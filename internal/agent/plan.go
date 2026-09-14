@@ -57,6 +57,10 @@ type Plan struct {
 	// the verdict and Reconcile decides between refusing a placement that never
 	// started and leaving alone one that did.
 	OutOfPolicy []Refusal `json:"out_of_policy,omitempty"`
+	// Prepare is the build each deployment needs before it can serve
+	// (docs/specs/04-backends.md §4). Empty for every backend that serves what
+	// was staged, which is all of them but TensorRT-LLM.
+	Prepare []Prepared `json:"prepare,omitempty"`
 	// Restart is deployment ids `nodary model restart` (R4-36) asked to be
 	// cycled now — the request, not the outcome. Unlike Reset (filesystem
 	// only, so Build can perform it directly) this needs `systemctl`, which
@@ -191,6 +195,10 @@ type PlanOptions struct {
 	// Daemon.reconcile — `agent plan` passes none, deliberately: a one-shot
 	// preview command must never be what starts a download that outlives it.
 	Downloads *Downloader
+	// Builds runs the prepare phase (R6-06). Nil for the same reason
+	// Downloads is: `agent plan` is a preview and must not start a six-hour
+	// compile any more than it starts a download.
+	Builds *Preparer
 }
 
 // Build turns one desired-state document into a plan.
@@ -250,8 +258,10 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		descriptors[b.Name] = d
 	}
 	offered := map[int]bool{}
+	present := map[int]GPU{}
 	for _, g := range opt.Present {
 		offered[g.Index] = true
+		present[g.Index] = g
 	}
 	// GPU index -> the deployment this plan has already given it to.
 	claims := map[int]string{}
@@ -287,6 +297,13 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	// fixes it — weights are staged before a deployment is prepared, and a
 	// deployment is prepared before its unit starts.
 	byModel := map[string]Stage{}
+	// The digest each model was staged against. It is in the document rather
+	// than in Stage, and the prepare key needs it: an engine built from one
+	// set of weights must not be served for another.
+	shaByModel := map[string]string{}
+	for _, s := range doc.Staging {
+		shaByModel[s.Model] = s.ManifestSHA256
+	}
 	for _, s := range doc.Staging {
 		st := Stage{Model: s.Model, Source: s.Source, State: StateAbsent}
 		dir, err := ModelDir(opt.ModelsDir, s.Layout, s.Model)
@@ -363,7 +380,17 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			p.OutOfPolicy = append(p.OutOfPolicy, Refusal{Deployment: d.ID, Reason: reason})
 			continue
 		}
-		u, err := unitFor(d, descriptors, offered, byModel, opt)
+		// The prepare phase, between staging and the unit
+		// (docs/specs/04-backends.md §4). It produces the directory the unit
+		// will serve from, so it is worked out before unitFor rather than
+		// after: for a backend that builds, the model path *is* the artifact.
+		var prep *Prepared
+		if desc, known := descriptors[d.Backend]; known && desc.Backend.Prepare != nil {
+			got := planPrepare(d, desc, byModel[d.Model], shaByModel[d.Model], present, opt)
+			p.Prepare = append(p.Prepare, got)
+			prep = &got
+		}
+		u, err := unitFor(d, descriptors, offered, byModel, prep, opt)
 		if err != nil {
 			p.Refused = append(p.Refused, Refusal{Deployment: d.ID, Reason: err.Error()})
 			continue
@@ -423,7 +450,7 @@ func plural(idx []int) string {
 
 // unitFor renders one deployment, or says why it cannot be rendered.
 func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
-	offered map[int]bool, staged map[string]Stage, opt PlanOptions) (Unit, error) {
+	offered map[int]bool, staged map[string]Stage, prep *Prepared, opt PlanOptions) (Unit, error) {
 	desc, ok := descriptors[d.Backend]
 	if !ok {
 		return Unit{}, fmt.Errorf("backend %q is not one this build has (%s)",
@@ -509,12 +536,35 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	if err != nil {
 		return Unit{}, err
 	}
+	// A parameter the *build* consumed is not one the server dropped. An
+	// engine is compiled for a fixed rank count, so `tensor_parallel` reaches
+	// TensorRT-LLM through trtllm-build and may never appear in the serving
+	// argv at all — and refusing it here would leave no way to build a
+	// two-rank engine.
+	if desc.Backend.Prepare != nil {
+		dropped = without(dropped, desc.Backend.Prepare.Consumes())
+	}
 	if len(dropped) > 0 {
 		// Dropped rather than guessed (04 §3), and said out loud: a parameter
 		// that silently vanished is a deployment running with settings the
 		// operator believes are in force.
 		return Unit{}, fmt.Errorf("%s does not take %s; move them to extra_args",
 			d.Backend, strings.Join(dropped, ", "))
+	}
+
+	// What gets bind-mounted at mount_path. For a backend that builds, it is
+	// the artifact and not the weights: the weights were the build's input and
+	// the server has no use for them. The unit is still rendered while the
+	// build runs — reconcileUnit is what holds it back, the same way it holds
+	// back a deployment whose weights are still arriving — so the path has to
+	// be the one the artifact will have, not the one it has now.
+	hostMount := opt.ModelsDir
+	if prep != nil {
+		if prep.Dir == "" {
+			return Unit{}, fmt.Errorf("%s builds before it serves and this node worked out no "+
+				"artifact directory: %s", d.Backend, prep.Reason)
+		}
+		hostMount = prep.Dir
 	}
 
 	network := d.Network
@@ -543,7 +593,7 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 			// systemd splits it, the same mechanism NODARY_ARGS uses.
 			{"NODARY_ENV", env},
 			{"NODARY_IMAGE", d.Image},
-			{"NODARY_MODELS_DIR", opt.ModelsDir},
+			{"NODARY_MODELS_DIR", hostMount},
 			{"NODARY_MOUNT_PATH", desc.Backend.MountPath},
 			{"NODARY_NETWORK", network},
 			{"NODARY_PORT", strconv.Itoa(d.Port)},
@@ -745,4 +795,15 @@ func presentList(gpus []GPU) string {
 		idx = append(idx, g.Index)
 	}
 	return "GPU " + joinIndices(idx)
+}
+
+// without is `all` less every element of `some`.
+func without(all, some []string) []string {
+	var out []string
+	for _, a := range all {
+		if !containsString(some, a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }

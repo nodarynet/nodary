@@ -63,6 +63,13 @@ func runCommand(ctx context.Context, name string, args ...string) ([]byte, error
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
+// RunCommand is runCommand for the one caller outside this package: `nodary
+// agent prepare`, which is a child process with no Host of its own and needs
+// to run the builder the same way everything else here runs a command.
+func RunCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runCommand(ctx, name, args...)
+}
+
 // systemctl builds the argument list for this host's manager.
 func (h Host) systemctl(ctx context.Context, args ...string) ([]byte, error) {
 	if h.UserScope {
@@ -161,6 +168,13 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	for _, s := range p.Stage {
 		staged[s.Model] = s.State
 	}
+	// The prepare phase, keyed by deployment rather than by model: two
+	// deployments of one model can need different engines
+	// (docs/specs/04-backends.md §4).
+	built := map[string]Prepared{}
+	for _, b := range p.Prepare {
+		built[b.Deployment] = b
+	}
 
 	force := map[string]bool{}
 	for _, id := range p.Restart {
@@ -170,7 +184,7 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	wanted := map[string]bool{}
 	for _, u := range p.Units {
 		wanted[UnitName(u.Deployment)] = true
-		outcome, restarted := reconcileUnit(ctx, u, staged, h, force[u.Deployment])
+		outcome, restarted := reconcileUnit(ctx, u, staged, built, h, force[u.Deployment])
 		r.Units = append(r.Units, outcome)
 		if restarted {
 			r.RestartDone = append(r.RestartDone, u.Deployment)
@@ -239,7 +253,8 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 // reconcileUnit brings one deployment to where the plan wants it, and reports
 // whether a restart forced by `nodary model restart` (R4-36) actually landed
 // this cycle, so the caller knows whether to ack the request.
-func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host, forced bool) (UnitOutcome, bool) {
+func reconcileUnit(ctx context.Context, u Unit, staged map[string]string,
+	built map[string]Prepared, h Host, forced bool) (UnitOutcome, bool) {
 	out := UnitOutcome{Deployment: u.Deployment}
 
 	// Weights before the unit — docs/specs/03-agent.md §3's first ordering
@@ -248,6 +263,22 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string, h Host
 	// and must not start a container that would fail obscurely.
 	if state := staged[u.ModelID]; state != StateStaged {
 		out.State, out.Action = "staging", "waiting for weights"
+		return out, false
+	}
+
+	// Then the build, for the backends that have one — 04 §4's stage →
+	// prepare → serve. The same shape as the gate above and for the same
+	// reason: starting a server whose engine is half-written fails obscurely,
+	// hours after the cause.
+	if b, needs := built[u.Deployment]; needs && b.State != StatePrepared {
+		out.State = "preparing"
+		out.Action = "waiting for the build"
+		if b.State == StateFailed {
+			// A failed build is terminal on these inputs, so it is reported as
+			// the deployment's own failure with the builder's reason rather
+			// than as a wait that never ends.
+			out.State, out.Action, out.Error = "failed", "", b.Reason
+		}
 		return out, false
 	}
 

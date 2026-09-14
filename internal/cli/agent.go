@@ -39,13 +39,16 @@ func cmdAgent(e env, args []string) int {
 		return cmdAgentEgressProbe(e, args[1:])
 	case "stage":
 		return cmdAgentStage(e, args[1:])
+	case "prepare":
+		return cmdAgentPrepare(e, args[1:])
 	}
 	if what, ok := agentVerbs[args[0]]; ok {
 		fmt.Fprintf(e.stderr, "nodary agent %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
 		return ExitFailure
 	}
-	fmt.Fprintf(e.stderr, "nodary agent: unknown subcommand %q (want plan, run, egress-probe or stage)\n", args[0])
+	fmt.Fprintf(e.stderr,
+		"nodary agent: unknown subcommand %q (want plan, run, egress-probe, stage or prepare)\n", args[0])
 	return ExitUsage
 }
 
@@ -321,6 +324,41 @@ func cmdAgentStage(e env, args []string) int {
 	}
 	fmt.Fprintf(e.stdout, "%s %s %d/%d %s\n", st.Model, st.State, st.Bytes, st.Total, st.Reason)
 	if st.State != agent.StateStaged {
+		return ExitFailure
+	}
+	return ExitOK
+}
+
+// cmdAgentPrepare builds one deployment's artifact and exits — R6-06,
+// docs/specs/04-backends.md §4.
+//
+// The sibling of `agent stage`, and documented for the same reason: an
+// operator who runs `systemctl status` during a six-hour TensorRT-LLM compile
+// will see this command line and should be able to find out what it is.
+//
+// The builder runs as a container, so unlike staging this child does no work
+// of its own — it runs nerdctl, bounds it by the descriptor's timeout_s, and
+// writes the verdict where the agent reads it. What it buys over pointing the
+// transient unit straight at nerdctl is that verdict: `--collect` takes the
+// unit's own result away the moment it exits, so something has to write down
+// what happened before it goes.
+func cmdAgentPrepare(e env, args []string) int {
+	fs := newFlagSet(e, "agent prepare")
+	request := fs.String("request", "", "the prepare request the agent wrote")
+	if code := parseFlags(e, fs, args); code >= 0 {
+		return code
+	}
+	if strings.TrimSpace(*request) == "" {
+		fmt.Fprintf(e.stderr, "nodary agent prepare: --request is required; the agent writes it\n")
+		return ExitUsage
+	}
+	out, err := agent.RunPrepare(*request, agent.RunCommand)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary agent prepare: %v\n", err)
+		return ExitFailure
+	}
+	fmt.Fprintf(e.stdout, "%s %s %s %s\n", out.Deployment, out.Key, out.State, out.Reason)
+	if out.State != agent.StatePrepared {
 		return ExitFailure
 	}
 	return ExitOK

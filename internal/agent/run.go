@@ -49,6 +49,9 @@ type Daemon struct {
 	rev       int64
 	backoff   time.Duration
 	downloads *Downloader
+	// builds runs the prepare phase (R6-06). One per daemon, like downloads,
+	// because both track work that outlives a single reconcile.
+	builds *Preparer
 	// last is the most recent plan, so the health poller has something to probe
 	// between reconciles.
 	last Plan
@@ -110,6 +113,7 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 	}
 	d := &Daemon{Config: conf, Node: node, Host: h, Log: log,
 		health: NewHealth(), backoff: backoffMin, downloads: NewDownloader(h),
+		builds: &Preparer{Host: h},
 		// Beside the node's own configuration rather than under the models
 		// directory: this is state about the agent, and a `--purge-models`
 		// uninstall must not take the record of what happened with it.
@@ -185,6 +189,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		CDIDevices: CDIDevices(ctx),
 		Verify:     true,
 		Downloads:  d.downloads,
+		Builds:     d.builds,
 	})
 	if err != nil {
 		d.Log.Error("agent", "detail", "planning: "+err.Error())

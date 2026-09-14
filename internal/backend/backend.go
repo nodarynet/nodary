@@ -183,6 +183,26 @@ var prepareVars = []string{"{src}", "{out}", "{tp}"}
 // placeholder finds {...} so an unknown one can be named rather than passed on.
 var placeholder = regexp.MustCompile(`\{[a-z_]+\}`)
 
+// Consumes are the canonical parameters this build reads rather than the
+// server.
+//
+// A backend that compiles an engine is configured in two places at once, and
+// the split is not the operator's to make: `tensor_parallel` is baked into a
+// TensorRT-LLM engine at build time, so `trtllm-serve` may not take it as a
+// flag at all. Without this, a document that sets it would be refused as a
+// parameter the backend does not take — which is true of the *server* and
+// false of the backend, and leaves no way to build a two-rank engine.
+//
+// Derived from the command rather than declared separately, so a descriptor
+// cannot claim to consume something it never substitutes.
+func (p Prepare) Consumes() []string {
+	var out []string
+	if strings.Contains(p.Command, "{tp}") {
+		out = append(out, "tensor_parallel")
+	}
+	return out
+}
+
 // Argv renders the build command.
 //
 // Split on whitespace after substitution, like Args: the result is an argv
