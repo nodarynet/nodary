@@ -714,3 +714,18 @@ func TestAConvergedNodeKeepsReportingTheVerdictItReached(t *testing.T) {
 		t.Error("d2 left the plan and is still reported")
 	}
 }
+
+// R4-25: a deployment whose card left the bus reports `failed` with the reason
+// attached. 0006_fleet.sql pairs the two in a CHECK, so a failure reported bare
+// does not merely lose the reason — it fails the whole heartbeat transaction
+// and takes every other deployment's state on the node with it.
+func TestAFailedDeploymentAlwaysCarriesAReasonOntoTheWire(t *testing.T) {
+	got := failedStatus(Refusal{Deployment: "dep_one", Reason: "GPU 1 is no longer on the bus"})
+	if got.State != "failed" || got.Error == "" {
+		t.Errorf("%+v, want failed with a reason", got)
+	}
+	// Even from a Refusal that somehow carries none.
+	if bare := failedStatus(Refusal{Deployment: "dep_one"}); bare.Error == "" {
+		t.Error("a failure reported with no reason would fail the heartbeat's CHECK")
+	}
+}

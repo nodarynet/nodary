@@ -146,11 +146,13 @@ func (d *Daemon) ReconcileOnce(ctx context.Context, doc api.Desired) { d.reconci
 
 // reconcile plans and applies one document.
 func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
-	offer, _ := d.Node.Advertise(LocalInventory(ctx).GPUs, BackendNames())
+	detected := LocalInventory(ctx).GPUs
+	offer, _ := d.Node.Advertise(detected, BackendNames())
 	p, err := Build(doc, PlanOptions{
 		ModelsDir:  orDefault(d.Config.ModelsDir, DefaultModelsDir()),
 		ConfigDir:  d.Host.ConfigDir,
 		Present:    offer.GPUs,
+		Detected:   detected,
 		Node:       d.Node,
 		WSL2:       IsWSL2(),
 		CDIDevices: CDIDevices(ctx),
@@ -197,6 +199,12 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		// (docs/specs/12-node-guardrails.md §1), so it is logged every
 		// iteration at a level an operator sees.
 		d.Log.Warn("agent", "refused", ref.Deployment, "reason", ref.Reason)
+	}
+	for _, f := range p.Failed {
+		// Loud, and every cycle: docs/specs/11-failure-modes.md §2 says the
+		// agent reports and nothing auto-reboots, so this line is the whole
+		// alert and it has to keep saying so until somebody looks.
+		d.Log.Error("agent", "failed", f.Deployment, "reason", f.Reason)
 	}
 	for _, v := range r.OutOfPolicy {
 		// Louder than a refusal, not quieter: this one is **still serving**,
@@ -316,6 +324,15 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		body.Deployments = append(body.Deployments,
 			disabledStatus(id, d.Host.isActive(ctx, UnitName(id))))
 	}
+	// R4-25: a deployment whose card has left the bus builds no Unit either, so
+	// it would otherwise freeze at whatever it last reported — "ready", on a
+	// GPU that is not there. 0006_fleet.sql pairs `failed` with a non-null
+	// `last_error` in a CHECK, so the reason travels with it or the whole
+	// heartbeat transaction fails, taking every other deployment's state with
+	// it.
+	for _, f := range d.last.Failed {
+		body.Deployments = append(body.Deployments, failedStatus(f))
+	}
 	body.ResetDone = d.last.ResetDone
 	body.RestartDone = d.lastRestartDone
 	// R4-15: what this node will not run, and why. Recomputed by Build every
@@ -377,6 +394,22 @@ func carryEgress(prev map[string]EgressVerdict, units []UnitOutcome) map[string]
 		}
 	}
 	return out
+}
+
+// failedStatus is one deployment whose hardware has gone, rendered onto the
+// wire (R4-25).
+//
+// The reason is not decoration. 0006_fleet.sql carries
+// `CHECK (state <> 'failed' OR last_error IS NOT NULL)`, so a failure reported
+// with nothing beside it fails the whole heartbeat transaction and takes every
+// other deployment's state on the node down with it — which is why this never
+// passes an empty Error through, whatever produced the Refusal.
+func failedStatus(f Refusal) api.StatusUnit {
+	reason := f.Reason
+	if reason == "" {
+		reason = "a GPU assigned to this deployment is no longer on this host's bus"
+	}
+	return api.StatusUnit{ID: f.Deployment, State: "failed", Health: "unknown", Error: reason}
 }
 
 // disabledStatus is one disabled deployment rendered onto the wire, as the

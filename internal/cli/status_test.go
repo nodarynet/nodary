@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nodarynet/nodary/internal/install"
+	"github.com/nodarynet/nodary/internal/store"
 )
 
 // R2-38: the question `nodary status` answers is "is this appliance working",
@@ -172,5 +175,61 @@ func TestStatusStillReportsAfterTheConfigurationIsGone(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "nodary-server.service") {
 		t.Errorf("status found nothing on a host that still has /opt/nodary:\n%s", stdout)
+	}
+}
+
+// R4-25, docs/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
+// reports; affected deployments marked `failed`; **node flagged**."
+//
+// Flagged by derivation rather than by a stored column: the offer is what the
+// node declared and `gpus` is what it measured on its last heartbeat, so the
+// two disagreeing *is* the fact. A flag column would be one more thing to
+// clear, and the clearing is what gets forgotten.
+func TestNodeShowFlagsACardTheDriverStoppedReporting(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal")
+	setNodeGPUs(t, a.db, "fractal", `[{"index":0,"name":"A","memory_mib":1}]`,
+		`{"gpus":[{"index":0},{"index":1}],"max_deployments":2}`)
+
+	code, stdout, stderr := a.run("node", "show", "fractal")
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "gpu missing") {
+		t.Errorf("node show does not flag the missing card:\n%s", stdout)
+	}
+	for _, want := range []string{"nvidia-smi", "nothing is rebooted"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not say %q: %s", want, stderr)
+		}
+	}
+}
+
+// A node that has never checked in has not lost a card — it has not reported
+// one. Flagging that would put a hardware alarm on every node between
+// enrollment and its first heartbeat.
+func TestANodeThatHasReportedNoInventoryIsNotFlagged(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("fractal") // gpus_json is '[]', offer names GPU 0
+
+	_, stdout, stderr := a.run("node", "show", "fractal")
+	if strings.Contains(stdout, "gpu missing") || strings.Contains(stderr, "no longer reports") {
+		t.Errorf("a node that has never reported an inventory was flagged:\n%s\n%s", stdout, stderr)
+	}
+}
+
+func setNodeGPUs(t *testing.T, dbPath, node, gpus, offer string) {
+	t.Helper()
+	db, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.WriteTx(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(),
+			`UPDATE node SET gpus_json = ?, offer_json = ? WHERE name = ?`, gpus, offer, node)
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

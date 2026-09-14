@@ -63,6 +63,18 @@ type Plan struct {
 	// only Reconcile has, so Reconcile is what actually restarts them and
 	// reports which ones landed as Report.RestartDone.
 	Restart []string `json:"restart,omitempty"`
+	// Failed is a deployment whose hardware has gone: a GPU it was assigned is
+	// no longer on the bus (R4-25, docs/specs/11-failure-modes.md §2).
+	//
+	// Its own list rather than a Refusal, because the outcome is different in
+	// the one way that matters to an operator. A refusal says "this never
+	// started and the configuration is why"; this says "this was running on a
+	// card that is gone", which is a hardware failure reported as `failed`
+	// against the deployment with the missing card named — and **never** as a
+	// reboot. A node that reboots itself to clear a GPU fault is a node that
+	// comes back with an encrypted root waiting at a console nobody is at
+	// (docs/specs/03-agent.md's reboot safety).
+	Failed []Refusal `json:"failed,omitempty"`
 	// MaintenanceOpen says whether node.toml's window is open at the moment
 	// this plan was built. Decided here rather than in Reconcile so the plan
 	// stays a complete description of what should happen, and so one clock
@@ -142,6 +154,16 @@ type PlanOptions struct {
 	ConfigDir string
 	// Present is what the driver reported, already narrowed to the offer.
 	Present []GPU
+	// Detected is what the driver reported *before* node.toml narrowed it.
+	//
+	// The two together are how a card that node.toml excluded is told from one
+	// that is no longer there, which are the same absence from Present and
+	// opposite facts: the first is a decision somebody made on this machine,
+	// the second is docs/specs/11-failure-modes.md §2's "GPU falls off the
+	// bus". Nil means the caller did not measure — `agent plan` against a
+	// hand-written document — and the check is skipped rather than declaring
+	// every card missing.
+	Detected []GPU
 	// Node is /etc/nodary/node.toml, evaluated against the document before
 	// anything is reconciled (docs/specs/12-node-guardrails.md §1). The zero
 	// value offers the whole machine, which is what an absent file means.
@@ -191,6 +213,15 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	p := Plan{Rev: doc.Rev, Node: doc.Node, Units: []Unit{}, Stage: []Stage{},
 		Refused: []Refusal{}, OutOfPolicy: []Refusal{}, Disabled: []string{},
 		MaintenanceOpen: opt.Node.MaintenanceOpen(opt.Now)}
+	// Nil rather than empty: a caller that did not measure must not be read as
+	// having measured nothing. See PlanOptions.Detected.
+	var detected map[int]bool
+	if len(opt.Detected) > 0 {
+		detected = map[int]bool{}
+		for _, g := range opt.Detected {
+			detected[g.Index] = true
+		}
+	}
 
 	descriptors, err := backend.Builtins()
 	if err != nil {
@@ -287,6 +318,19 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 	for _, d := range doc.Deployments {
 		if d.State == "disabled" {
 			p.Disabled = append(p.Disabled, d.ID)
+			continue
+		}
+		// Before the guardrails, because a card that is gone is not a decision
+		// node.toml made and not something an operator can unmake by editing a
+		// file. Reported as a failure of the deployment rather than as a
+		// refusal of the placement: the configuration is correct and the
+		// hardware is not.
+		if gone := missing(detected, d.GPUs); len(gone) > 0 {
+			p.Failed = append(p.Failed, Refusal{Deployment: d.ID,
+				Reason: fmt.Sprintf("GPU %s %s assigned to this deployment and no longer on this "+
+					"host's bus; the driver reports %s. Nothing is rebooted to clear it "+
+					"(docs/specs/11-failure-modes.md §2)",
+					joinIndices(gone), plural(gone), presentList(opt.Detected))})
 			continue
 		}
 		// Before unitFor, so a placement node.toml will not have is not first
@@ -649,3 +693,34 @@ func wslOnly(m map[string]string, wsl2 bool) map[string]string {
 // IsWSL2 reports whether this host runs under WSL2, for a caller building a
 // PlanOptions.
 func IsWSL2() bool { return isWSL() }
+
+// missing is the assigned indices the driver no longer reports.
+//
+// A nil map means nothing was measured, which is not the same as measuring
+// nothing: see PlanOptions.Detected.
+func missing(detected map[int]bool, assigned []int) []int {
+	if detected == nil {
+		return nil
+	}
+	var out []int
+	for _, idx := range assigned {
+		if !detected[idx] {
+			out = append(out, idx)
+		}
+	}
+	return out
+}
+
+// presentList renders what the driver does report, for the message. An operator
+// reading "GPU 2 is gone" needs to know whether one card fell off or the driver
+// stopped enumerating altogether.
+func presentList(gpus []GPU) string {
+	if len(gpus) == 0 {
+		return "no GPU at all"
+	}
+	idx := make([]int, 0, len(gpus))
+	for _, g := range gpus {
+		idx = append(idx, g.Index)
+	}
+	return "GPU " + joinIndices(idx)
+}

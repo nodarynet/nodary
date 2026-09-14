@@ -601,3 +601,79 @@ func TestAnImpossibleDeploymentHoldsNoCard(t *testing.T) {
 			p.Refused[0].Reason)
 	}
 }
+
+// planOn builds one document with an explicit measured inventory and an
+// explicit offer, which is the pair R4-25 turns on.
+func planOn(t *testing.T, detected, offered []GPU, deps ...api.DesiredDeployment) Plan {
+	t.Helper()
+	root, digest := stage(t, map[string]string{"config.json": "{}"})
+	doc := desired(deps...)
+	doc.Staging[0].ManifestSHA256 = digest
+	p, err := Build(doc, PlanOptions{
+		ModelsDir: root, Present: offered, Detected: detected, Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// R4-25, docs/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
+// reports; affected deployments marked `failed`; node flagged. **Never
+// auto-rebooted**."
+func TestADeploymentOnACardThatLeftTheBusIsFailed(t *testing.T) {
+	d := deployment()
+	d.GPUs = []int{0, 1}
+
+	// The driver reports one card where the deployment was given two.
+	p := planOn(t, []GPU{{Index: 0}}, []GPU{{Index: 0}}, d)
+	if len(p.Units) != 0 {
+		t.Errorf("built a unit on a card that is not there: %+v", p.Units)
+	}
+	if len(p.Failed) != 1 || p.Failed[0].Deployment != "dep_one" {
+		t.Fatalf("failed = %+v, want dep_one", p.Failed)
+	}
+	// The message has to say which card went and what is left: one card off the
+	// bus and a driver that stopped enumerating altogether are different
+	// problems with different next steps.
+	for _, want := range []string{"1", "GPU 0"} {
+		if !strings.Contains(p.Failed[0].Reason, want) {
+			t.Errorf("the reason does not name %s: %q", want, p.Failed[0].Reason)
+		}
+	}
+	// Not a refusal: a refusal says the configuration is wrong, and this
+	// configuration is right — the hardware is not.
+	if len(p.Refused) != 0 {
+		t.Errorf("also refused: %+v", p.Refused)
+	}
+}
+
+// The same absence from the offer, the opposite fact. A card node.toml excludes
+// is a decision somebody made on this machine and can unmake by editing a file;
+// reporting it as hardware failure would send an operator to `dmesg` for a
+// line they wrote themselves.
+func TestACardNodeTomlExcludedIsNotAHardwareFailure(t *testing.T) {
+	d := deployment()
+	d.GPUs = []int{1}
+
+	// Both cards are on the bus; the node offers only the first.
+	p := planOn(t, []GPU{{Index: 0}, {Index: 1}}, []GPU{{Index: 0}}, d)
+	if len(p.Failed) != 0 {
+		t.Errorf("a card that is present was reported as gone: %+v", p.Failed)
+	}
+	if len(p.Refused) != 1 || !strings.Contains(p.Refused[0].Reason, "offer") {
+		t.Fatalf("refused = %+v, want one refusal about the offer", p.Refused)
+	}
+}
+
+// `agent plan` measures nothing, and a caller that did not measure must not be
+// read as having measured no GPUs — that would report every deployment on the
+// node as failed hardware.
+func TestAPlanThatMeasuredNothingClaimsNoFailure(t *testing.T) {
+	p := plan(t, deployment())
+	if len(p.Failed) != 0 {
+		t.Errorf("failed = %+v, want none: nothing was measured", p.Failed)
+	}
+	if len(p.Units) != 1 {
+		t.Errorf("units = %d, want the deployment planned as usual", len(p.Units))
+	}
+}

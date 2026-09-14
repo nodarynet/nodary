@@ -172,11 +172,26 @@ func cmdNodeShow(e env, args []string) int {
 			offeredSuffix(offer, g.Index))
 	}
 	row("offer", offerDetail(offer))
+	// R4-25: a card this node offered and the driver no longer reports is a
+	// GPU that has left the bus. Derived rather than stored, so it cannot go
+	// stale: the offer is what the node declared at enrollment and `gpus` is
+	// what it measured on its last heartbeat, and the two disagreeing is the
+	// fact itself. Nothing reboots to clear it.
+	if gone := offeredButAbsent(offer, gpus); len(gone) > 0 {
+		row("gpu missing", joinInts(gone)+" — offered and not reported by the driver")
+	}
 	row("constraints", constraintDetail(constraints))
 	row("certificate", certDetail(d.CertExpiresAt, now))
 	row("approved", approvalDetail(d))
 	if code := flush(e, "node show", tw); code != ExitOK {
 		return code
+	}
+	if gone := offeredButAbsent(offer, gpus); len(gone) > 0 {
+		fmt.Fprintf(e.stderr,
+			"\n%s offers GPU %s and its driver no longer reports %s.\n"+
+				"Deployments assigned to it are marked failed; nothing is rebooted to clear it.\n"+
+				"Check `nvidia-smi` and `dmesg` on that host.\n",
+			d.Name, joinInts(gone), pluralCard(gone))
 	}
 
 	if len(d.Deployments) > 0 {
@@ -417,6 +432,27 @@ func gpuList(raw json.RawMessage) []agent.GPU {
 	return gpus
 }
 
+// offeredButAbsent is the indices this node offers that its own driver no
+// longer enumerates.
+func offeredButAbsent(o agent.Offer, present []agent.GPU) []int {
+	have := map[int]bool{}
+	for _, g := range present {
+		have[g.Index] = true
+	}
+	// A node that has never reported an inventory has not lost a card; it has
+	// not checked in.
+	if len(have) == 0 {
+		return nil
+	}
+	var gone []int
+	for _, g := range o.GPUs {
+		if !have[g.Index] {
+			gone = append(gone, g.Index)
+		}
+	}
+	return gone
+}
+
 func offeredGPUs(n fleet.Node) int {
 	var o agent.Offer
 	_ = json.Unmarshal(n.Offer, &o)
@@ -490,4 +526,11 @@ func size(b int64) string {
 	default:
 		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
 	}
+}
+
+func pluralCard(idx []int) string {
+	if len(idx) == 1 {
+		return "it"
+	}
+	return "them"
 }
