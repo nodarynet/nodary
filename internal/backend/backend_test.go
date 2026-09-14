@@ -184,3 +184,144 @@ func containsString(all []string, want string) bool {
 	}
 	return false
 }
+
+// trtPrepare is the TensorRT-LLM table from docs/specs/04-backends.md §6,
+// under a descriptor minimal in every other respect so a refusal can only be
+// about the phase.
+func withPrepare(body string) string {
+	return `[backend]
+name           = "trt"
+api            = "openai"
+weights_layout = "engine-dir"
+container_port = 8000
+image_default  = "nvcr.io/nvidia/trtllm-serve:1"
+
+[backend.args]
+model_path = "--model={v}"
+
+[backend.gpu]
+mechanism = "device-flag"
+
+[backend.probe]
+health          = "/health"
+ready           = "/health"
+ready_timeout_s = 1800
+
+[backend.prepare]
+` + body
+}
+
+const trtPrepare = `required          = true
+image             = "nvcr.io/nvidia/tensorrt-llm:1"
+command           = "trtllm-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"
+artifact          = "engine-dir"
+gpu_arch_specific = true
+timeout_s         = 21600
+`
+
+// The spec's own example has to parse. It is what an operator copies.
+func TestTheSpecsPrepareTableParses(t *testing.T) {
+	d, err := Parse([]byte(withPrepare(trtPrepare)))
+	if err != nil {
+		t.Fatalf("§6's TensorRT-LLM table was refused: %v", err)
+	}
+	p := d.Backend.Prepare
+	if p == nil {
+		t.Fatal("the table parsed into nothing")
+	}
+	if !p.Required || !p.GPUArchSpecific || p.TimeoutS != 21600 || p.Artifact != "engine-dir" {
+		t.Errorf("prepare = %+v", p)
+	}
+}
+
+// A backend with no prepare is the common case and must stay free of it: a
+// zero-valued Prepare would make every descriptor claim a build step.
+func TestABackendWithNoPrepareTableHasNone(t *testing.T) {
+	all, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range all {
+		if d.Backend.Prepare != nil {
+			t.Errorf("%s declares a prepare phase and should not", name)
+		}
+	}
+}
+
+// Every row is a build that would otherwise fail on a GPU host, hours in, with
+// a message about something else.
+func TestPrepareIsRefusedWhenItCouldNotWork(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"not required", strings.Replace(trtPrepare, "required          = true",
+			"required          = false", 1), "required must be true"},
+		{"no builder image", strings.Replace(trtPrepare,
+			`image             = "nvcr.io/nvidia/tensorrt-llm:1"`, `image = ""`, 1),
+			"image is required"},
+		{"no command", strings.Replace(trtPrepare,
+			`command           = "trtllm-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"`,
+			`command = ""`, 1), "command is required"},
+		{"reads nothing", strings.Replace(trtPrepare, "--checkpoint_dir {src} ", "", 1),
+			"no {src}"},
+		{"writes nowhere", strings.Replace(trtPrepare, "--output_dir {out} ", "", 1),
+			"no {out}"},
+		{"unknown placeholder", strings.Replace(trtPrepare, "{tp}", "{threads}", 1),
+			"{threads}"},
+		{"artifact is not a layout", strings.Replace(trtPrepare,
+			`artifact          = "engine-dir"`, `artifact = "engine"`, 1), "must be one of"},
+		{"artifact disagrees with the layout", strings.Replace(trtPrepare,
+			`artifact          = "engine-dir"`, `artifact = "hf-cache"`, 1), "name one thing"},
+		{"no timeout", strings.Replace(trtPrepare, "timeout_s         = 21600",
+			"timeout_s = 0", 1), "timeout_s must be positive"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(withPrepare(tc.body)))
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("want %q, got %v", tc.want, err)
+			}
+			if !errors.Is(err, ErrInvalid) {
+				t.Errorf("not ErrInvalid: %v", err)
+			}
+		})
+	}
+}
+
+// The command is an argv, not a shell line: split after substitution, so
+// `--output_dir {out}` becomes two elements and the builder sees a flag and a
+// path rather than one string it cannot parse.
+func TestThePrepareCommandRendersAsAnArgv(t *testing.T) {
+	d, err := Parse([]byte(withPrepare(trtPrepare)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := d.Backend.Prepare.Argv("/w/src", "/w/out", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"trtllm-build", "--checkpoint_dir", "/w/src", "--output_dir", "/w/out",
+		"--tp_size", "4"}
+	if len(argv) != len(want) {
+		t.Fatalf("argv = %q, want %q", argv, want)
+	}
+	for i := range want {
+		if argv[i] != want[i] {
+			t.Fatalf("argv = %q, want %q", argv, want)
+		}
+	}
+	// Unset parallelism is one card, not zero: `--tp_size 0` is a build that
+	// fails on an argument the operator never wrote.
+	argv, err = d.Backend.Prepare.Argv("/w/src", "/w/out", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if argv[len(argv)-1] != "1" {
+		t.Errorf("tp with no parallelism set = %q, want 1", argv[len(argv)-1])
+	}
+	// Refused rather than quoted, for the reason extra_args already is: the
+	// argv is split again downstream and no quoting we invent survives it.
+	if _, err := d.Backend.Prepare.Argv("/w/my weights", "/w/out", 1); err == nil {
+		t.Error("a path holding whitespace was accepted into an argv that gets split")
+	}
+}

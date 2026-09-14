@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nodarynet/nodary/internal/backend"
@@ -279,6 +280,16 @@ func cmdBackendShow(e env, args []string) int {
 	}
 	fmt.Fprintf(e.stdout, "  probe          health %s, ready %s, timeout %ds\n",
 		orElse(b.Probe.Health, "—"), orElse(b.Probe.Ready, "—"), b.Probe.ReadyTimeoutS)
+	// Only when there is one. A line saying "prepare —" on vLLM would put a
+	// phase in front of an operator that vLLM does not have.
+	if p := b.Prepare; p != nil {
+		portable := "portable across GPU models"
+		if p.GPUArchSpecific {
+			portable = "not portable across GPU models"
+		}
+		fmt.Fprintf(e.stdout, "  prepare        builds a %s in %s, up to %s; %s\n",
+			p.Artifact, p.Image, humanSeconds(p.TimeoutS), portable)
+	}
 	if b.SHA256 != "" {
 		fmt.Fprintf(e.stdout, "  sha256         %s\n", b.SHA256)
 	}
@@ -368,4 +379,18 @@ func capabilityLine(b backend.Report) string {
 		return "—"
 	}
 	return strings.Join(has, " ")
+}
+
+// humanSeconds renders a prepare timeout the way an operator would say it. Six
+// hours is what TensorRT-LLM asks for, and "21600s" is a number somebody has
+// to divide before it means anything.
+func humanSeconds(n int) string {
+	switch {
+	case n >= 3600 && n%3600 == 0:
+		return strconv.Itoa(n/3600) + "h"
+	case n >= 60 && n%60 == 0:
+		return strconv.Itoa(n/60) + "m"
+	default:
+		return strconv.Itoa(n) + "s"
+	}
 }

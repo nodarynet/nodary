@@ -33,6 +33,11 @@ type Report struct {
 	Args  []string `json:"args"`
 	Extra []string `json:"extra,omitempty"`
 	Probe Probe    `json:"probe"`
+	// Prepare is nil unless this backend builds something before it serves.
+	// An operator reading a listing has to be able to tell that registering a
+	// model on this backend costs hours before it answers anything, and how
+	// many — §4's whole point is that the phase exists and is not free.
+	Prepare *Prepare `json:"prepare,omitempty"`
 	// SHA256 is the digest of a registered descriptor's bytes, empty for a
 	// built-in. §9 requires registration to record it, and this is where an
 	// operator checks what is actually in force against what they registered.
@@ -53,7 +58,7 @@ func NewReport(d Descriptor, source, sha string) Report {
 		ContainerPort: b.ContainerPort, ImageDefault: b.ImageDefault,
 		Capabilities: b.Capabilities,
 		Args:         keys(b.Args), Extra: keys(b.Extra),
-		Probe: b.Probe, SHA256: sha,
+		Probe: b.Probe, Prepare: b.Prepare, SHA256: sha,
 	}
 }
 

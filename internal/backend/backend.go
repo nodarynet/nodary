@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -52,11 +53,11 @@ var ErrUnknown = errors.New("unknown backend")
 //
 // Descriptor is docs/specs/04-backends.md §6.
 //
-// `prepare` and `derive` are absent. They are R6-06 and R6-08, and a field
-// parsed but not honoured is worse than one that is refused: an operator who
-// writes `[backend.prepare]` and sees it accepted believes a build step will
-// run. Unknown keys are rejected, so writing one is an error today and becomes
-// a feature later without the intervening lie.
+// `derive` is absent. It is R6-08, and a field parsed but not honoured is
+// worse than one that is refused: an operator who writes `[backend.derive]`
+// and sees it accepted believes an image will be built. Unknown keys are
+// rejected, so writing one is an error today and becomes a feature later
+// without the intervening lie. `prepare` was in that position until R6-06.
 type Descriptor struct {
 	Backend Backend `json:"backend" toml:"backend"`
 }
@@ -105,6 +106,8 @@ type Backend struct {
 	GPU     GPU               `json:"gpu" toml:"gpu"`
 	Probe   Probe             `json:"probe" toml:"probe"`
 	Metrics Metrics           `json:"metrics" toml:"metrics"`
+	// Prepare is nil for a backend that serves what was staged. R6-06.
+	Prepare *Prepare `json:"prepare,omitempty" toml:"prepare"`
 }
 
 type Capabilities struct {
@@ -129,6 +132,83 @@ type Metrics struct {
 	Path string `json:"path" toml:"path"`
 }
 
+// Prepare is docs/specs/04-backends.md §4: the lifecycle is stage → prepare →
+// serve, not stage → serve.
+//
+// Absent for most backends. TensorRT-LLM is why it exists: it compiles a
+// per-GPU-architecture engine from the staged weights before it can answer
+// anything, which is hours of work producing a second artifact that itself has
+// to be cached and verified. §4 calls omitting this phase "the standard
+// mistake in 'just swap the image' plugin designs" — the interface looks
+// sufficient until the first backend that needs a build step.
+//
+// A pointer, unlike every other table here, because absence is a fact this one
+// has to state. A zero-valued Prepare and a backend that declares no prepare
+// are different things, and a bool beside the struct saying which would be a
+// second place for the same fact to be written.
+type Prepare struct {
+	// Required is true or the table is refused. A prepare that is not
+	// required is one nothing would ever decide to run — there is no second
+	// input that would settle it — so the honest way to say a backend needs
+	// no build step is to write no table at all. It is spelled rather than
+	// assumed because §6 spells it, and a descriptor an operator copies from
+	// the spec has to parse.
+	Required bool `json:"required" toml:"required"`
+	// Image is the builder, which is not the serving image: TensorRT-LLM
+	// builds in the full NGC container and serves from a smaller one.
+	Image string `json:"image" toml:"image"`
+	// Command is the build, as an argv template over {src}, {out} and {tp}.
+	// Not a shell: it is split on whitespace and handed to the container, so
+	// there is no interpolation, no redirection and nothing to quote.
+	Command string `json:"command" toml:"command"`
+	// Artifact is the weights_layout the output *becomes*, which is why it is
+	// drawn from the same closed vocabulary. A backend whose weights_layout is
+	// `engine-dir` reads what its own prepare produced.
+	Artifact string `json:"artifact" toml:"artifact"`
+	// GPUArchSpecific says the output is not portable across GPU models, so a
+	// cached artifact built on one architecture may not be served on another.
+	// Declared by the backend rather than discovered, because discovering it
+	// means serving from a wrong engine once to find out.
+	GPUArchSpecific bool `json:"gpu_arch_specific" toml:"gpu_arch_specific"`
+	// TimeoutS bounds the build. Positive for the same reason
+	// probe.ready_timeout_s is: without it a wedged build is indistinguishable
+	// from a slow one, forever.
+	TimeoutS int `json:"timeout_s" toml:"timeout_s"`
+}
+
+// prepareVars are the substitutions Command may use. A placeholder outside
+// this set would reach the builder literally, as an argument nobody wrote.
+var prepareVars = []string{"{src}", "{out}", "{tp}"}
+
+// placeholder finds {...} so an unknown one can be named rather than passed on.
+var placeholder = regexp.MustCompile(`\{[a-z_]+\}`)
+
+// Argv renders the build command.
+//
+// Split on whitespace after substitution, like Args: the result is an argv
+// handed to a container, so `--output_dir {out}` has to become two elements.
+// A path holding whitespace is refused rather than quoted, for the reason
+// extra_args already is — there is no quoting convention that survives being
+// split again downstream.
+func (p Prepare) Argv(src, out string, tensorParallel int) ([]string, error) {
+	for what, v := range map[string]string{"{src}": src, "{out}": out} {
+		if v == "" {
+			return nil, fmt.Errorf("%w: prepare needs a path for %s", ErrInvalid, what)
+		}
+		if strings.ContainsAny(v, " \t\n") {
+			return nil, fmt.Errorf("%w: the prepare path %q for %s holds whitespace, and the "+
+				"command is split on it", ErrInvalid, v, what)
+		}
+	}
+	if tensorParallel < 1 {
+		tensorParallel = 1
+	}
+	cmd := strings.NewReplacer(
+		"{src}", src, "{out}", out, "{tp}", strconv.Itoa(tensorParallel),
+	).Replace(p.Command)
+	return strings.Fields(cmd), nil
+}
+
 // Closed vocabularies. Each is a value the agent or the gateway switches on, so
 // an unrecognized one is a descriptor that would be silently mishandled.
 var (
@@ -141,7 +221,7 @@ var (
 //
 // Unknown keys are refused, as everywhere else nodary reads a file a human
 // wrote. Here it does double duty: it is also what makes the absence of
-// `[backend.prepare]` honest rather than silent.
+// `[backend.derive]` honest rather than silent.
 func Parse(body []byte) (Descriptor, error) {
 	var d Descriptor
 	md, err := toml.Decode(string(body), &d)
@@ -207,6 +287,64 @@ func (d Descriptor) Validate() error {
 		if _, both := b.Args[name]; both {
 			return fmt.Errorf("%w: %s: %s is in both args and extra; a name is translated or "+
 				"passed through, not both", ErrInvalid, b.Name, name)
+		}
+	}
+	return b.Prepare.validate(b.Name, b.WeightsLayout)
+}
+
+// validate refuses a prepare table that would fail on a GPU host hours later.
+//
+// A nil receiver is the common case — most backends serve what was staged —
+// and is deliberately not an error.
+func (p *Prepare) validate(backend, layout string) error {
+	if p == nil {
+		return nil
+	}
+	switch {
+	case !p.Required:
+		// Nothing would ever decide to run an optional build: there is no
+		// second input that settles it, so the phase would be declared and
+		// never happen. Writing no table is how a backend says it needs none.
+		return fmt.Errorf("%w: %s: prepare.required must be true — a prepare nothing would "+
+			"run is a build step an operator believes in and never gets; omit [backend.prepare] "+
+			"for a backend that serves what was staged", ErrInvalid, backend)
+	case strings.TrimSpace(p.Image) == "":
+		// The builder is not the server: TensorRT-LLM compiles in the full NGC
+		// container and serves from a smaller one, so image_default cannot
+		// stand in for this.
+		return fmt.Errorf("%w: %s: prepare.image is required; the builder is not the "+
+			"serving image", ErrInvalid, backend)
+	case strings.TrimSpace(p.Command) == "":
+		return fmt.Errorf("%w: %s: prepare.command is required", ErrInvalid, backend)
+	case !strings.Contains(p.Command, "{src}"):
+		return fmt.Errorf("%w: %s: prepare.command has no {src}, so the build would read no "+
+			"weights", ErrInvalid, backend)
+	case !strings.Contains(p.Command, "{out}"):
+		// Worse than reading nothing: a build that writes somewhere nodary did
+		// not choose succeeds, caches nothing, and runs again every reconcile.
+		return fmt.Errorf("%w: %s: prepare.command has no {out}, so the build would write "+
+			"outside the artifact directory and be rebuilt every cycle", ErrInvalid, backend)
+	case !contains(layouts, p.Artifact):
+		return fmt.Errorf("%w: %s: prepare.artifact must be one of %s — it is the layout the "+
+			"output becomes", ErrInvalid, backend, strings.Join(layouts, ", "))
+	case p.Artifact != layout:
+		// The serving container reads weights_layout. A prepare producing
+		// something else builds an artifact nothing is ever pointed at, and
+		// the deployment serves the staged weights as though the build had
+		// not happened — which is the failure this phase exists to prevent,
+		// arrived at by a different road.
+		return fmt.Errorf("%w: %s: prepare.artifact is %q but weights_layout is %q; the server "+
+			"reads what the build wrote, so they name one thing",
+			ErrInvalid, backend, p.Artifact, layout)
+	case p.TimeoutS <= 0:
+		return fmt.Errorf("%w: %s: prepare.timeout_s must be positive — a wedged build is "+
+			"otherwise indistinguishable from a slow one, forever", ErrInvalid, backend)
+	}
+	for _, v := range placeholder.FindAllString(p.Command, -1) {
+		if !contains(prepareVars, v) {
+			return fmt.Errorf("%w: %s: prepare.command uses %s, which is not one of %s; it "+
+				"would reach the builder as an argument nobody wrote",
+				ErrInvalid, backend, v, strings.Join(prepareVars, " "))
 		}
 	}
 	return nil

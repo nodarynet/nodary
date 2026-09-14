@@ -15,7 +15,7 @@ plugin directory of arbitrary Python would reopen the hole the release signature
 closes. · [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugins)
 
 - [x] **R6-01** Descriptor schema: parse, validate, reject unknown keys · [04 §6](../specs/04-backends.md#6-descriptor-schema)
-  - `[backend.prepare]` and `[backend.derive]` are **refused**, not ignored: an operator who writes one and sees it accepted believes a build step will run. They become features in R6-06 and R6-08 without an intervening lie
+  - `[backend.derive]` is **refused**, not ignored: an operator who writes one and sees it accepted believes an image will be built. It becomes a feature in R6-08 without an intervening lie. `[backend.prepare]` was in that position until R6-06
   - taken early because the agent cannot render an argv without it · [R4b §1](../plans/R4b-backends-and-the-plan.md)
 - [ ] **R6-02** Embed the built-in descriptors — vLLM, SGLang, llama.cpp, TensorRT-LLM; `/etc/nodary/backends/` holds only operator-added ones · [01 §12](../specs/01-install.md#12-filesystem-layout)
   - *partial:* **vLLM, SGLang and llama.cpp** are embedded. TensorRT-LLM needs `[backend.prepare]` (R6-06), and a descriptor embedded whose features are unimplemented would be a backend the binary claims to support and cannot run
