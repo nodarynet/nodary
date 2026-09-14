@@ -257,6 +257,26 @@ func applyDeployments(ctx context.Context, tx *sql.Tx, now time.Time, want, have
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO deployment_gpu (deployment_id, node_name, gpu_index) VALUES (?, ?, ?)`,
 				d.ID, d.NodeName, idx); err != nil {
+				// The unique index in 0006_fleet.sql is the guard and stays
+				// the guard. This turns what it says into something both front
+				// ends can act on: raw, it reaches a person as "constraint
+				// failed: UNIQUE constraint failed: deployment_gpu.node_name,
+				// deployment_gpu.gpu_index (2067)" — naming neither the card
+				// nor who holds it — and an API client as a 500 with the
+				// message withheld, which is the same shape as the three
+				// applier refusals R2-44 already found unwrapped.
+				//
+				// The lookup is safe inside the failed statement's
+				// transaction: SQLite's default ON CONFLICT ABORT rolls back
+				// the statement, not the transaction.
+				var other string
+				if e := tx.QueryRowContext(ctx,
+					`SELECT deployment_id FROM deployment_gpu WHERE node_name = ? AND gpu_index = ?`,
+					d.NodeName, idx).Scan(&other); e == nil && other != d.ID {
+					return fmt.Errorf("%w: GPU %d on %s is already claimed by %q; a card serves "+
+						"one deployment at a time. Give this one another (`model register --gpu`)",
+						ErrInvalid, idx, d.NodeName, other)
+				}
 				return fmt.Errorf("claiming GPU %d on %s for %q: %w", idx, d.NodeName, d.ID, err)
 			}
 		}

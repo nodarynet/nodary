@@ -496,6 +496,18 @@ func TestLimitsSetOverServer(t *testing.T) {
 // by different people at different times — `config.ErrInvalid` and
 // `identity.ErrBadName` shared one code while the CLI answered them 1 and 2,
 // which this caught.
+// manifestFile writes the sha256sum-format file `--source remote` requires,
+// so a test can register without any weights anywhere.
+func manifestFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "nodary-manifest.sha256")
+	if err := os.WriteFile(path,
+		[]byte(strings.Repeat("d", 64)+"  config.json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestOneRefusalCostsOneExitCodeWhicheverRoadItTook(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
@@ -519,6 +531,13 @@ func TestOneRefusalCostsOneExitCodeWhicheverRoadItTook(t *testing.T) {
 		{"a restart of a model that is not on that node",
 			[]string{"model", "restart", "acme/tiny", "--node", "gpu-02", "--yes",
 				"--justify", "wrong node"}},
+		// A card serves one deployment at a time, and the guard is a unique
+		// index — so this refusal begins life as a raw driver error, which is
+		// exactly the shape that reaches a client as a 500 saying nothing.
+		{"a second deployment claiming a card that is taken",
+			[]string{"model", "register", "acme/second", "--node", "gpu-01", "--gpu", "0",
+				"--source", "remote", "--manifest", manifestFile(t), "--yes",
+				"--justify", "the card is taken"}},
 	} {
 		local, _, localErr := run(t, append(append([]string{}, c.args...),
 			"--db", a.db, "--secret-key", a.key)...)
@@ -531,6 +550,17 @@ func TestOneRefusalCostsOneExitCodeWhicheverRoadItTook(t *testing.T) {
 		if local != remote {
 			t.Errorf("%s: exit %d locally and %d over --server\n  local  %s  remote %s",
 				c.what, local, remote, localErr, remoteErr)
+		}
+		// The exit code is half of it. A refusal that names an operator's own
+		// mistake and then arrives as an unhandled server error has told them
+		// nothing — and that is not hypothetical: R2-44 has found five
+		// refusals reaching a client this way, each because somebody wrote a
+		// bare fmt.Errorf where a sentinel belonged. Asserted for the whole
+		// table rather than per row, so the next one is caught by a test
+		// nobody has to remember to extend.
+		if strings.Contains(remoteErr, "the server failed to handle this request") {
+			t.Errorf("%s arrived as an unhandled server error, so its reason was withheld:\n%s",
+				c.what, remoteErr)
 		}
 	}
 }
@@ -1289,5 +1319,131 @@ func TestStagingPreconditionsRefuseTheSameOnBothRoads(t *testing.T) {
 	}
 	if rows := a.stageResetRows(t); len(rows) != 0 {
 		t.Errorf("stage_reset = %v, want nothing written by any refusal", rows)
+	}
+}
+
+// `model register` over --server, which is the one that closes R2-44's own
+// argument: registering a model was the last ordinary act that still needed a
+// shell on the control-plane host, and therefore still recorded root/local.
+//
+// --source remote is the shape this is for: the manifest is a few kilobytes
+// computed anywhere, the weights never touch the administrator's machine, and
+// the node fetches its own copy.
+func TestModelRegisterOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+
+	// sha256sum format, the same file scripts/stage-model.sh writes.
+	manifest := filepath.Join(t.TempDir(), "nodary-manifest.sha256")
+	if err := os.WriteFile(manifest, []byte(
+		strings.Repeat("a", 64)+"  config.json\n"+
+			strings.Repeat("b", 64)+"  model.safetensors\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := run(t, "model", "register", "acme/tiny",
+		"--node", "gpu-01", "--source", "remote", "--manifest", manifest,
+		"--grant", "alice", "--origin-org", "Acme", "--origin-country", "US",
+		"--license", "apache-2.0", "--yes",
+		"--justify", "registered from an administrator's own machine",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("model register over --server: exit %d, %s", code, stderr)
+	}
+
+	// It is really in the catalog, with the provenance and the license, and
+	// with the route and the grant the verb creates alongside it.
+	code, out, stderr := run(t, "config", "export", "--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("config export: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{"acme/tiny", "Acme", "apache-2.0", "gpu-01", "alice"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the exported configuration does not carry %q:\n%s", want, out)
+		}
+	}
+
+	// And the record is the person's. Both roads record `config.apply`,
+	// because both hand the same document to the same applier.
+	code, out, stderr = run(t, "audit", "list", "--limit", "50", "--format", "json",
+		"--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	var got struct {
+		Records []struct {
+			Action string `json:"action"`
+			Actor  struct {
+				ID     string `json:"id"`
+				Method string `json:"method"`
+			} `json:"actor"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var found bool
+	for _, r := range got.Records {
+		if r.Action == "config.apply" && r.Actor.Method != "local" && r.Actor.ID != "root" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no config.apply recorded against a person:\n%s", out)
+	}
+}
+
+// The port is chosen from the fleet being registered against, not from
+// whatever database happens to be on the administrator's laptop.
+//
+// Getting this wrong is silent: two deployments on one node publishing the same
+// loopback port means the second container never binds, the first keeps
+// serving, and the new model's route answers with the old model's server —
+// metered against the wrong one.
+func TestRegisterPicksAPortFromTheControlPlanesFleet(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+
+	manifest := filepath.Join(t.TempDir(), "m.sha256")
+	if err := os.WriteFile(manifest,
+		[]byte(strings.Repeat("c", 64)+"  config.json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []string{"acme/first", "acme/second"} {
+		code, _, stderr := run(t, "model", "register", id, "--node", "gpu-01",
+			"--gpu", strconv.Itoa(i), "--source", "remote", "--manifest", manifest, "--yes",
+			"--justify", "two models on one node from a laptop",
+			"--server", base, "--credentials", a.creds)
+		if code != ExitOK {
+			t.Fatalf("registering %s: exit %d, %s", id, code, stderr)
+		}
+	}
+
+	code, out, stderr := run(t, "config", "export", "--server", base, "--credentials", a.creds)
+	if code != ExitOK {
+		t.Fatalf("config export: exit %d, %s", code, stderr)
+	}
+	var ports []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "port") {
+			ports = append(ports, strings.TrimSpace(line))
+		}
+	}
+	if len(ports) != 2 {
+		t.Fatalf("want two deployments with ports, got %v:\n%s", ports, out)
+	}
+	if ports[0] == ports[1] {
+		t.Errorf("both deployments took %s — the second was placed from the wrong "+
+			"fleet's view of what is taken", ports[0])
 	}
 }

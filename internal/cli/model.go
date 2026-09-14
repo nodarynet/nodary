@@ -83,6 +83,7 @@ func cmdModel(e env, args []string) int {
 func cmdModelRegister(e env, args []string) int {
 	fs := newFlagSet(e, "model register")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	node := fs.String("node", "", "the node to place it on; nodary node list names them")
 	gpus := fs.String("gpu", "0", "GPU indices on that node, comma-separated")
@@ -124,6 +125,10 @@ func cmdModelRegister(e env, args []string) int {
 	indices, ok := parseGPUList(e, *gpus)
 	if !ok {
 		return ExitUsage
+	}
+	rem, code := remoteFor(e, "model register", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
 	}
 	name := *route
 	if name == "" {
@@ -167,6 +172,17 @@ func cmdModelRegister(e env, args []string) int {
 			// a deployment that applies cleanly and then sits in `staging`
 			// forever with the reason buried in a heartbeat.
 			fmt.Fprintf(e.stderr, "nodary model register: no weights at %s\n", dir)
+			if rem != nil {
+				// Over --server that path is on *this* machine, not on the
+				// node — and saying "no weights at /var/lib/nodary/models"
+				// without saying whose is how an operator ends up looking at
+				// the right directory on the wrong box.
+				fmt.Fprintf(e.stderr,
+					"  That path is on this machine. --source local means the node already\n"+
+						"  has the weights and this command only hashes an identical copy to\n"+
+						"  build the manifest from; --source remote --manifest FILE asks the\n"+
+						"  node to fetch its own, and needs no copy here at all.\n")
+			}
 			// Named for the layout this backend declares. Telling somebody
 			// with a GGUF to place `config.json and the tensor files` sends
 			// them looking for files their model does not have.
@@ -208,7 +224,7 @@ func cmdModelRegister(e env, args []string) int {
 	// that refusal for a detail they have no reason to care about: the port is
 	// published on loopback and nothing outside the box ever names it.
 	if *out == "" && !flagWasSet(fs, "port") {
-		if free, ok := freePortOn(e, dbPath, *node, *port); ok && free != *port {
+		if free, ok := freePortOn(e, rem, dbPath, *node, *port); ok && free != *port {
 			fmt.Fprintf(e.stdout, "%s %-18s %d is taken on %s; using %d\n",
 				mark(preflight.LevelOK), "port", *port, *node, free)
 			*port = free
@@ -276,7 +292,24 @@ func cmdModelRegister(e env, args []string) int {
 		return ExitOK
 	}
 
-	code := applySnapshot(e, "model register", want, false, *noSync, cer, dbPath, keyPath, credsPath)
+	// **The same document either way.** Over --server this renders exactly what
+	// `-o FILE` writes and posts it to the applier the declarative route
+	// already uses, so there is no second way into the catalog and no second
+	// action in the chain: both roads record `config.apply`. It is also what
+	// makes R4-32's origin check unavoidable — that control lives in
+	// config.applyModels rather than in this verb, precisely so that neither
+	// road can walk past it.
+	if rem != nil {
+		body, err := config.RenderTOML(want)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
+			return ExitFailure
+		}
+		code = remoteApply(e, rem, "model register",
+			remoteAct{method: "POST", path: "/config/apply", body: rawTOML(body)}, *noSync, cer)
+	} else {
+		code = applySnapshot(e, "model register", want, false, *noSync, cer, dbPath, keyPath, credsPath)
+	}
 	if code == ExitOK && !*cer.dryRun {
 		fmt.Fprintf(e.stderr,
 			"\nClients ask for it as %q. `nodary node show %s` follows it from starting to ready.\n",
@@ -385,14 +418,24 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 // message rather than a different outcome. `model register` opens the database
 // again a moment later through openSession, so a failure here is a failure
 // there too.
-func freePortOn(e env, dbPath *string, node string, from int) (int, bool) {
-	path, _ := resolveDBIn(e, *dbPath)
-	db, err := store.OpenReadOnly(context.Background(), path)
-	if err != nil {
-		return 0, false
+func freePortOn(e env, rem *remote, dbPath *string, node string, from int) (int, bool) {
+	// Whichever configuration this invocation is acting against. Reading the
+	// local one while registering against a control plane would pick a port
+	// from the wrong fleet — and picking a *taken* one is the collision this
+	// exists to avoid, silently: the second container never binds, the first
+	// keeps serving, and the new model's route answers with the old model.
+	var snap *config.Snapshot
+	var err error
+	if rem != nil {
+		snap, err = remoteSnapshot(rem, 0)
+	} else {
+		path, _ := resolveDBIn(e, *dbPath)
+		var db *store.DB
+		if db, err = store.OpenReadOnly(context.Background(), path); err == nil {
+			defer db.Close()
+			snap, err = config.Read(context.Background(), db.Read())
+		}
 	}
-	defer db.Close()
-	snap, err := config.Read(context.Background(), db.Read())
 	if err != nil {
 		return 0, false
 	}

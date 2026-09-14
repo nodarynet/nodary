@@ -220,6 +220,18 @@ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
     --node fractal --gpu 0 --port 8001 --grant alice --justify "first model"
 ```
 
+That whole sequence works from your own machine, with `--server` on the register step — which
+is the shape this path is for. The manifest is a few kilobytes and the weights never touch
+your laptop at all:
+
+```sh
+nodary model register Qwen/Qwen2.5-0.5B-Instruct \
+    --source remote --manifest ./nodary-manifest.sha256 \
+    --node fractal --gpu 0 --grant alice \
+    --server https://nodary.example.internal:8443 \
+    --justify "OPS-4142: qwen on fractal"
+```
+
 The agent on that node downloads its own copy directly from HuggingFace, verified against
 the same manifest, across as many reconcile cycles as it takes and resumable if the agent
 restarts partway through. `nodary node show fractal` shows it moving `staging → staged` with
@@ -543,7 +555,7 @@ machine you are standing on. These do, today:
 | | |
 | :--- | :--- |
 | Fleet | `node list`, `node show`, `node approve\|drain\|revoke` |
-| Models and routing | `model enable\|disable\|restart\|restage\|unstage`, `route list\|show\|set`, `limits show\|set` |
+| Models and routing | `model register\|enable\|disable\|restart\|restage\|unstage`, `route list\|show\|set`, `limits show\|set` |
 | Accounts | `user add\|list\|show\|suspend\|delete`, `token list\|create\|revoke` |
 | Records | `audit list`, `usage show` |
 | Configuration | `config show\|export\|list\|diff\|verify\|apply\|rollback` |
