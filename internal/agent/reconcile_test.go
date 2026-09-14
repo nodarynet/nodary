@@ -781,3 +781,48 @@ func TestADeploymentWaitingOnItsBuildIsNotReportedStopped(t *testing.T) {
 		})
 	}
 }
+
+// R6-15: a derive is built on the control plane and committed there, so the
+// node can neither make its image nor pull it. Starting the unit anyway fails
+// inside `nerdctl run`, sixty seconds at a time, until systemd's start limit
+// calls the deployment failed — a long way from "the mirror has not got it".
+func TestAUnitWaitsForAnImageOnlyTheControlPlaneHas(t *testing.T) {
+	h, f := newFakeHost(t)
+	p := planFor(t, h)
+
+	var asked []string
+	fetchErr := errors.New("the control plane's mirror answered 404 Not Found")
+	h.EnsureImage = func(_ context.Context, ref string) error {
+		asked = append(asked, ref)
+		return fetchErr
+	}
+	f.reset()
+
+	r := Reconcile(context.Background(), p, h)
+	if f.did("start nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want no start: its image is not on this node", f.calls)
+	}
+	if len(asked) != 1 || asked[0] != p.Units[0].Image() {
+		t.Errorf("asked for %v, want the image the unit will run (%q)", asked, p.Units[0].Image())
+	}
+	// Not terminal: a mirror unreachable now is reachable on the next poll,
+	// and `failed` would need an operator to clear something that clears
+	// itself.
+	if r.Units[0].State != "preparing" {
+		t.Errorf("state = %q, want preparing", r.Units[0].State)
+	}
+	if !strings.Contains(r.Units[0].Action, "404") {
+		t.Errorf("action = %q, want it to carry the reason", r.Units[0].Action)
+	}
+
+	// And once the image is there, the same plan starts.
+	fetchErr = nil
+	f.reset()
+	r = Reconcile(context.Background(), p, h)
+	if !f.did("start nodary-model@dep_one.service") {
+		t.Errorf("calls = %v, want it started once its image arrived", f.calls)
+	}
+	if r.Units[0].State == "preparing" {
+		t.Errorf("state = %q, want it past the image gate", r.Units[0].State)
+	}
+}

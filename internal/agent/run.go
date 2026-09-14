@@ -119,6 +119,10 @@ func NewDaemon(conf Config, node NodeConfig, h Host, log *slog.Logger) (*Daemon,
 		// uninstall must not take the record of what happened with it.
 		events: NewEvents(filepath.Join(filepath.Dir(conf.Certificate), "events.ndjson"))}
 	d.client.Store(client)
+	// Wired here rather than by the caller: it needs the daemon's own pinned
+	// client and its server address, which is exactly what a Host does not
+	// have. A Host built for a test or for `agent plan` leaves it nil.
+	d.Host.EnsureImage = d.ensureImage
 
 	// A certificate that cannot be parsed is not fatal here: the pair loaded,
 	// so this agent can still talk to the control plane. It simply never

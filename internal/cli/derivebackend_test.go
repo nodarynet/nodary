@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/derive"
 )
 
@@ -89,17 +90,58 @@ func TestADeriveOfAParentThisBuildHasNotGotIsRefused(t *testing.T) {
 
 // stubBuild makes `backend build` produce a fixed result without a container
 // runtime, and reports what it was asked to build.
-func stubBuild(t *testing.T, digest string) *derive.Options {
+//
+// The export is left a real code path: buildRuntime answers `nerdctl save` by
+// writing a file, so the tar that reaches the mirror cache is one the test can
+// look at rather than one nothing checks.
+type stubbed struct {
+	asked  derive.Options
+	dist   string
+	saved  []string
+	failed string
+	// savedTo is the path `nerdctl save -o` was pointed at, and destSeen
+	// whether the name the mirror serves already existed while it ran. A node
+	// fetching a half-written tar gets a `nerdctl load` failure with nothing
+	// to say about the cause, so the export must not write under that name.
+	savedTo  []string
+	destSeen bool
+	dest     string
+}
+
+func stubBuild(t *testing.T, digest string) *stubbed {
 	t.Helper()
-	var got derive.Options
-	prev := buildDerive
+	st := &stubbed{dist: t.TempDir()}
+	prevBuild, prevRun := buildDerive, buildRuntime
 	buildDerive = func(_ context.Context, o derive.Options) (derive.Result, error) {
-		got = o
+		st.asked = o
 		return derive.Result{Image: o.Tag, Digest: digest, Steps: 1,
 			Reached: []string{"pypi.internal:443"}}, nil
 	}
-	t.Cleanup(func() { buildDerive = prev })
-	return &got
+	buildRuntime = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) > 2 && args[0] == "save" && args[1] == "-o" {
+			if st.failed != "" {
+				return []byte(st.failed), errors.New("exit status 1")
+			}
+			if st.dest != "" {
+				if _, err := os.Stat(st.dest); err == nil {
+					st.destSeen = true
+				}
+			}
+			st.saved = append(st.saved, args[len(args)-1])
+			st.savedTo = append(st.savedTo, args[2])
+			return nil, os.WriteFile(args[2], []byte("a tar of "+args[len(args)-1]), 0o600)
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { buildDerive, buildRuntime = prevBuild, prevRun })
+	return st
+}
+
+func (a *appliance) buildWith(t *testing.T, st *stubbed, verb, justify string) (int, string) {
+	t.Helper()
+	code, _, stderr := a.run("backend", verb, "vllm-fips", "--dist", st.dist,
+		"--yes", "--justify", justify)
+	return code, stderr
 }
 
 const builtDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -111,14 +153,13 @@ func TestBackendBuildRecordsWhatItProduced(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
 	a.registerBackend(t, fipsDescriptor)
-	asked := stubBuild(t, builtDigest)
+	st := stubBuild(t, builtDigest)
 
-	code, _, stderr := a.run("backend", "build", "vllm-fips", "--yes", "--justify",
-		"FIPS: stock opencv aborts at import")
+	code, stderr := a.buildWith(t, st, "build", "FIPS: stock opencv aborts at import")
 	if code != ExitOK {
 		t.Fatalf("backend build: exit %d: %s", code, stderr)
 	}
-	if asked.Descriptor.Backend.Derive == nil {
+	if st.asked.Descriptor.Backend.Derive == nil {
 		t.Fatal("the build was handed a descriptor with no recipe")
 	}
 
@@ -163,10 +204,10 @@ func TestASecondBuildHasToBeCalledRebuild(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
 	a.registerBackend(t, fipsDescriptor)
-	stubBuild(t, builtDigest)
-	a.mustBuild(t, "build")
+	st := stubBuild(t, builtDigest)
+	a.mustBuild(t, st, "build")
 
-	code, _, stderr := a.run("backend", "build", "vllm-fips", "--yes", "--justify", "again")
+	code, stderr := a.buildWith(t, st, "build", "again")
 	if code == ExitOK {
 		t.Fatal("a second `build` rebuilt without being asked to")
 	}
@@ -174,8 +215,8 @@ func TestASecondBuildHasToBeCalledRebuild(t *testing.T) {
 		t.Errorf("the refusal does not name the verb that would do it: %s", stderr)
 	}
 
-	stubBuild(t, "sha256:"+strings.Repeat("2", 64))
-	a.mustBuild(t, "rebuild")
+	st2 := stubBuild(t, "sha256:"+strings.Repeat("2", 64))
+	a.mustBuild(t, st2, "rebuild")
 	if got := a.backendNames(t)["vllm-fips"].Built.Digest; got != "sha256:"+strings.Repeat("2", 64) {
 		t.Errorf("rebuild left %q", got)
 	}
@@ -187,8 +228,8 @@ func TestADeriveWhoseBaseHasMovedReadsStale(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
 	a.registerBackend(t, fipsDescriptor)
-	stubBuild(t, builtDigest)
-	a.mustBuild(t, "build")
+	st := stubBuild(t, builtDigest)
+	a.mustBuild(t, st, "build")
 
 	moved := strings.Replace(fipsDescriptor,
 		"sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14",
@@ -243,8 +284,8 @@ func TestModelRegisterPinsWhatTheBuildProduced(t *testing.T) {
 		t.Errorf("the refusal does not say what to do about it: %s", stderr)
 	}
 
-	stubBuild(t, builtDigest)
-	a.mustBuild(t, "build")
+	st := stubBuild(t, builtDigest)
+	a.mustBuild(t, st, "build")
 
 	code, _, stderr = a.run("model", "register", "acme/tiny", "--node", "gpu-01",
 		"--backend", "vllm-fips", "--models-dir", models, "--port", "8001",
@@ -279,8 +320,8 @@ func TestAFailedBuildReplacesNothing(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
 	a.registerBackend(t, fipsDescriptor)
-	stubBuild(t, builtDigest)
-	a.mustBuild(t, "build")
+	st := stubBuild(t, builtDigest)
+	a.mustBuild(t, st, "build")
 
 	prev := buildDerive
 	buildDerive = func(_ context.Context, _ derive.Options) (derive.Result, error) {
@@ -288,7 +329,7 @@ func TestAFailedBuildReplacesNothing(t *testing.T) {
 	}
 	t.Cleanup(func() { buildDerive = prev })
 
-	code, _, _ := a.run("backend", "rebuild", "vllm-fips", "--yes", "--justify", "test")
+	code, _ := a.buildWith(t, st, "rebuild", "test")
 	if code == ExitOK {
 		t.Fatal("a failed build succeeded")
 	}
@@ -301,10 +342,9 @@ func TestAFailedBuildReplacesNothing(t *testing.T) {
 	}
 }
 
-func (a *appliance) mustBuild(t *testing.T, verb string) {
+func (a *appliance) mustBuild(t *testing.T, st *stubbed, verb string) {
 	t.Helper()
-	code, _, stderr := a.run("backend", verb, "vllm-fips", "--yes", "--justify", "test fixture")
-	if code != ExitOK {
+	if code, stderr := a.buildWith(t, st, verb, "test fixture"); code != ExitOK {
 		t.Fatalf("backend %s: exit %d: %s", verb, code, stderr)
 	}
 }
@@ -371,15 +411,14 @@ func TestTighteningTheProfileStopsAnUnpinnedBuild(t *testing.T) {
 	a := newAppliance(t)
 	a.enrolled("gpu-01")
 	a.registerBackend(t, unpinnedDescriptor)
-	stubBuild(t, builtDigest)
+	st := stubBuild(t, builtDigest)
 
 	// Under the default profile it builds, which is the point of the two
 	// profiles differing.
-	a.mustBuild(t, "build")
+	a.mustBuild(t, st, "build")
 
 	a.regulated(t)
-	code, _, stderr := a.run("backend", "rebuild", "vllm-fips",
-		"--yes", "--justify", "rebuilding after the base moved")
+	code, stderr := a.buildWith(t, st, "rebuild", "rebuilding after the base moved")
 	if code == ExitOK {
 		t.Fatal("a regulated site rebuilt a recipe that floats")
 	}
@@ -390,5 +429,61 @@ func TestTighteningTheProfileStopsAnUnpinnedBuild(t *testing.T) {
 	// moved is still the image on record.
 	if got := a.backendNames(t)["vllm-fips"].Built.Digest; got != builtDigest {
 		t.Errorf("tightening the profile changed what is on record: %q", got)
+	}
+}
+
+// §5: the result is "stored in the control plane's mirror and served to nodes
+// like any other image". A node can neither build this image nor pull it, so
+// without the export there is nothing anywhere a GPU host could fetch.
+func TestABuildLeavesItsImageInTheMirror(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerBackend(t, fipsDescriptor)
+	st := stubBuild(t, builtDigest)
+	st.dest = filepath.Join(st.dist, api.DerivedImageFile(builtDigest))
+	a.mustBuild(t, st, "build")
+
+	want := st.dest
+	if _, err := os.Stat(want); err != nil {
+		if entries, rerr := os.ReadDir(st.dist); rerr == nil {
+			t.Fatalf("the build left no image in the mirror cache: %v (holds %v)", err, entries)
+		}
+		t.Fatalf("the build left no image in the mirror cache: %v", err)
+	}
+	// The digest and not the tag: the node asks for the file by the digest its
+	// deployment pins, so exporting the tag would leave a name nothing asks for.
+	if len(st.saved) != 1 || st.saved[0] != builtDigest {
+		t.Errorf("exported %v, want the digest %q", st.saved, builtDigest)
+	}
+	// **Written under another name and renamed.** The mirror serves whatever is
+	// in the cache directory, with no notion of a file still being written, so
+	// a save straight to the served name is a window in which a node fetches a
+	// truncated tar and reports a load failure that names nothing.
+	if len(st.savedTo) != 1 || st.savedTo[0] == want {
+		t.Errorf("the export wrote directly to the name the mirror serves (%v)", st.savedTo)
+	}
+	if st.destSeen {
+		t.Error("the served name existed while the export was still writing")
+	}
+}
+
+// An export that fails leaves an image no node can reach, so recording it would
+// claim a deployment is possible that is not.
+func TestABuildThatCannotExportRecordsNothing(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	a.registerBackend(t, fipsDescriptor)
+	st := stubBuild(t, builtDigest)
+	st.failed = "no space left on device"
+
+	code, stderr := a.buildWith(t, st, "build", "test fixture")
+	if code == ExitOK {
+		t.Fatal("a build whose image never reached the mirror was recorded")
+	}
+	if !strings.Contains(stderr, "node cannot fetch it") {
+		t.Errorf("the failure does not say what the consequence is: %s", stderr)
+	}
+	if b := a.backendNames(t)["vllm-fips"].Built; b != nil {
+		t.Errorf("an image nothing can fetch was recorded as built: %+v", b)
 	}
 }

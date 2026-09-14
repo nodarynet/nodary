@@ -87,3 +87,34 @@ const DistDirName = "dist"
 // DistDir is where a control plane keeps resolved components.
 // docs/specs/01-install.md §12.
 func DistDir(dataDir string) string { return filepath.Join(dataDir, DistDirName) }
+
+// LocalImage reports whether an image reference could only have come from this
+// control plane's own image store.
+//
+// `nodary backend build` commits into the local content store rather than
+// pushing, so what it produces is a bare content digest with no registry in
+// front of it — nothing a node could pull, and the whole reason the mirror has
+// to carry it. Every other image nodary runs is `host/repo@sha256:…`, which a
+// node pulls for itself and which this must not divert.
+func LocalImage(ref string) bool {
+	rest, ok := strings.CutPrefix(ref, "sha256:")
+	if !ok || len(rest) != 64 {
+		return false
+	}
+	for _, r := range rest {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// DerivedImageFile is the mirror's name for such an image.
+//
+// Computed from the digest on both sides rather than exchanged, so there is no
+// second place the name is written and no way for the two to disagree about
+// which file a node is asking for. The shape satisfies distName, which is
+// deliberately a whitelist.
+func DerivedImageFile(ref string) string {
+	return "derived-" + strings.TrimPrefix(ref, "sha256:") + ".tar"
+}

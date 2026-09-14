@@ -614,6 +614,20 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 // so nothing here is quoted or escaped. Values that could contain whitespace —
 // NODARY_ARGS is the only one — are joined by shellJoin, which refuses rather
 // than escapes.
+// Image is what this unit will run.
+//
+// Read out of the env file rather than stored a second time on the Unit: the
+// env file is what systemd expands into `nerdctl run`, so a copy beside it is
+// a second answer that can disagree with the one that actually starts.
+func (u Unit) Image() string {
+	for _, v := range u.Env {
+		if v.Key == "NODARY_IMAGE" {
+			return v.Value
+		}
+	}
+	return ""
+}
+
 func (u Unit) RenderEnv() []byte {
 	var b strings.Builder
 	b.WriteString("# Written by nodary. Edits are overwritten on the next reconcile.\n")

@@ -44,6 +44,12 @@ type Host struct {
 	// across reconciles, so this is where "since it was last started" can live
 	// without threading state through every caller.
 	Asserted map[string]string
+	// EnsureImage makes an image present before a unit that needs it starts.
+	//
+	// Only a control-plane-built one has anything to do here — every other
+	// image is a registry reference `nerdctl run` pulls for itself. Nil
+	// disables it, which is what a test and `agent plan` want.
+	EnsureImage func(ctx context.Context, ref string) error
 	// Self is this binary's path. The egress probe runs it inside a
 	// deployment's network namespace, so the agent and the assertion are
 	// versioned together and the probe needs nothing from the model's image.
@@ -280,6 +286,23 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string,
 			out.State, out.Action, out.Error = "failed", "", b.Reason
 		}
 		return out, false
+	}
+
+	// And the image, for one built here — 04 §5 puts a derive's build on the
+	// control plane, so a node can neither make this image nor pull it: it
+	// exists in one place and has to be fetched. The same shape as the two
+	// gates above, and for the same reason. Starting a unit whose image is
+	// absent fails inside `nerdctl run`, sixty seconds at a time, until
+	// systemd's start limit calls the deployment failed — a long way from
+	// "the mirror has not got it".
+	if h.EnsureImage != nil {
+		if err := h.EnsureImage(ctx, u.Image()); err != nil {
+			// Not terminal, so not `failed`: a mirror that is unreachable now
+			// is reachable on the next poll, and the shape that retries is
+			// the one the staging gate above already uses.
+			out.State, out.Action = "preparing", "fetching its image: "+err.Error()
+			return out, false
+		}
 	}
 
 	changed, err := writeEnvFile(u)

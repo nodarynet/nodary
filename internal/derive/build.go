@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -233,4 +235,37 @@ func tail(out []byte) string {
 		s = "…" + s[len(s)-400:]
 	}
 	return s
+}
+
+// Export writes a built image out of the local store, for the mirror to serve
+// (R6-15).
+//
+// No pull first, unlike the bundle's own export: this image was committed here
+// and exists nowhere else, so a pull would be an attempt to fetch it from a
+// registry that has never seen it.
+//
+// Written to a temporary name and renamed, because the mirror serves whatever
+// is in the cache directory and a node fetching a half-written tar would get a
+// `nerdctl load` failure with nothing to say about the cause.
+func Export(ctx context.Context, run Runner, ref, dest string) error {
+	if run == nil {
+		return fmt.Errorf("%w: exporting an image needs nerdctl", ErrNoRuntime)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".nodary-export-*.tar")
+	if err != nil {
+		return err
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	if out, err := run(ctx, "nerdctl", "save", "-o", tmp.Name(), ref); err != nil {
+		return fmt.Errorf("exporting %s: %v: %s", ref, err, tail(out))
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), dest)
 }

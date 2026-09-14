@@ -5,14 +5,17 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/config"
 	"github.com/nodarynet/nodary/internal/derive"
 	"github.com/nodarynet/nodary/internal/identity"
+	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/policy"
 )
 
@@ -20,6 +23,11 @@ import (
 // what a second build means, and the record it writes — is the part worth
 // testing, and none of it needs a container runtime, which a test has not got.
 var buildDerive = derive.Build
+
+// buildRuntime is how the export reaches nerdctl, swapped in a test alongside
+// buildDerive. Separate from it because a stubbed build still has to leave the
+// export a real code path to run.
+var buildRuntime derive.Runner = runNerdctl
 
 // cmdBackendBuild is `nodary backend build` and `rebuild` — docs/specs/04-backends.md §5.
 //
@@ -44,6 +52,8 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 	dbPath, keyPath, credsPath := stateFlags(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
+	distDir := fs.String("dist", "", "the component cache the mirror serves; defaults to "+
+		filepath.Join(paths.DataDir, api.DistDirName))
 	if code := parseFlags(e, fs, args); code >= 0 {
 		return code
 	}
@@ -144,6 +154,25 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 		return ExitFailure
 	}
 	fmt.Fprintf(e.stderr, "  built %s\n", built.Digest)
+
+	// **Exported before the ceremony, for the build's own reason.** A node can
+	// neither build this image nor pull it — it is committed here and pushed
+	// nowhere — so §5's "served to nodes like any other image" needs it in the
+	// cache the mirror serves. A tar nothing references yet is the same
+	// category as the image in the content store nothing references yet: if
+	// the operator declines, neither is adopted and neither is reachable.
+	cache := *distDir
+	if cache == "" {
+		cache = filepath.Join(paths.DataDir, api.DistDirName)
+	}
+	tarball := filepath.Join(cache, api.DerivedImageFile(built.Digest))
+	fmt.Fprintf(e.stderr, "  exporting to the mirror\n")
+	if err := derive.Export(ctx, buildRuntime, built.Digest, tarball); err != nil {
+		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n"+
+			"  The image was built. Without the export a node cannot fetch it, so nothing\n"+
+			"  is recorded — rerun once the cache is writable.\n", verb, err)
+		return ExitFailure
+	}
 
 	rec, applied, code := s.attested(e, "backend "+verb, change{
 		action: "backend." + verb,
