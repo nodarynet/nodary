@@ -120,6 +120,20 @@ def image_digest(ref: str) -> tuple[str, list[str]]:
 # --- component builders ------------------------------------------------------
 
 
+# containerd, runc and nerdctl are installed on the control plane as well as on
+# the nodes, and that is not incidental: the control plane runs LiteLLM as a
+# container. cni-plugins is not here — the server's container uses the default
+# bridge, and only a node needs the isolated network.
+#
+# **Stated here rather than by hand in components.json**, which is where it used
+# to live. This script rebuilds the whole file from scratch, so a hand edit
+# survives exactly until somebody refreshes a digest — and `--check` failing is
+# what forces that refresh before a release.
+RUNTIME_ROLES = ["server", "node"]
+RUNTIME_NOTE = ("The control plane runs LiteLLM as a container (00 \u00a72, 00 \u00a77), "
+                "so the runtime is not a node-only concern.")
+
+
 def containerd() -> dict:
     tag = latest_tag("containerd/containerd")
     v = tag.lstrip("v")
@@ -130,7 +144,8 @@ def containerd() -> dict:
         plats[p] = {"url": url, "sha256": sums(url + ".sha256sum")[name]}
     return {
         "name": "containerd", "version": v, "kind": "archive",
-        "roles": ["node"], "group": "runtime", "platforms": plats,
+        "roles": RUNTIME_ROLES, "group": "runtime", "platforms": plats,
+        "notes": RUNTIME_NOTE,
     }
 
 
@@ -146,7 +161,8 @@ def runc() -> dict:
         }
     return {
         "name": "runc", "version": tag.lstrip("v"), "kind": "binary",
-        "roles": ["node"], "group": "runtime", "platforms": plats,
+        "roles": RUNTIME_ROLES, "group": "runtime", "platforms": plats,
+        "notes": RUNTIME_NOTE,
     }
 
 
@@ -178,7 +194,8 @@ def nerdctl() -> dict:
         }
     return {
         "name": "nerdctl", "version": v, "kind": "archive",
-        "roles": ["node"], "group": "runtime", "platforms": plats,
+        "roles": RUNTIME_ROLES, "group": "runtime", "platforms": plats,
+        "notes": RUNTIME_NOTE,
     }
 
 
@@ -204,6 +221,8 @@ IMAGES = [
      "backend descriptor: sglang"),
     ("llama-cpp", "ghcr.io/ggml-org/llama.cpp:server-cuda-b4738", ["node"], "backend",
      "backend descriptor: llama-cpp"),
+    ("tensorrt-llm", "nvcr.io/nvidia/tensorrt-llm/release:1.2.1", ["node"], "backend",
+     "backend descriptor: tensorrt-llm"),
 ]
 
 
@@ -229,6 +248,21 @@ def images() -> list[dict]:
     return out
 
 
+def current_revision() -> int:
+    """The manifest revision already on disk.
+
+    Carried through rather than regenerated. ADR 0007 makes this a monotonic
+    counter that a signed revision must beat, which is a release decision — not
+    something that falls out of re-resolving upstream digests. Regenerating it
+    from zero here would silently lower the floor every time somebody refreshed
+    a SHA-256, which is the one thing the floor exists to prevent.
+    """
+    try:
+        return int(json.loads(OUT.read_text()).get("revision", 0))
+    except Exception:  # noqa: BLE001 - a missing or unreadable file means no floor yet
+        return 0
+
+
 def build() -> dict:
     comps = []
     for fn in (containerd, runc, cni_plugins, nerdctl):
@@ -237,7 +271,11 @@ def build() -> dict:
         comps.append(c)
     comps.extend(images())
     comps.sort(key=lambda c: c["name"])
-    return {"schema": 1, "nodary_version": NODARY_VERSION, "components": comps}
+    out = {"schema": 1, "nodary_version": NODARY_VERSION}
+    if rev := current_revision():
+        out["revision"] = rev
+    out["components"] = comps
+    return out
 
 
 def main() -> int:
