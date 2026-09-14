@@ -96,8 +96,12 @@ func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 				return nil, err
 			}
 			if matched := edit(next); matched == 0 {
+				// ErrNotFound, not ErrBadName: the id is well formed and names
+				// nothing, which is what the endpoint says about it too. They
+				// used to disagree, and the same mistake therefore cost exit 2
+				// on this host and exit 1 over --server.
 				return nil, fmt.Errorf("%w: %q has no deployment%s; `nodary node show` names them",
-					identity.ErrBadName, id, onNode(*node))
+					identity.ErrNotFound, id, onNode(*node))
 			}
 			return map[string]any{"changes": config.Changes(have, next)}, nil
 		},

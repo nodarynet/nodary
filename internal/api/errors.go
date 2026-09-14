@@ -103,14 +103,22 @@ func statusFor(err error) (int, string) {
 	case errors.Is(err, identity.ErrBadCode):
 		return http.StatusUnauthorized, "reauthentication_failed"
 
-	case errors.Is(err, policy.ErrInvalid),
-		errors.Is(err, identity.ErrBadName),
+	// Two codes at one status, because the CLI answers them with two different
+	// exit codes and 09 §3's `code` is what a client has to tell them apart by.
+	// docs/specs/10-cli.md §5 calls exit 2 "bad flags, missing arguments" — a
+	// name or a role spelled wrong is that, and a configuration document this
+	// control plane will not apply is not: it is a general failure, and the two
+	// front ends have to agree on which.
+	case errors.Is(err, identity.ErrBadName),
 		errors.Is(err, identity.ErrUnknownRole),
 		errors.Is(err, identity.ErrUnknownKind),
-		errors.Is(err, identity.ErrWeakPassword),
+		errors.Is(err, identity.ErrWeakPassword):
+		return http.StatusUnprocessableEntity, "invalid"
+
+	case errors.Is(err, policy.ErrInvalid),
 		errors.Is(err, config.ErrUnknownNode),
 		errors.Is(err, config.ErrInvalid):
-		return http.StatusUnprocessableEntity, "invalid"
+		return http.StatusUnprocessableEntity, "invalid_configuration"
 
 	case errors.Is(err, errBadRequest):
 		return http.StatusBadRequest, "bad_request"

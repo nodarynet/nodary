@@ -217,28 +217,44 @@ func TestAnUnreachableControlPlaneIsItsOwnExitCode(t *testing.T) {
 // generic failure, so the exit code a script sees would silently stop matching
 // the one the same refusal produces locally.
 func TestEveryRefusalTheApiCanStateHasAnExitCodeHere(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("..", "api", "errors.go"))
+	quoted := regexp.MustCompile(`"(\w+)"`)
+	served := map[string]bool{}
+	for _, m := range quoted.FindAllStringSubmatch(
+		between(t, filepath.Join("..", "api", "errors.go"), "func statusFor(", "\nvar ("), -1) {
+		served[m[1]] = true
+	}
+	if len(served) < 10 {
+		t.Fatalf("found %d codes in statusFor, which is too few to be right", len(served))
+	}
+	handled := map[string]bool{}
+	for _, m := range quoted.FindAllStringSubmatch(
+		between(t, "remote.go", "func (e *remoteError) exit()", "\n}"), -1) {
+		handled[m[1]] = true
+	}
+	for code := range served {
+		if !handled[code] {
+			t.Errorf("the API can refuse with %q and remoteError.exit does not name it; "+
+				"decide which exit code docs/specs/10-cli.md §5 gives it", code)
+		}
+	}
+}
+
+// between returns the part of a file's source from one marker to the next, so a
+// test can read a single function rather than the whole file.
+func between(t *testing.T, path, from, to string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(src)
-	start := strings.Index(body, "func statusFor(")
-	end := strings.Index(body[start:], "\nvar (")
-	if start < 0 || end < 0 {
-		t.Fatal("statusFor is no longer where this test looks for it; update the test")
+	start := strings.Index(body, from)
+	if start < 0 {
+		t.Fatalf("%s no longer contains %q; update the test", path, from)
 	}
-	// The second string on each `return http.StatusX, "code"` line.
-	re := regexp.MustCompile(`return http\.Status\w+, "(\w+)"`)
-	found := re.FindAllStringSubmatch(body[start:start+end], -1)
-	if len(found) < 10 {
-		t.Fatalf("found %d codes in statusFor, which is too few to be right", len(found))
+	end := strings.Index(body[start:], to)
+	if end < 0 {
+		t.Fatalf("%s: %q does not end with %q; update the test", path, from, to)
 	}
-	for _, m := range found {
-		code := m[1]
-		if (&remoteError{code: code}).exit() == ExitFailure &&
-			code != "not_found" && code != "internal" {
-			t.Errorf("the API can refuse with %q and this client has no exit code for it; "+
-				"add it to remoteError.exit", code)
-		}
-	}
+	return body[start : start+end]
 }

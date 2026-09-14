@@ -484,3 +484,50 @@ func TestLimitsSetOverServer(t *testing.T) {
 		}
 	}
 }
+
+// The constraint R2-34 is about, at the level a script sees: one refusal, two
+// roads, one exit code.
+//
+// It is not automatic. docs/specs/09-api.md §3's codes and
+// docs/specs/10-cli.md §5's exit codes are two tables, and they are filled in
+// by different people at different times — `config.ErrInvalid` and
+// `identity.ErrBadName` shared one code while the CLI answered them 1 and 2,
+// which this caught.
+func TestOneRefusalCostsOneExitCodeWhicheverRoadItTook(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	for _, c := range []struct {
+		what string
+		args []string
+	}{
+		{"a node that does not exist",
+			[]string{"node", "drain", "nowhere", "--yes", "--justify", "no such node"}},
+		{"a model with no deployment",
+			[]string{"model", "disable", "acme/absent", "--yes", "--justify", "no such model"}},
+		{"a route naming a deployment the control plane does not have",
+			[]string{"route", "set", "tiny", "--add", "nowhere", "--yes", "--justify", "a typo"}},
+		{"a restart of a model that is not on that node",
+			[]string{"model", "restart", "acme/tiny", "--node", "gpu-02", "--yes",
+				"--justify", "wrong node"}},
+	} {
+		local, _, localErr := run(t, append(append([]string{}, c.args...),
+			"--db", a.db, "--secret-key", a.key)...)
+		remote, _, remoteErr := run(t, append(append([]string{}, c.args...),
+			"--server", base, "--credentials", a.creds)...)
+		if local == ExitOK || remote == ExitOK {
+			t.Fatalf("%s was not refused: local %d, remote %d\n%s%s",
+				c.what, local, remote, localErr, remoteErr)
+		}
+		if local != remote {
+			t.Errorf("%s: exit %d locally and %d over --server\n  local  %s  remote %s",
+				c.what, local, remote, localErr, remoteErr)
+		}
+	}
+}

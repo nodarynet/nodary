@@ -83,7 +83,7 @@ func cmdModelRestart(e env, args []string) int {
 			}
 			if len(targets) == 0 && len(skipped) == 0 {
 				return nil, fmt.Errorf("%w: %q has no deployment on %s; `nodary node show %s` names them",
-					identity.ErrBadName, id, *node, *node)
+					identity.ErrNotFound, id, *node, *node)
 			}
 			return map[string]any{"restart": targets, "skipped_disabled": skipped}, nil
 		},

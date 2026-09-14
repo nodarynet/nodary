@@ -60,8 +60,15 @@ type User struct {
 func (u User) Active() bool { return u.State == StateActive }
 
 var (
-	// ErrNotFound is an unknown user. It maps to exit code 1.
-	ErrNotFound = errors.New("no such user")
+	// ErrNotFound is a named thing this control plane does not have. It maps to
+	// exit code 1.
+	//
+	// Its text is neutral because it is not only a user's: internal/api wraps
+	// it for nodes, models, deployments and routes, and every wrap renders as
+	// "<this text>: <the specific thing>" — so while it read "no such user", a
+	// 404 for a node came back to an operator as `no such user: no node named
+	// "gpu-09"`.
+	ErrNotFound = errors.New("not found")
 	// ErrNameTaken is a live user already holding the name. Exit code 4.
 	ErrNameTaken = errors.New("name is already taken")
 	// ErrBadName rejects a name that cannot be used unambiguously. Exit 2.

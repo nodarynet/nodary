@@ -338,7 +338,7 @@ func applyGrants(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 		var userID string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM user WHERE name = ?`, g.User).Scan(&userID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("grant names user %q, which does not exist", g.User)
+			return fmt.Errorf("%w: grant names user %q, which does not exist", ErrInvalid, g.User)
 		}
 		if err != nil {
 			return err
@@ -397,8 +397,8 @@ func applyRoutes(ctx context.Context, tx *sql.Tx, now time.Time, want, have *Sna
 				return err
 			}
 			if exists == 0 {
-				return fmt.Errorf("route %q names deployment %q, which this control plane does not have",
-					r.Name, mem.DeploymentID)
+				return fmt.Errorf("%w: route %q names deployment %q, which this control plane does not have",
+					ErrInvalid, r.Name, mem.DeploymentID)
 			}
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO route_member (route_name, deployment_id, weight) VALUES (?, ?, ?)`,
@@ -505,9 +505,9 @@ func checkArtifact(m Model) error {
 	if m.Artifact == "" || m.Artifact == d.Backend.WeightsLayout {
 		return nil
 	}
-	return fmt.Errorf("model %q is %q and the %s backend reads %q; "+
+	return fmt.Errorf("%w: model %q is %q and the %s backend reads %q; "+
 		"05 §1 requires the artifact kind to match the backend's weights_layout",
-		m.ID, m.Artifact, m.Backend, d.Backend.WeightsLayout)
+		ErrInvalid, m.ID, m.Artifact, m.Backend, d.Backend.WeightsLayout)
 }
 
 // DeniedModel is a catalog entry an origin policy refuses, with what is

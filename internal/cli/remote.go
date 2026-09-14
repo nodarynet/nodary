@@ -418,6 +418,11 @@ func (e *remoteError) exit() int {
 		return ExitPolicy
 	case "invalid", "bad_request":
 		return ExitUsage
+	// A document this control plane will not apply is exit 1, not exit 2:
+	// docs/specs/10-cli.md §5 reserves 2 for bad flags and missing arguments,
+	// and the local route already answers a refused document with 1.
+	case "invalid_configuration":
+		return ExitFailure
 	case "conflict", "revision_changed", "intent_changed",
 		"idempotency_key_reused", "idempotency_key_in_flight":
 		return ExitPrecondition
