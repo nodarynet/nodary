@@ -1,0 +1,176 @@
+package cli
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nodarynet/nodary/internal/install"
+)
+
+// R2-38: the question `nodary status` answers is "is this appliance working",
+// and before it the operator had to know which roles the host carries, run
+// `server status` and `agent status` for the halves, and then reach for
+// systemctl for the part neither of them says — which is the part they asked
+// about.
+func TestStatusNamesEveryUnitOfEveryRoleThisHostHas(t *testing.T) {
+	root := installedTree(t, "server", "node")
+
+	code, stdout, stderr := run(t, "status", "--root", root, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s %s", code, stdout, stderr)
+	}
+	var doc struct {
+		Roles []string             `json:"roles"`
+		Units []install.UnitStatus `json:"units"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	if strings.Join(doc.Roles, ",") != "server,node" {
+		t.Errorf("roles = %v, want both: a --with-node box is one host with two roles", doc.Roles)
+	}
+
+	var names []string
+	for _, u := range doc.Units {
+		names = append(names, u.Unit)
+	}
+	for _, want := range []string{"nodary-server.service", "nodary-gateway.service",
+		"nodary-litellm.service", "nodary-agent.service", "nodary-prune.timer", "containerd.service"} {
+		if !strings.Contains(strings.Join(names, " "), want) {
+			t.Errorf("units = %v, missing %s", names, want)
+		}
+	}
+	// Both roles start containerd; a host that is both must not be told it has
+	// two of them.
+	containerd := 0
+	for _, n := range names {
+		if n == "containerd.service" {
+			containerd++
+		}
+	}
+	if containerd != 1 {
+		t.Errorf("containerd.service listed %d times, want once", containerd)
+	}
+}
+
+// Nothing installed is a refusal that names what it looked for, not an empty
+// table that reads as "installed and idle".
+func TestStatusOnAHostWithNothingInstalledSaysSo(t *testing.T) {
+	code, _, stderr := run(t, "status", "--root", t.TempDir())
+	if code != ExitFailure {
+		t.Errorf("code = %d, want 1", code)
+	}
+	for _, want := range []string{"server.toml", "agent.toml", "nodary install"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not name %s: %s", want, stderr)
+		}
+	}
+}
+
+// `systemctl is-active`'s contract, because it is the one an operator scripting
+// this already knows: zero when what is installed is running, nonzero when it
+// is not. The two exceptions are what makes it usable — a unit that was never
+// installed is not a stopped service, and a Type=oneshot triggered by a timer
+// is inactive between runs by design.
+func TestAStoppedApplianceIsNotASuccessfulStatus(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		units []install.UnitStatus
+		want  int
+	}{
+		{"everything up", []install.UnitStatus{
+			{Unit: "nodary-server.service", Active: "active", Enabled: "enabled"}}, ExitOK},
+		{"one stopped", []install.UnitStatus{
+			{Unit: "nodary-server.service", Active: "active", Enabled: "enabled"},
+			{Unit: "nodary-gateway.service", Active: "inactive", Enabled: "enabled"}}, ExitFailure},
+		{"one failed", []install.UnitStatus{
+			{Unit: "nodary-server.service", Active: "failed", Enabled: "enabled"}}, ExitFailure},
+		// A control plane has no nodary-agent.service, and systemd answers
+		// "inactive" with no unit file for it. That is not a failure of
+		// anything.
+		{"never installed", []install.UnitStatus{
+			{Unit: "nodary-server.service", Active: "active", Enabled: "enabled"},
+			{Unit: "nodary-agent.service", Active: "inactive", Enabled: ""}}, ExitOK},
+		{"the prune oneshot between runs", []install.UnitStatus{
+			{Unit: "nodary-prune.timer", Active: "active", Enabled: "enabled"},
+			{Unit: "nodary-prune.service", Active: "inactive", Enabled: "static"}}, ExitOK},
+	} {
+		if got := statusExit(c.units); got != c.want {
+			t.Errorf("%s: exit %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// `nodary restart` is not a synonym for one systemctl call — what it knows is
+// the set and the order. containerd is deliberately not in it: restarting a
+// shared runtime stops every container on the machine, including every
+// deployment, to fix something that is almost never containerd.
+func TestRestartBouncesWhatNodaryOwnsAndLeavesContainerdAlone(t *testing.T) {
+	root := installedTree(t, "server", "node")
+
+	code, stdout, stderr := run(t, "restart", "--root", root)
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s %s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "containerd") {
+		t.Errorf("restart touched containerd:\n%s", stdout)
+	}
+	// Data plane before the API that proxies to it, agent last.
+	want := []string{"nodary-litellm.service", "nodary-server.service",
+		"nodary-gateway.service", "nodary-agent.service"}
+	at := -1
+	for _, u := range want {
+		i := strings.Index(stdout, u)
+		if i < 0 {
+			t.Fatalf("restart did not name %s:\n%s", u, stdout)
+		}
+		if i < at {
+			t.Errorf("%s came out of dependency order:\n%s", u, stdout)
+		}
+		at = i
+	}
+}
+
+// A control plane has no agent to bounce, and asking systemd to restart a unit
+// that was never installed reports a failure for something that is not wrong.
+func TestRestartOnAControlPlaneLeavesTheAgentOut(t *testing.T) {
+	root := installedTree(t, "server")
+
+	code, stdout, _ := run(t, "restart", "--root", root)
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s", code, stdout)
+	}
+	if strings.Contains(stdout, "nodary-agent.service") {
+		t.Errorf("restart named an agent this host does not run:\n%s", stdout)
+	}
+}
+
+func TestRestartOnAHostWithNothingInstalledSaysSo(t *testing.T) {
+	code, _, stderr := run(t, "restart", "--root", t.TempDir())
+	if code != ExitFailure {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "nothing installed here") {
+		t.Errorf("stderr = %q", stderr)
+	}
+}
+
+// A half-finished uninstall leaves the binaries and no configuration, and both
+// verbs have to work on it — that is when somebody is most likely to run them.
+func TestStatusStillReportsAfterTheConfigurationIsGone(t *testing.T) {
+	root := installedTree(t, "server")
+	if err := os.Remove(filepath.Join(root, "etc", "nodary", "server.toml")); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run(t, "status", "--root", root, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("code = %d: %s %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "nodary-server.service") {
+		t.Errorf("status found nothing on a host that still has /opt/nodary:\n%s", stdout)
+	}
+}

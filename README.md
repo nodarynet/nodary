@@ -139,7 +139,7 @@ front page rather than only in a plan.
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 39 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 40 of 43 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 13 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, LiteLLM kept in sync automatically |
 | **R4** Agent | 34 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation |
 | **R5** Install | 20 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host |

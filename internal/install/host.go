@@ -526,3 +526,54 @@ func chownTree(root string, uid, gid int) (bool, error) {
 	})
 	return changed, err
 }
+
+// UnitStatus is what systemd reports about one unit.
+type UnitStatus struct {
+	Unit string `json:"unit"`
+	// Active is systemd's ActiveState: active, inactive, failed, activating.
+	Active string `json:"active"`
+	// Enabled is UnitFileState: enabled, disabled, static, or empty for a unit
+	// with no unit file — which is how "never installed" is told apart from
+	// "installed and stopped".
+	Enabled string `json:"enabled"`
+}
+
+// Installed reports whether systemd has a unit file for this unit.
+func (u UnitStatus) Installed() bool { return u.Enabled != "" }
+
+// UnitState asks systemd about one unit.
+//
+// `show` rather than `is-active`, and the difference is the whole reason this
+// exists: `is-active` exits nonzero for a stopped unit and for a unit that was
+// never installed, which are different problems with different answers. `show`
+// answers for anything, leaving UnitFileState empty for a unit with no file.
+//
+// Parsed by key rather than by line order: `systemctl show` emits properties in
+// its own order, not the order they were asked for, so `--value` with two
+// properties would silently swap them on some systemd versions.
+func UnitState(ctx context.Context, unit string, o Options) (UnitStatus, error) {
+	o.setDefaults()
+	st := UnitStatus{Unit: unit}
+	if o.Root != "" {
+		// A staged tree has no systemd to ask, the same answer Start, Stop and
+		// Restart give there.
+		return st, nil
+	}
+	out, err := o.Run(ctx, "systemctl", "show", "-p", "ActiveState", "-p", "UnitFileState", unit)
+	if err != nil {
+		return st, fmt.Errorf("asking systemd about %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "ActiveState":
+			st.Active = value
+		case "UnitFileState":
+			st.Enabled = value
+		}
+	}
+	return st, nil
+}

@@ -99,8 +99,6 @@ func isTerminal(r io.Reader) bool {
 var planned = map[string]string{
 	"backend": "backend descriptor registration",
 	"bundle":  "offline bundle creation",
-	"restart": "restart local units",
-	"status":  "local status",
 }
 
 // Main runs one invocation and returns its exit code.
@@ -152,6 +150,10 @@ func dispatch(e env, args []string) int {
 		return cmdServer(e, args[1:])
 	case "backup":
 		return cmdBackup(e, args[1:])
+	case "status":
+		return cmdStatus(e, args[1:])
+	case "restart":
+		return cmdRestart(e, args[1:])
 	case "upgrade":
 		return cmdUpgrade(e, args[1:])
 	case "prune":
@@ -181,7 +183,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `upgrade`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -263,6 +265,8 @@ Available in this release:
   usage                Metered requests — counts, never content
                          show [--user] [--model] [--node] [--group_by]
   doctor               Diagnose this host: preflight, plus what needs a running system
+  status               What this host runs, and whether it is running
+  restart              Bounce every nodary unit this host owns, in dependency order
 
 Specified, not yet implemented:
 `, versionString())

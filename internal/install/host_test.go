@@ -229,3 +229,58 @@ func TestRestartDoesNothingUnderRoot(t *testing.T) {
 		t.Error("a staged install reported a change it did not make")
 	}
 }
+
+// R2-38: `nodary status` has to tell "installed and stopped" from "never
+// installed", and `systemctl is-active` cannot — it exits nonzero for both.
+// `show` answers for anything and leaves UnitFileState empty for a unit with no
+// unit file, which is the distinction the whole verb rests on.
+func TestUnitStateTellsStoppedFromNeverInstalled(t *testing.T) {
+	state := func(out string) UnitStatus {
+		t.Helper()
+		st, err := UnitState(context.Background(), "nodary-server.service", Options{
+			Run: func(context.Context, string, ...string) ([]byte, error) {
+				return []byte(out), nil
+			}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	// Installed and stopped.
+	if st := state("ActiveState=inactive\nUnitFileState=enabled\n"); st.Active != "inactive" || !st.Installed() {
+		t.Errorf("%+v, want inactive and installed", st)
+	}
+	// Never installed: this is what an ordinary host answers for a unit nodary
+	// has not written, and it must not read as a stopped service.
+	if st := state("ActiveState=inactive\nUnitFileState=\n"); st.Installed() {
+		t.Errorf("%+v is reported as installed with no unit file", st)
+	}
+	// `systemctl show` emits properties in its own order, not the order they
+	// were asked for, so the keys are what is read rather than the positions.
+	st := state("UnitFileState=enabled\nActiveState=failed\n")
+	if st.Active != "failed" || st.Enabled != "enabled" {
+		t.Errorf("%+v, want the properties read by key and not by line", st)
+	}
+}
+
+// A staged tree has no systemd to ask, the same answer Start, Stop and Restart
+// give — and asking the developer's own machine about a unit a test staged into
+// a temporary directory would answer about the real host.
+func TestUnitStateAsksNothingUnderRoot(t *testing.T) {
+	called := false
+	st, err := UnitState(context.Background(), "nodary-server.service", Options{Root: "/staged",
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			called = true
+			return []byte("ActiveState=active\nUnitFileState=enabled\n"), nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("UnitState asked systemd about a staged install")
+	}
+	if st.Installed() || st.Active != "" {
+		t.Errorf("%+v, want nothing claimed about a host that was not asked", st)
+	}
+}

@@ -271,6 +271,14 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 
 // restartUnits bounces what moved, data plane before the API that proxies to
 // it, in the same dependency order an install starts them.
+//
+// `order` is also the *set*: a unit not named here is never restarted, whatever
+// the caller asks for. **containerd is deliberately absent.** It is a shared
+// system runtime nodary installs rather than owns, and restarting it stops
+// every container on the machine — every deployment on a node — to fix
+// something that is almost never containerd. `nodary-prune.timer` is absent for
+// a duller reason: a timer holds no configuration to reload. Anyone who has
+// decided containerd is the problem has `systemctl restart containerd`.
 func restartUnits(e env, ctx context.Context, want map[string]bool, o install.Options) int {
 	order := []string{"nodary-litellm.service", "nodary-server.service",
 		"nodary-gateway.service", "nodary-agent.service"}

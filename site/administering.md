@@ -660,11 +660,27 @@ runs `nodary node revoke <name>` on the control plane, and the uninstall prints 
 ## Checking a host
 
 ```sh
-sudo nodary doctor
+nodary status          # what this host runs, and whether it is running
+sudo nodary doctor     # why it is not
 ```
 
-Driver, GPU enumeration, containerd, the isolated network, certificate expiry, and a live
-re-run of the egress assertion — in one pass.
+`status` is the shallow one, and answers the question you actually asked: which roles this
+machine carries, every unit they own, and whether each is up and enabled. It works on a host
+that is a control plane, a node, or both, and it exits nonzero when something installed here
+is not running — so it is usable from a monitoring check without parsing anything. It does no
+chain verification and touches no network, so it is instant on any size of install.
+
+`doctor` is the one that goes looking: driver, GPU enumeration, containerd, the isolated
+network, certificate expiry, and a live re-run of the egress assertion — in one pass.
+
+```sh
+sudo nodary restart
+```
+
+Bounces every nodary unit this host owns, data plane before the API that proxies to it. It
+does **not** restart containerd: that is a shared runtime nodary installs rather than owns, and
+restarting it stops every container on the machine — every deployment with them — to fix
+something that is almost never containerd.
 
 !!! note "Certificates renew themselves"
     An agent certificate lasts 90 days and the agent replaces it two thirds of the way
