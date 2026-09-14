@@ -285,3 +285,96 @@ func TestAViewerIsRefusedTheActOverServer(t *testing.T) {
 		t.Errorf("a refused approval moved the node anyway:\n%s", out)
 	}
 }
+
+// The three model verbs over --server, against the endpoints that run the same
+// config.SetDisabled and fleet.RestartTargets the local verbs run.
+func TestModelEnableDisableAndRestartOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	base := a.servedBy(t, "alice", "admin")
+	if code, _, stderr := a.run("node", "approve", "gpu-01", "--yes",
+		"--justify", "test fixture"); code != ExitOK {
+		t.Fatalf("node approve: exit %d, %s", code, stderr)
+	}
+	a.registerModel(t, "acme/tiny", "gpu-01")
+
+	for _, c := range []struct {
+		verb string
+		want bool
+	}{{"disable", true}, {"enable", false}} {
+		code, _, stderr := run(t, "model", c.verb, "acme/tiny", "--server", base,
+			"--credentials", a.creds, "--justify", "toggling over the network")
+		if code != ExitOK {
+			t.Fatalf("model %s over --server: exit %d, %s", c.verb, code, stderr)
+		}
+		if got := a.deploymentDisabled(t, "acme/tiny"); got != c.want {
+			t.Errorf("model %s over --server: disabled = %v, want %v", c.verb, got, c.want)
+		}
+	}
+
+	// Restart is edge-triggered and its own table, so the evidence it worked is
+	// the record rather than a column in the snapshot.
+	code, _, stderr := run(t, "model", "restart", "acme/tiny", "--node", "gpu-01",
+		"--server", base, "--credentials", a.creds, "--justify", "cycling it")
+	if code != ExitOK {
+		t.Fatalf("model restart over --server: exit %d, %s", code, stderr)
+	}
+	code, out, stderr := a.run("audit", "list", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	for _, want := range []string{"model.disable", "model.enable", "model.restart"} {
+		if !strings.Contains(out, `"`+want+`"`) {
+			t.Errorf("no %s record was written:\n%s", want, out)
+		}
+	}
+
+	// A model with no deployment is a refusal naming it, not a quiet no-op
+	// that leaves an operator believing something stopped.
+	code, _, stderr = run(t, "model", "disable", "acme/absent", "--server", base,
+		"--credentials", a.creds, "--justify", "nothing to disable")
+	if code == ExitOK {
+		t.Error("disabling a model with no deployment reported success")
+	}
+	if !strings.Contains(stderr, "acme/absent") {
+		t.Errorf("the refusal does not name the model: %q", stderr)
+	}
+}
+
+// --node narrows the toggle, and it has to narrow it on the far side too: a
+// flag accepted here and dropped on the wire turns "disable it on gpu-02" into
+// "disable it everywhere", which is an outage rather than a change.
+func TestNodeNarrowsAToggleOverServer(t *testing.T) {
+	a := newAppliance(t)
+	for _, n := range []string{"gpu-01", "gpu-02"} {
+		a.enrolled(n)
+		if code, _, stderr := a.run("node", "approve", n, "--yes",
+			"--justify", "test fixture"); code != ExitOK {
+			t.Fatalf("node approve %s: exit %d, %s", n, code, stderr)
+		}
+	}
+	base := a.servedBy(t, "alice", "admin")
+	a.registerModel(t, "acme/tiny", "gpu-01")
+	a.registerModelOnGPU(t, "acme/tiny", "gpu-02", 0)
+
+	if code, _, stderr := run(t, "model", "disable", "acme/tiny", "--node", "gpu-02",
+		"--server", base, "--credentials", a.creds, "--justify", "draining one node"); code != ExitOK {
+		t.Fatalf("model disable --node: exit %d, %s", code, stderr)
+	}
+
+	code, out, stderr := run(t, "node", "show", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("node show gpu-01: exit %d, %s", code, stderr)
+	}
+	if strings.Contains(out, `"disabled": true`) {
+		t.Error("--node did not narrow the toggle: gpu-01 was disabled too")
+	}
+	if code, out, stderr = run(t, "node", "show", "gpu-02", "--server", base,
+		"--credentials", a.creds, "--format", "json"); code != ExitOK {
+		t.Fatalf("node show gpu-02: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, `"disabled": true`) {
+		t.Errorf("the node named was not disabled:\n%s", out)
+	}
+}

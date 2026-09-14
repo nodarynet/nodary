@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/fleet"
@@ -29,6 +30,7 @@ import (
 func cmdModelRestart(e env, args []string) int {
 	fs := newFlagSet(e, "model restart")
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	node := fs.String("node", "", "the node to restart it on")
@@ -47,6 +49,22 @@ func cmdModelRestart(e env, args []string) int {
 		return ExitUsage
 	}
 	id := fs.Arg(0)
+
+	r, code := remoteFor(e, "model restart", *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		out, applied, code := r.attested(e, "model restart", "POST",
+			"/models/"+url.PathEscape(id)+"/restart?node="+url.QueryEscape(*node),
+			nil, cer, *format)
+		if !applied {
+			return code
+		}
+		reportRestarted(e, id, *node, resultStrings(out.Result, "skipped_disabled"))
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return ExitOK
+	}
 
 	s, ok := openSession(e, "model restart", *dbPath, *keyPath, *credsPath)
 	if !ok {
@@ -92,11 +110,32 @@ func cmdModelRestart(e env, args []string) int {
 		return code
 	}
 
-	fmt.Fprintf(e.stderr, "model restart: %s on %s will be applied on the agent's next poll (up to 60s)\n", id, *node)
-	for _, depID := range skippedDisabled {
-		fmt.Fprintf(e.stderr, "%s is disabled; skipped — `nodary model enable %s --node %s` first\n",
-			depID, id, *node)
-	}
+	reportRestarted(e, id, *node, skippedDisabled)
 	reportRecord(e, rec)
 	return ExitOK
+}
+
+// reportRestarted names what will happen and what will not.
+//
+// A replica skipped for being disabled is named rather than left silent: an
+// operator who asked for a restart and got one fewer than they have needs to
+// know which, and why.
+func reportRestarted(e env, id, node string, skippedDisabled []string) {
+	fmt.Fprintf(e.stderr, "model restart: %s on %s will be applied on the agent's next poll (up to 60s)\n", id, node)
+	for _, depID := range skippedDisabled {
+		fmt.Fprintf(e.stderr, "%s is disabled; skipped — `nodary model enable %s --node %s` first\n",
+			depID, id, node)
+	}
+}
+
+// resultStrings reads a list of strings out of a mutation's result body.
+func resultStrings(result map[string]any, field string) []string {
+	raw, _ := result[field].([]any)
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

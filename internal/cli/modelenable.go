@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
@@ -25,6 +26,7 @@ import (
 func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 	fs := newFlagSet(e, "model "+verb)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	node := fs.String("node", "", "limit to one node; every node this model is deployed on otherwise")
@@ -39,6 +41,27 @@ func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 		return ExitUsage
 	}
 	id := fs.Arg(0)
+
+	r, code := remoteFor(e, "model "+verb, *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		// The endpoint runs the same config.SetDisabled against the same
+		// snapshot, so this is one implementation reached two ways rather than
+		// a second one. `?node=` narrows it exactly as --node does.
+		path := "/models/" + url.PathEscape(id) + "/" + verb
+		if *node != "" {
+			path = addQuery(path, "node="+url.QueryEscape(*node))
+		}
+		out, applied, code := r.attested(e, "model "+verb, "POST", path, nil, cer, *format)
+		if !applied {
+			return code
+		}
+		reportToggled(e, verb, id)
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return ExitOK
+	}
 
 	s, ok := openSession(e, "model "+verb, *dbPath, *keyPath, *credsPath)
 	if !ok {
@@ -100,9 +123,13 @@ func cmdModelToggle(e env, args []string, verb string, disabled bool) int {
 		return code
 	}
 
-	fmt.Fprintf(e.stderr, "model %s: %s will be applied on the agent's next poll (up to 60s)\n", verb, id)
+	reportToggled(e, verb, id)
 	reportRecord(e, rec)
 	return ExitOK
+}
+
+func reportToggled(e env, verb, id string) {
+	fmt.Fprintf(e.stderr, "model %s: %s will be applied on the agent's next poll (up to 60s)\n", verb, id)
 }
 
 func onNode(node string) string {
