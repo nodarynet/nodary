@@ -154,9 +154,14 @@ func TestAFailingEndpointIsReportedToTheNextEmit(t *testing.T) {
 	defer srv.Close()
 
 	s := NewHTTPSink(srv.URL, filepath.Join(t.TempDir(), "absent"))
-	if err := s.Emit(context.Background(), 1, []byte(`{"seq":1}`)); err != nil {
-		t.Fatalf("the first emit cannot know yet: %v", err)
-	}
+	// **Whatever the first emit returns is not a property.** Emit queues the
+	// line and reports whatever the worker has most recently seen, so on a
+	// loaded machine the POST can complete and record the 503 before Emit
+	// returns — and asserting nil here failed on CI while passing 300 runs
+	// locally. Reproduced by forcing the window with a sleep before status().
+	// What the sink promises is that a failure surfaces on a *later* emit,
+	// which is what the loop below tests.
+	_ = s.Emit(context.Background(), 1, []byte(`{"seq":1}`))
 	eventually(t, "the failure to surface", func() bool {
 		return s.Emit(context.Background(), 2, []byte(`{"seq":2}`)) != nil
 	})
