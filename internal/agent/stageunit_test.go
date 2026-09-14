@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -287,5 +289,86 @@ func TestModelsThatSanitizeAlikeGetDifferentUnits(t *testing.T) {
 				t.Errorf("stageUnitName(%q) = %q contains %q", model, name, r)
 			}
 		}
+	}
+}
+
+// A site that reaches the internet through a proxy has to keep working. It did
+// before R4-30 by accident — the download ran inside the agent process, which
+// inherits the drop-in an operator puts HF_TOKEN in — and moving it into a
+// transient unit broke that twice over: a clean environment carries no
+// setting, and the filter denies the private range a proxy sits in.
+func TestAProxyOnTheLANIsCarriedAndLetThrough(t *testing.T) {
+	conf := filepath.Join(t.TempDir(), "resolv.conf")
+	os.WriteFile(conf, []byte("nameserver 127.0.0.53\n"), 0o644)
+
+	allow := property(strings.Join(stageFilter(conf, proxyPrefixes("http://10.20.0.5:3128")...), " "),
+		"IPAddressAllow")
+	if !strings.Contains(allow, "10.20.0.5/32") {
+		t.Fatalf("IPAddressAllow = %q, want the proxy through", allow)
+	}
+	// And more specific than the deny covering it, or it does not win.
+	one := netip.MustParsePrefix("10.20.0.5/32")
+	for _, d := range strings.Fields(property(strings.Join(stageFilter(conf), " "), "IPAddressDeny")) {
+		if p, err := netip.ParsePrefix(d); err == nil && p.Contains(one.Addr()) && p.Bits() >= one.Bits() {
+			t.Errorf("deny %s is at least as specific as the proxy's %s", d, one)
+		}
+	}
+
+	// A bare host:port is legal in these variables and is not a URL:
+	// url.Parse reads "10.20.0.5:3128" as the scheme "10.20.0.5".
+	if got := proxyPrefixes("10.20.0.5:3128"); len(got) != 1 || got[0] != "10.20.0.5/32" {
+		t.Errorf("proxyPrefixes on a bare host:port = %v, want [10.20.0.5/32]", got)
+	}
+	// A name that does not resolve contributes nothing rather than failing:
+	// the filter is then no wider than before and the operator sees a
+	// connection refused they can act on.
+	if got := proxyPrefixes("http://proxy.invalid:3128"); len(got) != 0 {
+		t.Errorf("proxyPrefixes on an unresolvable name = %v, want none", got)
+	}
+
+	dl, f := stagingDownloader(t)
+	dl.Proxy = "http://10.20.0.5:3128"
+	dir := filepath.Join(t.TempDir(), "models--acme--tiny")
+	dl.Status("acme/tiny", "manifest", "abc", dir)
+
+	call := firstCall(t, f, "systemd-run")
+	if !strings.Contains(property(call, "IPAddressAllow"), "10.20.0.5/32") {
+		t.Errorf("the staging unit cannot reach the proxy it is supposed to use.\n  got: %s", call)
+	}
+	req, err := readStageRequest(requestPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Proxy != "http://10.20.0.5:3128" {
+		t.Errorf("request proxy = %q, want it carried: the unit inherits no environment", req.Proxy)
+	}
+	// A proxy URL may carry credentials, so it travels the same way the token
+	// does and not on a command line every local user can read.
+	if strings.Contains(call, "10.20.0.5:3128") && strings.Contains(call, "--setenv") {
+		t.Error("the proxy setting is on the staging unit's command line")
+	}
+}
+
+// End to end through a proxy: the child is pointed at a base URL that does not
+// resolve, and reaches the fixture anyway because every request goes to the
+// proxy as an absolute URI.
+func TestTheChildDownloadsThroughItsProxy(t *testing.T) {
+	srv, manifest := remoteFixture(t, map[string]string{"config.json": `{"model_type":"tiny"}`})
+	defer srv.Close()
+	digest := sha256.Sum256([]byte(manifest))
+
+	dir := filepath.Join(t.TempDir(), "models--acme--tiny")
+	if err := writeStageRequest(requestPath(dir), stageRequest{Model: "acme/tiny", Dir: dir,
+		BaseURL: "http://huggingface.invalid", ManifestBody: manifest,
+		ManifestSHA256: hex.EncodeToString(digest[:]), Proxy: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := RunStaging(requestPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != StateStaged {
+		t.Fatalf("state = %s (%s), want staged: the download did not go through the proxy",
+			st.State, st.Reason)
 	}
 }

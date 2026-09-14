@@ -39,17 +39,31 @@ type Downloader struct {
 	// Host starts and inspects the transient unit. Only the agent half uses
 	// it; the child is the unit and has nothing to start.
 	Host Host
+	// Proxy is this host's *_PROXY setting, read once from the agent's own
+	// environment and carried to the child, which has none of its own.
+	Proxy string
 }
 
 // newDownloadClient has no Timeout, deliberately: a multi-gigabyte transfer
 // has no fixed deadline. The unit it runs in is what bounds it.
-func newDownloadClient() *http.Client { return &http.Client{} }
+//
+// The proxy is set explicitly rather than left to ProxyFromEnvironment,
+// because the environment it would read is the transient unit's and systemd
+// gives that unit a clean one.
+func newDownloadClient(proxy string) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	if u := proxyURL(proxy); u != nil {
+		t.Proxy = http.ProxyURL(u)
+	}
+	return &http.Client{Transport: t}
+}
 
 // NewDownloader is the production Downloader: HuggingFace, and HF_TOKEN from
 // this process's own environment if the operator set one. It holds no client —
 // this half starts units and never fetches anything itself.
 func NewDownloader(h Host) *Downloader {
-	return &Downloader{BaseURL: "https://huggingface.co", Token: os.Getenv("HF_TOKEN"), Host: h}
+	return &Downloader{BaseURL: "https://huggingface.co", Token: os.Getenv("HF_TOKEN"),
+		Proxy: hostProxy(), Host: h}
 }
 
 // Status is what Build calls every reconcile cycle. It never blocks past a
@@ -87,7 +101,8 @@ func (dl *Downloader) Status(modelID, manifestBody, manifestSHA256, dir string) 
 	}
 
 	if err := dl.start(ctx, stageRequest{Model: modelID, Dir: dir, BaseURL: dl.BaseURL,
-		ManifestBody: manifestBody, ManifestSHA256: manifestSHA256, Token: dl.Token}); err != nil {
+		ManifestBody: manifestBody, ManifestSHA256: manifestSHA256, Token: dl.Token,
+		Proxy: dl.Proxy}); err != nil {
 		return Stage{Model: modelID, Dir: dir, State: StateStaging,
 			Reason: "starting the staging unit: " + err.Error()}
 	}

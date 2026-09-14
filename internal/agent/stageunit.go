@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +55,8 @@ var enclave = []string{
 }
 
 // stageFilter is the unit's IP filter: everything, less the enclave, plus this
-// host's own resolvers so that names still resolve.
+// host's own resolvers so that names still resolve, plus whatever `extra`
+// addresses the caller established are on the download's own path.
 //
 // It leans on one documented systemd rule — the longest matching prefix wins,
 // and an allow beats a deny of equal length. So `any` is prefix 0 and loses to
@@ -61,8 +64,9 @@ var enclave = []string{
 // covers it. TestTheFilterDependsOnLongestPrefixWinning holds that rule in
 // place, because the whole filter is wrong in a way nothing else would catch
 // if it stopped being true.
-func stageFilter(resolvConf string) []string {
+func stageFilter(resolvConf string, extra ...string) []string {
 	allow := append([]string{"any"}, resolvers(resolvConf)...)
+	allow = append(allow, extra...)
 	return []string{
 		"--property=IPAddressAllow=" + strings.Join(allow, " "),
 		"--property=IPAddressDeny=" + strings.Join(enclave, " "),
@@ -118,6 +122,81 @@ func resolvers(path string) []string {
 	return out
 }
 
+// Everything below is one fact with three consequences: a site that reaches
+// the internet through a proxy has to keep working.
+//
+// It worked before R4-30 by accident — the download ran inside the agent
+// process, which inherits whatever an operator put in the unit's drop-in
+// beside HF_TOKEN. A transient unit gets a clean environment and a filter that
+// denies the private ranges, so moving staging out broke proxied sites twice
+// over: the setting did not reach the child, and the proxy was unreachable
+// even if it had. Both are repaired here rather than documented as a caveat,
+// because "downloads fail for no visible reason" is what the caveat would
+// actually look like in the field.
+
+// proxyVars are the variables Go's own ProxyFromEnvironment reads, most
+// specific first, so what the agent honored before is what the child honors.
+var proxyVars = []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"}
+
+func hostProxy() string {
+	for _, k := range proxyVars {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// proxyURL normalizes what these variables are allowed to hold: a full URL, or
+// a bare host:port, which is legal and does not parse as one — `url.Parse`
+// reads "proxy.corp:3128" as the scheme "proxy.corp".
+func proxyURL(raw string) *url.URL {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	return u
+}
+
+// proxyPrefixes is the proxy's own addresses, as single-address prefixes so
+// they outrank the enclave range a proxy on the LAN sits inside.
+//
+// Resolved here, in the agent, at the moment the unit is created — the one
+// place a name lookup is safe to do, because unlike a CDN a proxy is a fixed
+// piece of a site's own infrastructure and does not move between the lookup
+// and the transfer. A lookup that fails contributes nothing rather than
+// failing the download: the filter is then simply no wider than it was, and
+// what the operator sees is a connection refused they can act on.
+func proxyPrefixes(raw string) []string {
+	u := proxyURL(raw)
+	if u == nil {
+		return nil
+	}
+	addrs := []string{u.Hostname()}
+	if _, err := netip.ParseAddr(u.Hostname()); err != nil {
+		if addrs, err = net.LookupHost(u.Hostname()); err != nil {
+			return nil
+		}
+	}
+	var out []string
+	for _, a := range addrs {
+		p, err := netip.ParseAddr(a)
+		if err != nil {
+			continue
+		}
+		p = p.WithZone("").Unmap()
+		out = append(out, fmt.Sprintf("%s/%d", p, p.BitLen()))
+	}
+	return out
+}
+
 // stageUnitName is one model's transient unit.
 //
 // The hash is not decoration. A model id is an arbitrary string and systemd
@@ -164,6 +243,10 @@ type stageRequest struct {
 	ManifestBody   string `json:"manifest_body"`
 	ManifestSHA256 string `json:"manifest_sha256"`
 	Token          string `json:"token,omitempty"`
+	// Proxy is the agent's own *_PROXY setting, carried because the transient
+	// unit does not inherit it. In the file rather than --setenv= for the same
+	// reason the token is: a proxy URL may carry credentials.
+	Proxy string `json:"proxy,omitempty"`
 }
 
 func writeStageRequest(path string, req stageRequest) error {
@@ -246,7 +329,7 @@ func RunStaging(requestPath string) (Stage, error) {
 	if err != nil {
 		return Stage{}, err
 	}
-	dl := &Downloader{BaseURL: req.BaseURL, Token: req.Token, Client: newDownloadClient()}
+	dl := &Downloader{BaseURL: req.BaseURL, Token: req.Token, Client: newDownloadClient(req.Proxy)}
 	p := &progress{path: progressPath(req.Dir), cur: Stage{Model: req.Model, Dir: req.Dir}}
 	dl.run(req, p)
 	return p.cur, nil
@@ -270,7 +353,7 @@ func (dl *Downloader) start(ctx context.Context, req stageRequest) error {
 		"--collect",
 		"--property=Type=oneshot",
 	}
-	args = append(args, stageFilter(resolvConfPath)...)
+	args = append(args, stageFilter(resolvConfPath, proxyPrefixes(req.Proxy)...)...)
 	args = append(args, "--", dl.Host.Self, "agent", "stage", "--request", requestPath(req.Dir))
 	if out, err := dl.Host.systemdRun(ctx, args...); err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
