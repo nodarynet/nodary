@@ -205,8 +205,11 @@ func TestWhatANodeRefusesAndWhy(t *testing.T) {
 		mutate func(*api.DesiredDeployment)
 		want   string
 	}{
+		// A name no release will ever carry. It used to be "tensorrt-llm",
+		// which stopped being unknown the day R6-02 embedded it — a fixture
+		// that silently became a *known* backend and took the refusal with it.
 		{"a backend this build does not have",
-			func(d *api.DesiredDeployment) { d.Backend = "tensorrt-llm" }, "not one this build has"},
+			func(d *api.DesiredDeployment) { d.Backend = "no-such-backend" }, "not one this build has"},
 		{"no pinned image",
 			func(d *api.DesiredDeployment) { d.Image = "" }, "no image is pinned"},
 		{"no GPU assigned",

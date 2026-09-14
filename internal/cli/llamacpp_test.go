@@ -138,12 +138,14 @@ func TestRegisteringAgainstAnUnknownBackendIsRefused(t *testing.T) {
 
 	code, _, stderr := a.run("model", "register", "acme/tiny",
 		"--node", "fractal", "--models-dir", t.TempDir(), "--port", "8001",
-		"--backend", "tensorrt-llm",
+		// Not a real backend's name: one that is embedded later stops being
+		// unknown and quietly takes this refusal with it.
+		"--backend", "no-such-backend",
 		"--grant", "alice", "--yes", "--justify", "a backend this build has not got")
 	if code == ExitOK {
 		t.Fatal("an unknown backend was accepted")
 	}
-	if !strings.Contains(stderr, "tensorrt-llm") {
+	if !strings.Contains(stderr, "no-such-backend") {
 		t.Errorf("the refusal does not name the backend: %s", stderr)
 	}
 }

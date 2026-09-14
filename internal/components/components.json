@@ -190,6 +190,24 @@
       "notes": "backend descriptor: sglang"
     },
     {
+      "name": "tensorrt-llm",
+      "version": "1.2.1",
+      "kind": "image",
+      "roles": [
+        "node"
+      ],
+      "group": "backend",
+      "platforms": {
+        "linux/amd64": {
+          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:cb4d8af81c586a90235ae3739b6d4ddc5d8336f2174c8a1c6b573d2e13faf5d7"
+        },
+        "linux/arm64": {
+          "image": "nvcr.io/nvidia/tensorrt-llm/release@sha256:297c9c04055e142d53976cb8e7e7b314b0df148bbbaeb178494a80eddd885ecf"
+        }
+      },
+      "notes": "backend descriptor: tensorrt-llm"
+    },
+    {
       "name": "vllm",
       "version": "v0.28.0",
       "kind": "image",

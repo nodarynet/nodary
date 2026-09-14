@@ -187,11 +187,20 @@ var placeholder = regexp.MustCompile(`\{[a-z_]+\}`)
 // server.
 //
 // A backend that compiles an engine is configured in two places at once, and
-// the split is not the operator's to make: `tensor_parallel` is baked into a
-// TensorRT-LLM engine at build time, so `trtllm-serve` may not take it as a
-// flag at all. Without this, a document that sets it would be refused as a
-// parameter the backend does not take — which is true of the *server* and
-// false of the backend, and leaves no way to build a two-rank engine.
+// the split is not the operator's to make: a parameter the build substitutes is
+// not one the server is then given, and without this a document that set it
+// would be refused as a parameter the backend does not take — true of the
+// *server* and false of the backend, leaving no way to configure the build.
+//
+// **The motivating example was wrong and is recorded here rather than quietly
+// dropped.** This said `tensor_parallel` is baked into a TensorRT-LLM engine at
+// build time so `trtllm-serve` may not take it as a flag at all. That describes
+// 0.x, which served an engine directory. In 1.x — the release R6-02 pins —
+// `trtllm-serve` parses `--tp_size` itself and compiles in-process, so
+// TensorRT-LLM declares no prepare at all and consumes nothing. The mechanism
+// is still right for any backend whose build genuinely swallows a parameter;
+// what it lacks today is a user, and saying so is better than leaving a comment
+// asserting something false about the one backend it names.
 //
 // Derived from the command rather than declared separately, so a descriptor
 // cannot claim to consume something it never substitutes.

@@ -17,15 +17,40 @@ func TestTheBuiltInDescriptorsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Builtins: %v", err)
 	}
-	if got := Names(all); !reflect.DeepEqual(got, []string{"llama-cpp", "sglang", "vllm"}) {
-		t.Fatalf("built-ins = %v, want llama-cpp, sglang and vllm", got)
+	want := []string{"llama-cpp", "sglang", "tensorrt-llm", "vllm"}
+	if got := Names(all); !reflect.DeepEqual(got, want) {
+		t.Fatalf("built-ins = %v, want %v", got, want)
 	}
-	// TensorRT-LLM is still out, and for the reason llama.cpp was until
-	// `[backend.extra]` landed: it needs `[backend.prepare]` (R6-06), and a
-	// descriptor embedded whose features are unimplemented is a backend the
-	// binary claims to support and cannot run.
-	if _, err := Get("tensorrt-llm"); !errors.Is(err, ErrUnknown) {
-		t.Errorf("Get(tensorrt-llm): error = %v, want ErrUnknown — it needs [backend.prepare]", err)
+}
+
+// TensorRT-LLM declares no prepare, which was the whole reason it was held out.
+//
+// It was held out because 0.x served an engine directory that `trtllm-build`
+// produced. 1.x's serving path compiles in-process from a HuggingFace
+// checkpoint, and `tensor_parallel` is a **runtime** flag there — so a
+// descriptor written to the old shape would consume that parameter into a build
+// and drop it from the argv of the server that parses it. Pinned here because
+// the mistake is invisible: such a deployment starts, serves, and quietly runs
+// on one GPU.
+func TestTensorRTLLMTakesTensorParallelAtRuntime(t *testing.T) {
+	d, err := Get("tensorrt-llm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Backend.Prepare != nil {
+		t.Error("a prepare table would consume tensor_parallel out of the server's argv")
+	}
+	if !d.Backend.Capabilities.TensorParallel {
+		t.Error("it takes --tp_size, so the capability is true")
+	}
+	if got := d.Backend.Args["tensor_parallel"]; got != "--tp_size={v}" {
+		t.Errorf("tensor_parallel renders as %q", got)
+	}
+	// trtllm-serve's --host defaults to localhost, so without this the server
+	// binds a loopback that is not the one the published port maps to and every
+	// request is refused by a deployment reporting healthy.
+	if d.Backend.Args["host"] == "" {
+		t.Error("no host argument: the server would bind loopback inside the container")
 	}
 }
 
