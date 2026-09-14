@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/audit"
@@ -31,6 +32,7 @@ import (
 func cmdNodeTransition(e env, args []string, verb, to string) int {
 	fs := newFlagSet(e, "node "+verb)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -44,6 +46,31 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 		return ExitUsage
 	}
 	name := fs.Arg(0)
+
+	r, code := remoteFor(e, "node "+verb, *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if r != nil {
+		// The same ceremony and the same record, written by the control plane
+		// against the person holding the credential rather than against
+		// whoever has root on that machine. That is the whole of why this flag
+		// exists: `node approve` is the act 02 §1 builds its agreement out of,
+		// and a chain answering "who approved this node" with `root` describes
+		// nothing.
+		out, applied, code := r.attested(e, "node "+verb, "POST",
+			"/nodes/"+url.PathEscape(name)+"/"+verb, nil, cer, *format)
+		if !applied {
+			return code
+		}
+		fmt.Fprintf(e.stderr, "node %s: %s -> %s\n", name, orDash(previewString(out.Change, "from")), to)
+		// The credential names a real account, which is the difference this
+		// flag is for: the "approved locally, so the row names no approver"
+		// note below is never the right thing to print over --server.
+		reportTransition(e, verb, to, name, r.cred.User)
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return ExitOK
+	}
 
 	s, ok := openSession(e, "node "+verb, *dbPath, *keyPath, *credsPath)
 	if !ok {
@@ -88,6 +115,17 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 	}
 
 	fmt.Fprintf(e.stderr, "node %s: %s -> %s\n", name, from, to)
+	reportTransition(e, verb, to, name, s.who.User.ID)
+	reportRecord(e, rec)
+	return ExitOK
+}
+
+// reportTransition is what to expect now, and both routes print it.
+//
+// None of it is obvious and all of it is already built, so an operator who has
+// just ejected a node or approved one should not have to go and read a spec to
+// find out what happens next.
+func reportTransition(e env, verb, to, name, actorUserID string) {
 	if verb == "revoke" {
 		// What actually happens now, because none of it is obvious and all of
 		// it is already built: docs/specs/02-enrollment.md §3 refuses the
@@ -102,7 +140,7 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 	}
 	if to == "approved" {
 		fmt.Fprintf(e.stderr, "  It will receive its desired state on the agent's next poll.\n")
-		if s.who.User.ID == "" {
+		if actorUserID == "" {
 			fmt.Fprintf(e.stderr,
 				"  Approved locally, so the node row names no approver; the chain records who and when.\n")
 		}
@@ -114,6 +152,10 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 				"  nodary model register <org/name> --node %s --gpu 0 --port 8001\n",
 			agent.DefaultModelsDir(), name)
 	}
-	reportRecord(e, rec)
-	return ExitOK
+}
+
+// previewString reads one field out of a preview the control plane rendered.
+func previewString(preview map[string]any, field string) string {
+	v, _ := preview[field].(string)
+	return v
 }

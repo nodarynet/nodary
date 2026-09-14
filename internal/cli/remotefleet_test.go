@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -164,5 +165,123 @@ func TestServerAndDbTogetherAreRefused(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--db") {
 		t.Errorf("the refusal does not name both flags: %q", stderr)
+	}
+}
+
+// The whole argument for --server, asserted rather than described: the record
+// names the person holding the credential, and the same act run on the host
+// names root and the method `local`.
+func TestAnApprovalOverServerIsAttributedToThePersonNotToRoot(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	base := a.servedBy(t, "alice", "admin")
+
+	code, _, stderr := run(t, "node", "approve", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--justify", "alice approved this node")
+	if code != ExitOK {
+		t.Fatalf("node approve over --server: exit %d, %s", code, stderr)
+	}
+
+	code, out, stderr := a.run("audit", "list", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("audit list: exit %d, %s", code, stderr)
+	}
+	var listing struct {
+		Records []struct {
+			Action string `json:"action"`
+			Actor  struct {
+				ID     string `json:"id"`
+				Method string `json:"method"`
+			} `json:"actor"`
+			Justification string `json:"justification"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(out), &listing); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var found bool
+	for _, rec := range listing.Records {
+		if rec.Action != "node.approve" {
+			continue
+		}
+		found = true
+		if rec.Actor.Method == "local" {
+			t.Errorf("an approval made over the network was recorded as a local act")
+		}
+		if rec.Actor.ID == "root" || rec.Actor.ID == "" {
+			t.Errorf("actor = %q, want the account the credential belongs to", rec.Actor.ID)
+		}
+		if rec.Justification != "alice approved this node" {
+			t.Errorf("justification = %q; --justify did not reach the control plane",
+				rec.Justification)
+		}
+	}
+	if !found {
+		t.Fatalf("no node.approve record was written at all:\n%s", out)
+	}
+
+	// And the node actually moved, which is the other half: a record of
+	// something that did not happen would pass every assertion above.
+	code, out, stderr = run(t, "node", "show", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("node show: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, `"state": "approved"`) {
+		t.Errorf("the node did not move to approved:\n%s", out)
+	}
+}
+
+// --dry-run over the network renders and hashes on the control plane and
+// applies nothing, which is what makes the hash worth binding: it is the same
+// core.Preview hash the apply is checked against.
+func TestADryRunOverServerAppliesNothing(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	base := a.servedBy(t, "alice", "admin")
+
+	code, out, stderr := run(t, "node", "approve", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--justify", "checking first", "--dry-run", "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	var doc struct {
+		DryRun     bool   `json:"dry_run"`
+		Action     string `json:"action"`
+		IntentHash string `json:"intent_hash"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !doc.DryRun || doc.Action != "node.approve" || doc.IntentHash == "" {
+		t.Errorf("dry run = %+v, want the action and a hash", doc)
+	}
+
+	code, out, stderr = run(t, "node", "show", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("node show: exit %d, %s", code, stderr)
+	}
+	if !strings.Contains(out, `"state": "pending"`) {
+		t.Errorf("a dry run moved the node:\n%s", out)
+	}
+}
+
+// The permission table is the control plane's, and it stays the control
+// plane's: a viewer with a valid credential is refused the act, at the exit
+// code the same refusal costs locally.
+func TestAViewerIsRefusedTheActOverServer(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolled("gpu-01")
+	base := a.servedBy(t, "viewer-vera", "viewer")
+
+	code, _, stderr := run(t, "node", "approve", "gpu-01", "--server", base,
+		"--credentials", a.creds, "--justify", "not mine to make")
+	if code != ExitAuth {
+		t.Fatalf("exit = %d, want %d (%s)", code, ExitAuth, stderr)
+	}
+	code, out, _ := run(t, "node", "show", "gpu-01", "--db", a.db, "--format", "json")
+	if code != ExitOK || !strings.Contains(out, `"state": "pending"`) {
+		t.Errorf("a refused approval moved the node anyway:\n%s", out)
 	}
 }

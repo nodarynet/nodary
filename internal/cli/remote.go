@@ -14,6 +14,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/api"
+	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
 )
@@ -63,17 +64,21 @@ type remote struct {
 // The exit code is returned rather than a bool because the two ways this fails
 // are different answers to a script: no credential is ExitAuth, a malformed
 // --server is ExitUsage.
-func remoteFor(e env, verb, target, credsPath, dbPath string) (*remote, int) {
+func remoteFor(e env, verb, target, credsPath string, local ...string) (*remote, int) {
 	if strings.TrimSpace(target) == "" {
 		return nil, -1
 	}
-	// Both named is a contradiction, and the quiet resolution — remote wins,
-	// --db ignored — is the failure this whole flag is careful about: an
-	// operator who believed they were reading one database and read another.
-	if strings.TrimSpace(dbPath) != "" {
-		fmt.Fprintf(e.stderr, "nodary %s: --server and --db name different control planes; "+
-			"pass one.\n", verb)
-		return nil, ExitUsage
+	// --db and --secret-key describe this host's state and --server describes
+	// another machine's, so naming both is a contradiction. The quiet
+	// resolution — remote wins, the others ignored — is the failure this whole
+	// flag is careful about: an operator who believed they were acting on one
+	// control plane and acted on another.
+	for _, v := range local {
+		if strings.TrimSpace(v) != "" {
+			fmt.Fprintf(e.stderr, "nodary %s: --server names another control plane, and "+
+				"--db and --secret-key describe this host's. Pass one.\n", verb)
+			return nil, ExitUsage
+		}
 	}
 	base, err := normalizeServer(target)
 	if err != nil {
@@ -141,6 +146,10 @@ func credentialsPath(flagValue string) (string, error) {
 
 // do makes one API call and decodes the answer into out, which may be nil.
 func (r *remote) do(method, path string, body, out any) error {
+	return r.doWith(method, path, body, out, nil)
+}
+
+func (r *remote) doWith(method, path string, body, out any, headers map[string]string) error {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -158,6 +167,11 @@ func (r *remote) do(method, path string, body, out any) error {
 	}
 	if r.cred.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+r.cred.Token)
+	}
+	for k, v := range headers {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
 	}
 	resp, err := r.c.Do(req)
 	if err != nil {
@@ -232,6 +246,100 @@ func remoteList[T any](r *remote, path, field string, q url.Values) ([]T, error)
 		}
 		q.Set("cursor", next)
 	}
+}
+
+// remoteOutcome is what internal/api's mutate writes, in either phase.
+type remoteOutcome struct {
+	Applied    bool           `json:"applied"`
+	DryRun     bool           `json:"dry_run"`
+	Action     string         `json:"action"`
+	IntentHash string         `json:"intent_hash"`
+	AuditSeq   int64          `json:"audit_seq"`
+	RequestID  string         `json:"request_id"`
+	Change     map[string]any `json:"change"`
+	Result     map[string]any `json:"result"`
+}
+
+// attested is session.attested over the network: the same ceremony of
+// docs/specs/07-identity-audit.md §2, reached by the other road 09 §2 promises.
+//
+// It is a second sequence beside the local one and cannot be shared with it —
+// there the preview, the hash and the act are three calls into core with a
+// database handle between them, and here they are two HTTP requests. What is
+// shared is everything the operator sees and everything that decides: the
+// preview is rendered by the same Render on the control plane, the hash is the
+// same core.Preview hash, the confirmation and the dry run print through the
+// same writeDryRun and showPreview, and the ceremony itself is enforced in one
+// place — core.Act, on the far side — rather than being re-decided here. A
+// front end that decided any of it would be the second implementation of
+// attestation this arrangement exists to prevent.
+func (r *remote) attested(e env, verb, method, path string, body any,
+	f ceremonyFlags, format string) (remoteOutcome, bool, int) {
+	if strings.ContainsAny(*f.justify, "\r\n") {
+		fmt.Fprintf(e.stderr, "nodary %s: --justify travels in a header over --server "+
+			"and cannot contain a line break.\n", verb)
+		return remoteOutcome{}, false, ExitUsage
+	}
+
+	// Rendered on the control plane so the operator is shown what they are
+	// approving, exactly as the local route renders it against the database.
+	// The hash comes back and is sent with the act, which is what binds the
+	// two: what gets applied is what was on the screen.
+	var prev remoteOutcome
+	if err := r.do(method, addQuery(path, "dry_run=true"), body, &prev); err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		return remoteOutcome{}, false, exitFor(err)
+	}
+	if *f.dryRun {
+		return prev, false, writeDryRun(e, verb, format, prev.Action, prev.IntentHash, prev.Change)
+	}
+	if !*f.yes && e.interactive() {
+		showPreview(e, prev.Action, prev.IntentHash, prev.Change)
+		if !confirm(e) {
+			fmt.Fprintf(e.stderr, "nodary %s: cancelled; nothing was applied\n", verb)
+			return prev, false, ExitCancelled
+		}
+	}
+
+	out, err := r.act(method, path, body, prev.IntentHash, *f.justify, *f.totp)
+	// The one refusal a human can still satisfy, and asking is the front end's
+	// job: the control plane has nobody to prompt, so it says what is missing
+	// and each front end answers in its own way. The local route does the same
+	// thing with core.ErrTOTPRequired; over the wire the same refusal arrives
+	// as 09 §3's code.
+	var refusal *remoteError
+	if errors.As(err, &refusal) && refusal.code == "reauthentication_required" && e.interactive() {
+		var code string
+		if code, err = promptTOTP(e); err == nil {
+			out, err = r.act(method, path, body, prev.IntentHash, *f.justify, code)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
+		// A refusal is recorded on the control plane too, and an operator
+		// disputing one needs the sequence to point at. It is not in the error
+		// envelope, so the record is named only where the far side named it.
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return out, false, exitFor(err)
+	}
+	return out, true, ExitOK
+}
+
+func (r *remote) act(method, path string, body any, intent, justify, totp string) (remoteOutcome, error) {
+	var out remoteOutcome
+	err := r.doWith(method, path, body, &out, map[string]string{
+		api.HeaderIntent:  intent,
+		api.HeaderJustify: justify,
+		api.HeaderTOTP:    totp,
+	})
+	return out, err
+}
+
+func addQuery(path, q string) string {
+	if strings.Contains(path, "?") {
+		return path + "&" + q
+	}
+	return path + "?" + q
 }
 
 // remoteError is a refusal the control plane stated.
