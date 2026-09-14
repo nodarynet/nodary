@@ -485,12 +485,25 @@ machine you are standing on. These do, today:
 
 | | |
 | :--- | :--- |
-| Read | `node list`, `node show`, `route list`, `route show`, `limits show` |
-| Act | `node approve\|drain\|revoke`, `model enable\|disable\|restart`, `route set`, `limits set` |
+| Fleet | `node list`, `node show`, `node approve\|drain\|revoke` |
+| Models and routing | `model enable\|disable\|restart`, `route list\|show\|set`, `limits show\|set` |
+| Accounts | `user add\|list\|delete`, `token list\|create\|revoke` |
+| Records | `audit list`, `usage show` |
 
-Everything else is still a shell on the control plane. `nodary logout --server …` forgets one
-appliance's credential; the token itself stays valid until somebody runs `nodary token
-revoke`, which is the audited act that ends it for everyone.
+So the loop closes: an administrator with a credential can mint the next administrator's,
+without anybody opening a shell on the control plane.
+
+```sh
+nodary token create --user bob --name laptop --expires 30d \
+  --server https://nodary.example.internal:8443 \
+  --justify "bob is joining the platform team"
+```
+
+What is still a shell on the control plane: `model register` and the staging verbs, `config
+apply`, `user suspend` and `user show`, `backup`, `policy apply`, and everything that
+installs or diagnoses a host. `nodary logout --server …` forgets one appliance's credential;
+the token itself stays valid until somebody runs `nodary token revoke`, which is the audited
+act that ends it for everyone.
 
 !!! note "`--server` and `--db` are refused together"
     They name different control planes, and resolving that quietly — remote wins, `--db`
