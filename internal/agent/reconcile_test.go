@@ -744,3 +744,40 @@ func TestAFailedDeploymentAlwaysCarriesAReasonOntoTheWire(t *testing.T) {
 		t.Error("a failure reported with no reason would fail the heartbeat's CHECK")
 	}
 }
+
+// R6-06: a deployment whose engine is still compiling has no unit started, so
+// systemd says `inactive` and the plain reading of that is `stopped` — which
+// would tell an operator a six-hour build had quietly given up. The build's
+// own state is what the control plane has to hear.
+func TestADeploymentWaitingOnItsBuildIsNotReportedStopped(t *testing.T) {
+	h, _ := newFakeHost(t)
+	u := Unit{Deployment: "dep_trt", ModelID: "acme/tiny"}
+
+	for _, tc := range []struct {
+		name          string
+		prepared      Prepared
+		wantState     string
+		wantDetailHas string
+	}{
+		{"building", Prepared{Deployment: "dep_trt", State: StatePreparing}, "preparing", ""},
+		{"failed", Prepared{Deployment: "dep_trt", State: StateFailed,
+			Reason: "the build failed: CUDA error"}, "failed", "CUDA error"},
+		// A finished build gets out of the way and systemd is believed again.
+		{"built", Prepared{Deployment: "dep_trt", State: StatePrepared}, "stopped", ""},
+		// And a deployment with no build at all is untouched by any of this.
+		{"no build", Prepared{Deployment: "somebody_else", State: StatePreparing}, "stopped", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Daemon{Host: h, last: Plan{Prepare: []Prepared{tc.prepared}}}
+			state, detail := d.observedState(context.Background(), u, Status{Health: "unknown"})
+			if state != tc.wantState {
+				t.Fatalf("state = %q, want %q", state, tc.wantState)
+			}
+			if tc.wantDetailHas != "" && !strings.Contains(detail, tc.wantDetailHas) {
+				t.Errorf("detail = %q, want it to carry %q — 11 §2 puts the build's reason "+
+					"in the deployment's last_error, not in a log on a GPU host",
+					detail, tc.wantDetailHas)
+			}
+		})
+	}
+}

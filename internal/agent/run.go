@@ -355,9 +355,18 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		Protocol: api.Protocol, AgentVersion: buildinfo.Version,
 		Rev: d.rev, Inventory: inv.raw(),
 	}
+	// The build each unit is waiting on, if it has one (R6-06).
+	built := map[string]Prepared{}
+	for _, b := range d.last.Prepare {
+		built[b.Deployment] = b
+	}
 	for _, u := range d.last.Units {
 		s := byID[u.Deployment]
 		state, detail := d.observedState(ctx, u, s)
+		artifact := ""
+		if b, needs := built[u.Deployment]; needs && b.State == StatePrepared {
+			artifact = b.Key
+		}
 		v := d.lastEgress[u.Deployment]
 		if restartFinished(d.restarting, u.Deployment, state) {
 			body.RestartDone = append(body.RestartDone, u.Deployment)
@@ -373,6 +382,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 			// is the machine the operator is not looking at.
 			Egress:       v.State,
 			EgressReason: v.Reason,
+			Artifact:     artifact,
 		})
 	}
 	for _, st := range d.last.Stage {
@@ -573,6 +583,21 @@ func stagingStatus(st Stage) api.StatusStaging {
 // which docs/specs/11-failure-modes.md §2 asks for and 0006_fleet.sql's
 // CHECK (state <> 'failed' OR last_error IS NOT NULL) requires.
 func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, detail string) {
+	// **Before systemd is believed.** A deployment whose engine is still
+	// compiling has no unit started, so activeState reports `inactive` and the
+	// switch below reads that as `stopped` — true of the unit, false of the
+	// deployment, and it would tell an operator that a six-hour build had
+	// quietly given up. docs/specs/04-backends.md §4's own state is what this
+	// is: `preparing`, or `failed` carrying the builder's reason.
+	for _, b := range d.last.Prepare {
+		if b.Deployment != u.Deployment || b.State == StatePrepared {
+			continue
+		}
+		if b.State == StateFailed {
+			return "failed", b.Reason
+		}
+		return "preparing", b.Reason
+	}
 	switch d.Host.activeState(ctx, UnitName(u.Deployment)) {
 	case "active":
 	case "failed":

@@ -68,6 +68,15 @@ type StatusUnit struct {
 	// one.
 	Egress       string `json:"egress,omitempty"`
 	EgressReason string `json:"egress_reason,omitempty"`
+	// Artifact is the key of the build this deployment serves from — R6-06,
+	// docs/specs/04-backends.md §4. Empty for every backend that serves what
+	// was staged, which is all of them but TensorRT-LLM.
+	//
+	// **Empty means "no new answer" here too**, for the reason Egress does: a
+	// heartbeat sent while a build is still running carries none, and blanking
+	// the stored key on it would lose the record of which engine a serving
+	// deployment was compiled into.
+	Artifact string `json:"artifact,omitempty"`
 }
 
 type StatusStaging struct {
@@ -144,7 +153,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	for _, u := range body.Deployments {
 		report.Deployments = append(report.Deployments, observed.DeploymentReport{
 			ID: u.ID, State: u.State, Health: u.Health, Error: u.Error,
-			Egress: u.Egress, EgressReason: u.EgressReason})
+			Egress: u.Egress, EgressReason: u.EgressReason, Artifact: u.Artifact})
 	}
 	for _, st := range body.Staging {
 		report.Staging = append(report.Staging, observed.StagingReport{

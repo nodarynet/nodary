@@ -102,6 +102,11 @@ type DeploymentReport struct {
 	// re-established every fifteen seconds.
 	Egress       string
 	EgressReason string
+	// Artifact is the build this deployment serves from (R6-06). Empty means
+	// no new answer, the same as Egress: a heartbeat sent while the build is
+	// still running carries none, and blanking the stored key would lose which
+	// engine a serving deployment was compiled into.
+	Artifact string
 }
 
 type StagingReport struct {
@@ -144,6 +149,18 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 			// that carry no new one. Folding it into the statement above would
 			// blank the stored answer on the very next beat, leaving a node
 			// that asserted isolation once looking like one that never did.
+			// Conditional for the same reason, and its own statement for the
+			// same reason: 04 §4's artifact is expensive to produce — hours on
+			// a GPU — and a heartbeat that carries no key must not erase the
+			// record of the one being served.
+			if d.Artifact != "" {
+				if _, err := tx.ExecContext(ctx,
+					`UPDATE deployment SET prepared_artifact = ? WHERE id = ? AND node_name = ?`,
+					d.Artifact, d.ID, name); err != nil {
+					return fmt.Errorf("recording the prepared artifact for %s on %s: %w",
+						d.ID, name, err)
+				}
+			}
 			if d.Egress == "" {
 				continue
 			}

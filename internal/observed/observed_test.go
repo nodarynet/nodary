@@ -435,3 +435,98 @@ func TestAnEgressVerdictForAnotherNodesDeploymentIsIgnored(t *testing.T) {
 		t.Errorf("dep_one on gpu-01 = %q after gpu-02 reported on it; a node may only report on its own", state)
 	}
 }
+
+// R6-06, docs/specs/04-backends.md §4: which engine a deployment was compiled
+// into is recorded, and a heartbeat that carries no key does not erase it.
+//
+// The second half is the one worth a test. An artifact costs hours on a GPU,
+// and the node reports its key only once the build has finished — so every
+// heartbeat sent while it runs, and every one sent after a restart before the
+// next plan, carries nothing. Folded into the main UPDATE, the very next beat
+// would blank the record of what is actually serving.
+func TestTheHeartbeatRecordsAPreparedArtifactAndNeverBlanksIt(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "nodary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Format(audit.TimeFormat)
+	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
+		for _, q := range []struct {
+			stmt string
+			args []any
+		}{
+			{`INSERT INTO node (name, state, created_at) VALUES (?, 'approved', ?)`,
+				[]any{"gpu-01", now}},
+			{`INSERT INTO model (id, backend, source, artifact, created_at)
+			  VALUES ('acme/tiny', 'trt', 'local', 'engine-dir', ?)`, []any{now}},
+			{`INSERT INTO deployment (id, model_id, node_name, backend, state, created_at, updated_at)
+			  VALUES ('dep_trt', 'acme/tiny', 'gpu-01', 'trt', 'defined', ?, ?)`, []any{now, now}},
+		} {
+			if _, err := tx.ExecContext(ctx, q.stmt, q.args...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	artifact := func() string {
+		t.Helper()
+		var got *string
+		if err := db.Read().QueryRowContext(ctx,
+			`SELECT prepared_artifact FROM deployment WHERE id = 'dep_trt'`).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			return ""
+		}
+		return *got
+	}
+	state := func() string {
+		t.Helper()
+		var got string
+		if err := db.Read().QueryRowContext(ctx,
+			`SELECT state FROM deployment WHERE id = 'dep_trt'`).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	// While it builds: the state moves, no key yet.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_trt", State: "preparing", Health: "unknown"}}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if state() != "preparing" {
+		t.Errorf("state = %q, want preparing — 04 §4's own state, not `stopped`", state())
+	}
+	if artifact() != "" {
+		t.Errorf("an artifact was recorded before anything was built: %q", artifact())
+	}
+
+	// Built: the key lands.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_trt", State: "ready", Health: "healthy", Artifact: "abc123"}}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if artifact() != "abc123" {
+		t.Fatalf("artifact = %q, want abc123", artifact())
+	}
+
+	// And a later beat carrying none leaves it alone.
+	if err := Heartbeat(ctx, db, "gpu-01", NodeReport{Deployments: []DeploymentReport{
+		{ID: "dep_trt", State: "ready", Health: "healthy"}}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if artifact() != "abc123" {
+		t.Errorf("artifact = %q after a beat that carried none; the record of which engine "+
+			"is serving was erased by a heartbeat that simply had nothing new to say", artifact())
+	}
+}
