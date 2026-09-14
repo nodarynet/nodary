@@ -47,7 +47,8 @@ const (
 var ErrBadSinkSpec = errors.New("audit sink specification is not valid")
 
 // ParseSinks reads a comma-separated specification: "file:/path",
-// "https://host/path", "stdout", "stderr", or "none".
+// "https://host/path", "syslog:" (or "syslog:tcp://host:514"), "stdout",
+// "stderr", or "none".
 //
 // "none" must stand alone. Configuring it alongside a real sink is a
 // contradiction rather than a preference, and silently picking one of the two
@@ -78,6 +79,16 @@ func ParseSinks(spec string) ([]Sink, error) {
 			sinks = append(sinks, &consoleSink{name: "stdout", w: os.Stdout})
 		case f == "stderr":
 			sinks = append(sinks, &consoleSink{name: "stderr", w: os.Stderr})
+		case f == "syslog" || strings.HasPrefix(f, "syslog:"):
+			network, address, err := parseSyslogSpec(f)
+			if err != nil {
+				return nil, err
+			}
+			sink, err := newSyslogSink(f, network, address)
+			if err != nil {
+				return nil, err
+			}
+			sinks = append(sinks, sink)
 		case strings.HasPrefix(f, "file:"):
 			// Trimmed again after the prefix, not only around the field. A
 			// space after the colon is a natural way to write this in a

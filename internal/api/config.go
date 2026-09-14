@@ -124,11 +124,19 @@ func RenderServerConfig(c ServerConfig) []byte {
 # sinks      = %q
 # on_failure = "warn"          # or "block": refuse the next mutation while a sink is down
 #
-# sinks is comma-separated: file:PATH, https://host/path, stdout, stderr, or none.
+# sinks is comma-separated: file:PATH, https://host/path, syslog:, stdout,
+# stderr, or none.
 # A network sink posts NDJSON, one record per line, and never blocks a mutation:
 # a destination that fell behind is re-synced with `+"`nodary audit export --from-seq`"+`.
 # Its Authorization header value — "Splunk …", "Bearer …", "ApiKey …" — goes in
 # %s, not here: this file gets read and pasted while diagnosing things.
+#
+# No SIEM? The file above is on the same disk as the database it mirrors, so it
+# proves nothing against somebody who owns this box. "syslog:" hands the records
+# to the local daemon — "syslog:tcp://collector:514" to a remote one — and lets
+# whatever the site already collects be the off-box copy. Syslog truncates long
+# messages, so treat that stream as monitoring and keep the file (and
+# `+"`audit export`"+`) as the evidentiary copy.
 `, "file:"+paths.AuditLog()+",https://siem.example.internal/ingest", paths.AuditSinkToken())
 	return []byte(b.String())
 }

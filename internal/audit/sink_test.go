@@ -51,7 +51,7 @@ func TestParseSinksRejections(t *testing.T) {
 	for name, spec := range map[string]string{
 		"empty":             "",
 		"empty entry":       "stderr,",
-		"unknown":           "syslog",
+		"unknown":           "kafka://broker:9092",
 		"unknown scheme":    "http://example.invalid",
 		"file with no path": "file:",
 		"duplicate":         "stderr,stderr",

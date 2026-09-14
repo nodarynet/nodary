@@ -502,6 +502,48 @@ Four things worth knowing:
   and to which object. A local shipper that owns the TLS itself is the ordinary deployment and
   is allowed; a plaintext URL to another host is not.
 
+### If you have no SIEM
+
+You already have something, and the default already uses it: with nothing configured, records
+go to `/var/log/nodary/audit.jsonl`. They are hash-linked, and a *fragment* of the chain — a
+rotated file, an `audit export --from-seq`, a copy on a USB stick — verifies against an anchor
+rather than needing to begin at the first record ever written. So `nodary audit verify --mirror`
+works on a file that has been rotated, split, or carried off the machine by hand.
+
+What that does not give you is anything **off-box**. The mirror is on the same disk as the
+database it mirrors, so it proves nothing against somebody who owns this appliance, and the
+whole argument for shipping records elsewhere is that a compromised machine cannot quietly
+rewrite a copy that already left it.
+
+The cheapest real hop is syslog, which every Linux site already runs:
+
+```toml
+[audit]
+sinks      = "file:/var/log/nodary/audit.jsonl,syslog:"
+on_failure = "warn"
+```
+
+`syslog:` is the local daemon, which is usually what you want: point rsyslog at wherever the
+site already sends logs — a collector, an MSP's agent, a NAS, a firewall — and nodary stays out
+of it. `syslog:tcp://collector.internal:514` and `syslog:udp://…` talk to a remote daemon
+directly. The port is required rather than assumed to be 514, because delivering nothing to a
+port nobody reads is exactly the failure this is meant to prevent. Records go to the `authpriv`
+facility, tagged `nodary`.
+
+!!! warning "Syslog truncates, so it is the monitoring copy and not the evidence"
+    A syslog receiver is entitled to cut a message at 1024 bytes, and implementations vary above
+    that. A record with a large `detail` carries fine in the database and may arrive at the
+    collector cut in half — which breaks verification *of that copy*. Treat the syslog stream as
+    alerting and review; keep the `file:` sink and `nodary audit export` as the copy an assessor
+    is given.
+
+For an assessment, the artifact to hand over is not a log stream at all — it is
+`nodary evidence`, which packages a period's records with the chain's own proof and a manifest.
+
+**Rotation.** Nothing here ships a `logrotate` policy yet, and if you write one it must use
+`create` and not `copytruncate`: the sink reopens the file by path for every record, so
+rename-and-create is safe and truncating underneath an appender is not.
+
 ## Retention
 
 `nodary-prune.timer` runs a retention pass daily and the windows come from the active profile —
