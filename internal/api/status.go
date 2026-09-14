@@ -34,6 +34,16 @@ type StatusReport struct {
 	// Desired.Restart (`nodary model restart`) — the same shape ResetDone
 	// uses, for the same reason.
 	RestartDone []string `json:"restart_done,omitempty"`
+	// UpgradeTarget and UpgradeError are why this node is not running the
+	// version the fleet targets (R5-15). Empty when it is, or when it has not
+	// been asked to move.
+	//
+	// Reported rather than logged on the node: docs/specs/01-install.md §9 has
+	// an agent that cannot upgrade keep serving and say so, and the node is the
+	// machine an operator cannot reach — on a fleet whose whole point is that
+	// they do not have to.
+	UpgradeTarget string `json:"upgrade_target,omitempty"`
+	UpgradeError  string `json:"upgrade_error,omitempty"`
 	// Refused is what this node will not run out of the document it was
 	// given, and why (R4-15). It is the node's complete current set, not a
 	// delta: a refusal that stops being reported has stopped applying.
@@ -134,6 +144,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		// in the fleet report as current — including one that sent no protocol
 		// field at all, which is an agent old enough that saying so matters.
 		AgentVersion: body.AgentVersion, Protocol: body.Protocol,
+		UpgradeTarget: body.UpgradeTarget, UpgradeError: body.UpgradeError,
 		Arch: body.Inventory.Arch, OS: body.Inventory.OS,
 		DriverVersion: body.Inventory.DriverVersion,
 		GPUsJSON:      rawOrDefault(body.Inventory.GPUs, "[]"),

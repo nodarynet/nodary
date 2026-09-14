@@ -96,6 +96,9 @@ type Daemon struct {
 	// already established. Replaced wholesale each reconcile, which is also
 	// how a deployment that left the plan stops being reported.
 	lastEgress map[string]EgressVerdict
+	// upgrades remembers which target version this process already tried, so a
+	// self-upgrade that cannot succeed is attempted once rather than every poll.
+	upgrades upgrader
 }
 
 // NewDaemon prepares the loop. It does not start it.
@@ -200,6 +203,14 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		return
 	}
 	d.last = p
+
+	// **After the plan, before reconciling.** A node that is about to become a
+	// different version should not first start containers this one decided on
+	// — and if the upgrade succeeds, this process is replaced and the reconcile
+	// below belongs to the new binary. If it fails, nothing was torn down and
+	// the reconcile runs as it always would.
+	d.setTarget(doc.Agent.TargetVersion)
+	d.selfUpgrade(ctx, doc.Agent.TargetVersion)
 
 	r := Reconcile(ctx, p, d.Host)
 	// report() runs on a separate goroutine (the heartbeat loop) and only
@@ -358,6 +369,16 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	body := api.StatusReport{
 		Protocol: api.Protocol, AgentVersion: buildinfo.Version,
 		Rev: d.rev, Inventory: inv.raw(),
+	}
+	// Why this node is not the version the fleet targets, if it is not.
+	// Reported every heartbeat rather than once, because the control plane's
+	// view has to be the node's current state and not an event it might have
+	// missed — the same rule Refused follows.
+	if target := d.target(); target != "" && target != buildinfo.Version {
+		body.UpgradeTarget = target
+		if failure, tried := d.upgrades.result(target); tried {
+			body.UpgradeError = failure
+		}
 	}
 	// The build each unit is waiting on, if it has one (R6-06).
 	built := map[string]Prepared{}

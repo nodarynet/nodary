@@ -50,6 +50,12 @@ type NodeReport struct {
 	TopologyJSON string
 	Deployments  []DeploymentReport
 	Staging      []StagingReport
+	// UpgradeTarget and UpgradeError are why this node is not running the
+	// fleet's target version, empty when it is. An observation like the rest of
+	// this report: the node says what happened to it, and the control plane
+	// records it so an operator can see a fleet that has stopped converging.
+	UpgradeTarget string
+	UpgradeError  string
 	// ResetDone is models this node just discarded in response to a
 	// `nodary model restage`/`unstage` request — an observation of what
 	// happened, the same as the rest of this report, not a decision.
@@ -127,10 +133,17 @@ func Heartbeat(ctx context.Context, db *store.DB, name string, r NodeReport, see
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE node SET last_seen = ?, agent_version = ?, protocol = ?,
 			                 arch = ?, os = ?, driver_version = ?,
-			                 gpus_json = ?, topology_json = ?
+			                 gpus_json = ?, topology_json = ?,
+			                 upgrade_target = ?, upgrade_error = ?
 			 WHERE name = ?`,
 			stamp, r.AgentVersion, r.Protocol, r.Arch, r.OS, r.DriverVersion,
-			r.GPUsJSON, r.TopologyJSON, name); err != nil {
+			r.GPUsJSON, r.TopologyJSON,
+			// Written every heartbeat, including empty: a node that upgraded
+			// successfully clears its own error, and one that stopped being
+			// asked to move clears the target. A column only ever set would
+			// keep reporting a failure the fleet had already left behind.
+			nullable(r.UpgradeTarget), nullable(r.UpgradeError),
+			name); err != nil {
 			return fmt.Errorf("recording the heartbeat from %s: %w", name, err)
 		}
 
@@ -328,4 +341,14 @@ func Seen(ctx context.Context, db *store.DB, name, agentVersion string, protocol
 		}
 		return nil
 	})
+}
+
+// nullable keeps an empty report field out of the column as NULL rather than as
+// "", so "this node has no upgrade problem" and "this node reported an empty
+// reason" are not the same row.
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

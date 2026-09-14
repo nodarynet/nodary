@@ -171,3 +171,12 @@ func TestAMirrorThatHasNotGotItSaysSo(t *testing.T) {
 		t.Errorf("the failure does not say what would put it there: %v", err)
 	}
 }
+
+func (i *imageHost) saw(substr string) bool {
+	for _, c := range i.calls {
+		if strings.Contains(c, substr) {
+			return true
+		}
+	}
+	return false
+}

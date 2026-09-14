@@ -407,7 +407,17 @@ func agentDetail(d fleet.Detail) string {
 		return fmt.Sprintf("%s, protocol %d — INCOMPATIBLE, this control plane accepts %d-%d",
 			d.AgentVersion, d.Protocol, fleet.ProtocolMin, fleet.ProtocolMax)
 	}
-	return fmt.Sprintf("%s, protocol %d", d.AgentVersion, d.Protocol)
+	line := fmt.Sprintf("%s, protocol %d", d.AgentVersion, d.Protocol)
+	// A node that has stopped converging (R5-15). Without this it shows as an
+	// agent_version that quietly never moves, which reads as "nothing happened"
+	// rather than as the fault it is.
+	if d.UpgradeError != "" {
+		return fmt.Sprintf("%s — UPGRADE TO %s FAILED: %s", line, d.UpgradeTarget, d.UpgradeError)
+	}
+	if d.UpgradeTarget != "" {
+		return fmt.Sprintf("%s — upgrading to %s", line, d.UpgradeTarget)
+	}
+	return line
 }
 
 func hostDetail(d fleet.Detail) string {

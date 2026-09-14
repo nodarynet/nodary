@@ -96,6 +96,12 @@ type Node struct {
 	DriverVersion string `json:"driver_version"`
 	RebootPolicy  string `json:"reboot_policy"`
 	CertExpiresAt string `json:"cert_expires_at"`
+	// UpgradeTarget and UpgradeError are why this node is not running the
+	// fleet's version (R5-15). Both empty when it is. A fleet that has stopped
+	// converging is otherwise visible only as an agent_version that quietly
+	// never moves, which reads as "nothing happened" rather than as a fault.
+	UpgradeTarget string `json:"upgrade_target,omitempty"`
+	UpgradeError  string `json:"upgrade_error,omitempty"`
 	// Incompatible is docs/specs/03-agent.md §4's verdict about this node's
 	// agent: it speaks a protocol outside what this control plane accepts, so
 	// it has stopped reconciling and is running whatever was already up.
@@ -189,13 +195,15 @@ const nodeColumns = `name, state, coalesce(last_seen, ''), coalesce(agent_versio
 	coalesce(protocol, 0), coalesce(arch, ''), coalesce(os, ''),
 	coalesce(driver_version, ''), reboot_policy, coalesce(cert_expires_at, ''),
 	coalesce(approved_by, ''), coalesce(approved_at, ''),
+	coalesce(upgrade_target, ''), coalesce(upgrade_error, ''),
 	gpus_json, offer_json, constraints_json`
 
 func scanNode(s interface{ Scan(...any) error }, n *Node, now time.Time) error {
 	var gpus, offer, constraints string
 	if err := s.Scan(&n.Name, &n.State, &n.LastSeen, &n.AgentVersion, &n.Protocol,
 		&n.Arch, &n.OS, &n.DriverVersion, &n.RebootPolicy, &n.CertExpiresAt,
-		&n.ApprovedBy, &n.ApprovedAt, &gpus, &offer, &constraints); err != nil {
+		&n.ApprovedBy, &n.ApprovedAt, &n.UpgradeTarget, &n.UpgradeError,
+		&gpus, &offer, &constraints); err != nil {
 		return err
 	}
 	n.Stale = Stale(n.LastSeen, now)
