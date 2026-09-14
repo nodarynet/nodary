@@ -36,7 +36,18 @@ nodary uninstall [--purge] [--purge-models] [--force]
 nodary doctor
 nodary restart
 nodary status
+nodary login    --server URL [--ca-fingerprint sha256:…]
+nodary logout   --server URL
 ```
+
+`login` and `logout` are the credential half of `--server` below. An administrator acting
+on a control plane over the network presents a personal token, which has to have reached
+that machine somehow: `login` reads one on stdin, checks it against the appliance, and
+records it with the certificate fingerprint that appliance is pinned to. It never takes a
+password — [01 §4](01-install.md#4-server-install)'s one-time setup link exists so that a
+password is not typed into a terminal — and it never takes the token as a flag, because a
+credential good for ninety days does not belong in a shell history. `logout` forgets one
+appliance's entry; the token itself stays valid until `token revoke` ends it.
 
 `nodary install` is the interactive route: run at a terminal with no flags, it asks a
 handful of plain questions — control plane, node, or both; host; approve now; stage a
@@ -55,7 +66,7 @@ step 9 requires is unaffected, printed exactly as `server install` always prints
 | `--dry-run` | Render and print the change plus its `intent_hash`; do not apply |
 | `--yes` | Skip the interactive confirmation. Does **not** skip justification or TOTP |
 | `--format text\|json\|yaml` | Output format. `json` is stable and intended for scripting |
-| `--server URL` | Target control plane. Defaults to the local one |
+| `--server URL` | Target control plane. Defaults to the local one. Needs a credential from `nodary login` |
 | `-v`, `-vv` | Verbosity |
 
 One verb does not take those `--format` values: `nodary audit export` writes `jsonl` or

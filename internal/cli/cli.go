@@ -178,12 +178,16 @@ func dispatch(e env, args []string) int {
 		return cmdUsage(e, args[1:])
 	case "doctor":
 		return cmdDoctor(e, args[1:])
+	case "login":
+		return cmdLogin(e, args[1:])
+	case "logout":
+		return cmdLogout(e, args[1:])
 	}
 
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -267,6 +271,8 @@ Available in this release:
   doctor               Diagnose this host: preflight, plus what needs a running system
   status               What this host runs, and whether it is running
   restart              Bounce every nodary unit this host owns, in dependency order
+  login                Store the credential --server verbs present to one control plane
+  logout               Forget one; the token stays valid until it is revoked
 
 Specified, not yet implemented:
 `, versionString())
@@ -283,6 +289,8 @@ Specified, not yet implemented:
 	fmt.Fprintf(w, `
 Global flags:
   --format text|json   Output format; json is stable and intended for scripting
+  --server URL         Act against a control plane over the network. Run nodary login
+                       first; only the verbs that serve it remotely accept it
 
 Documentation: docs/specs/
 `)
@@ -332,6 +340,17 @@ func parseFlags(e env, fs *flag.FlagSet, args []string) int {
 	case errors.Is(err, flag.ErrHelp):
 		io.WriteString(e.stdout, out.String())
 		return ExitOK
+	// --server is rolling out one verb at a time, and a verb that has not
+	// been converted must say so rather than run. The dangerous failure here
+	// is not a bad message: it is an operator believing they acted on an
+	// appliance across the room while the command edited this host's database.
+	// Go's flag package already refuses an undefined flag, so this only
+	// improves what it says --- the refusal itself is free and cannot be
+	// forgotten for a new verb.
+	case strings.Contains(out.String(), "flag provided but not defined: -server"):
+		fmt.Fprintf(e.stderr, "nodary %s: this verb does not act against --server yet; "+
+			"run it on the control-plane host.\n", fs.Name())
+		return ExitUsage
 	}
 	io.WriteString(e.stderr, out.String())
 	return ExitUsage

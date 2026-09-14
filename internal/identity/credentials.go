@@ -47,6 +47,16 @@ type Credential struct {
 	// User is the name the token belonged to when it was written. It is for
 	// display: authority comes from the token, never from this.
 	User string `json:"user,omitempty"`
+	// CAFingerprint is the control plane certificate this target is pinned to,
+	// in the sha256:… form `nodary server install` prints.
+	//
+	// It sits beside the credential rather than in a configuration file
+	// because the two are one decision: a token for an appliance is only
+	// meaningful against the appliance it was issued by, and a client that
+	// found the token here and the pin somewhere else could present the first
+	// to a machine the second never named. Empty for the local target, which
+	// opens a file and dials nothing.
+	CAFingerprint string `json:"ca_fingerprint,omitempty"`
 }
 
 // Credentials is the file.
@@ -113,6 +123,12 @@ func (c *Credentials) Set(server string, cred Credential) {
 	}
 	c.Version = credentialsVersion
 	c.Servers[server] = cred
+}
+
+// Forget removes a target's credential.
+func (c *Credentials) Forget(server string) {
+	delete(c.Servers, server)
+	c.Version = credentialsVersion
 }
 
 // Save writes the file at path, mode 0600, atomically.

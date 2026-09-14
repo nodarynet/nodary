@@ -309,9 +309,19 @@ func (s *session) touch(m audit.Mutation) error {
 // One function, because the codes are a contract a script depends on and three
 // verbs each deciding for themselves is how they stop agreeing.
 func exitFor(err error) int {
+	// A refusal the control plane stated, carrying the stable code of
+	// docs/specs/09-api.md §3. First, because it is already the answer: the
+	// sentinel errors below are local values, and a refusal that crossed the
+	// network arrives as text and a code rather than as one of them.
+	var remote *remoteError
+	if errors.As(err, &remote) {
+		return remote.exit()
+	}
 	switch {
 	case err == nil:
 		return ExitOK
+	case errors.Is(err, errUnreachable):
+		return ExitUnreachable
 	case errors.Is(err, identity.ErrDenied),
 		errors.Is(err, identity.ErrBadToken),
 		errors.Is(err, identity.ErrTokenRevoked),
