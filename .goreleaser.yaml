@@ -47,6 +47,21 @@ builds:
       - -X github.com/nodarynet/nodary/internal/buildinfo.Version={{ .Version }}
       - -X github.com/nodarynet/nodary/internal/buildinfo.Commit={{ .FullCommit }}
       - -X github.com/nodarynet/nodary/internal/buildinfo.Date={{ .CommitDate }}
+      # **The trust anchors, stamped here or nowhere.** Both default to a
+      # placeholder that refuses, and both carried a comment saying they were
+      # "stamped in at release with -ldflags" while nothing did it — so a
+      # released binary would have shipped unable to verify a manifest revision
+      # (ADR 0007) or a binary served to a node (R5-16), with the refusal
+      # looking like a bug rather than a missing secret.
+      #
+      # The bare base64 payload line, not the two-line file minisign writes:
+      # ParsePublicKey accepts either, and a newline inside an -X value is a
+      # quoting problem with no upside.
+      #
+      # Separate keys on purpose (ADR 0005 §3): one key for both would put
+      # whichever pipeline can reach it in the position of minting the other.
+      - -X github.com/nodarynet/nodary/internal/components.TrustedKey={{ .Env.NODARY_MANIFEST_PUBKEY }}
+      - -X github.com/nodarynet/nodary/internal/release.TrustedKey={{ .Env.NODARY_RELEASE_PUBKEY }}
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"

@@ -185,3 +185,47 @@ func TestTheHomebrewChannelIsACaskInTheRightPlace(t *testing.T) {
 		t.Error("no quarantine-clearing hook: Gatekeeper would refuse the binary on first run")
 	}
 }
+
+// **An `-X` against a package the binary does not link is silently ignored.**
+// Measured while wiring R5-16: `-X …/internal/release.TrustedKey=…` produced a
+// binary still carrying the placeholder, because nothing imported the package
+// yet, and goreleaser reported success. A release built that way ships a
+// binary that cannot verify a manifest revision or an upgrade, and the refusal
+// reads like a bug rather than a missing secret.
+//
+// Both keys also carried comments claiming they were "stamped in at release
+// with -ldflags" while nothing stamped either, which is how this went unnoticed.
+func TestEveryStampedPackageIsActuallyLinkedIn(t *testing.T) {
+	body, err := os.ReadFile(repoFile(t, ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stamped []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, "- -X github.com/nodarynet/nodary/")
+		if !ok {
+			continue
+		}
+		pkg, _, _ := strings.Cut(rest, ".")
+		stamped = append(stamped, "github.com/nodarynet/nodary/"+pkg)
+	}
+	if len(stamped) == 0 {
+		t.Fatal("no -X ldflags at all: the version and both trust anchors would be placeholders")
+	}
+
+	out, err := exec.Command("go", "list", "-deps", repoFile(t, "./cmd/nodary")).Output()
+	if err != nil {
+		t.Skipf("go list unavailable: %v", err)
+	}
+	linked := map[string]bool{}
+	for _, p := range strings.Split(string(out), "\n") {
+		linked[strings.TrimSpace(p)] = true
+	}
+	for _, pkg := range stamped {
+		if !linked[pkg] {
+			t.Errorf("%s is stamped with -X but nothing links it in, so the value is "+
+				"silently dropped and the build ships its placeholder", pkg)
+		}
+	}
+}
