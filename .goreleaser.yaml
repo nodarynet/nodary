@@ -62,6 +62,12 @@ builds:
       # whichever pipeline can reach it in the position of minting the other.
       - -X github.com/nodarynet/nodary/internal/components.TrustedKey={{ .Env.NODARY_MANIFEST_PUBKEY }}
       - -X github.com/nodarynet/nodary/internal/release.TrustedKey={{ .Env.NODARY_RELEASE_PUBKEY }}
+      # The third, and it was missing entirely — not unsupplied like the two
+      # above, but never referenced here at all, so a shipped binary could not
+      # read an advisory feed and `advisory check` refused with a placeholder
+      # error. ADR 0005 §3 keeps it a third key for the reason the comment
+      # above gives.
+      - -X github.com/nodarynet/nodary/internal/advisory.TrustedKey={{ .Env.NODARY_ADVISORY_PUBKEY }}
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"

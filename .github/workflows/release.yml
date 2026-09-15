@@ -113,6 +113,57 @@ jobs:
           minisign -R -s "$NODARY_MINISIGN_KEY" -p /tmp/nodary-minisign.pub
           minisign -Vm build/install.sh -x build/install.sh.minisig -p /tmp/nodary-minisign.pub
 
+      # **The three trust anchors .goreleaser.yaml stamps in, resolved and
+      # checked before goreleaser runs.**
+      #
+      # v0.0.1 failed here: the ldflags referenced `.Env.NODARY_MANIFEST_PUBKEY`
+      # and this job set nothing, so the build died with `map has no entry for
+      # key` after a minute of tests — a message that takes log-reading to
+      # decode into "a secret is missing". The comment above those ldflags had
+      # already described this exact failure happening one layer up, when the
+      # keys were documented as stamped and nothing stamped them.
+      #
+      # So they are resolved in a step of their own that says which one is
+      # missing, by name, before anything is built.
+      - name: Resolve the trust anchors
+        env:
+          MINISIGN_KEY: ${{ secrets.NODARY_MINISIGN_KEY }}
+          NODARY_MANIFEST_PUBKEY: ${{ secrets.NODARY_MANIFEST_PUBKEY }}
+          NODARY_ADVISORY_PUBKEY: ${{ secrets.NODARY_ADVISORY_PUBKEY }}
+        run: |
+          set -eu
+          # Derived, never stored: the release anchor is the public half of the
+          # key that signs the artifacts a few steps below, and a second copy
+          # in a secret is a copy that can disagree with the signer.
+          minisign -R -s /tmp/nodary-minisign.key -p /tmp/nodary-minisign.pub
+          release_pub=$(sed -n '2p' /tmp/nodary-minisign.pub)
+
+          # The bare payload line for the other two as well, because that is
+          # what ParsePublicKey is handed and a newline inside an -X value is a
+          # quoting problem with no upside.
+          manifest_pub=$(printf '%s\n' "$NODARY_MANIFEST_PUBKEY" | sed -n '$p')
+          advisory_pub=$(printf '%s\n' "$NODARY_ADVISORY_PUBKEY" | sed -n '$p')
+
+          for pair in "NODARY_RELEASE_PUBKEY=$release_pub" \
+                      "NODARY_MANIFEST_PUBKEY=$manifest_pub" \
+                      "NODARY_ADVISORY_PUBKEY=$advisory_pub"; do
+            name=${pair%%=*}
+            value=${pair#*=}
+            if [ -z "$value" ]; then
+              echo "::error::$name is empty. .goreleaser.yaml stamps it into the binary as a" \
+                   "trust anchor; without it this release would ship a build that cannot verify" \
+                   "what that key is for. Set the repository secret and re-tag." >&2
+              exit 1
+            fi
+            case "$value" in
+              *PLACEHOLDER*)
+                echo "::error::$name is the placeholder. A released binary carrying it refuses" \
+                     "to verify, which looks like a bug rather than a missing secret." >&2
+                exit 1 ;;
+            esac
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
