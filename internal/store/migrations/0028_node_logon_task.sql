@@ -1,0 +1,27 @@
+-- Whether a WSL2 node has a scheduled task to bring it back after a Windows
+-- reboot.
+--
+-- docs/specs/03-agent.md 7 says the control plane "displays whether a logon
+-- task exists to bring the node back", and it had nothing to display: nothing
+-- collected the fact and there was no column to keep it in. docs/specs/01-install.md
+-- 8 is why it matters -- the distribution does not start at boot, so a rebooted
+-- Windows host comes back with no agent until somebody opens a shell.
+--
+-- **An observation, not a decision**, so it sits on `node` beside gpus_json and
+-- not in the configuration snapshot: nobody applies this, a node reports it,
+-- and it changes when somebody edits the Windows scheduler rather than when an
+-- operator applies a revision. config.readNodes selects name, state,
+-- constraints_json and reboot_policy, so a column here is outside every
+-- revision's hash preimage (docs/plans/mvp.md 2) and invalidates no chain.
+--
+-- On the heartbeat rather than at enrollment alone, which reboot_policy is:
+-- a logon task is created by a person, usually *after* the install that warned
+-- them it was missing, and a value frozen at enrollment would keep saying
+-- `absent` about a host somebody fixed.
+--
+-- Four values and no CHECK, matching the six ALTER TABLE ADD COLUMN migrations
+-- before it, which validate in Go instead: '' for a host where the question
+-- does not arise, 'present', 'absent', and 'unknown' for a WSL2 host that could
+-- not be asked. The last two are deliberately distinct -- "no task" is a claim
+-- and "interop is off" is not.
+ALTER TABLE node ADD COLUMN logon_task TEXT NOT NULL DEFAULT '';

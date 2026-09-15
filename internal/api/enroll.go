@@ -66,6 +66,10 @@ type Inventory struct {
 	DriverVersion string          `json:"driver_version"`
 	GPUs          json.RawMessage `json:"gpus"`
 	Topology      json.RawMessage `json:"topology"`
+	// LogonTask is whether a WSL2 host has a scheduled task to bring this
+	// distribution back after a Windows reboot (03 §7). Empty on every host
+	// where the question does not arise, which is all of them but WSL2.
+	LogonTask string `json:"logon_task,omitempty"`
 }
 
 // EnrollResponse is the certificate and what the node now is.
@@ -235,8 +239,9 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO node (name, fingerprint, state, arch, os, driver_version,
 		                   gpus_json, topology_json, offer_json, constraints_json,
-		                   reboot_policy, agent_version, protocol, cert_expires_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                   reboot_policy, logon_task, agent_version, protocol,
+		                   cert_expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		     fingerprint = excluded.fingerprint,
 		     state = excluded.state,
@@ -248,6 +253,7 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 		     offer_json = excluded.offer_json,
 		     constraints_json = excluded.constraints_json,
 		     reboot_policy = excluded.reboot_policy,
+		     logon_task = excluded.logon_task,
 		     agent_version = excluded.agent_version,
 		     protocol = excluded.protocol,
 		     cert_expires_at = excluded.cert_expires_at`,
@@ -255,7 +261,7 @@ func upsertEnrolledNode(ctx context.Context, tx *sql.Tx, body EnrollRequest,
 		body.Inventory.DriverVersion, rawOrDefault(body.Inventory.GPUs, "[]"),
 		rawOrDefault(body.Inventory.Topology, "{}"), rawOrDefault(body.Offer, "{}"),
 		rawOrDefault(body.Constraints, "{}"),
-		body.RebootPolicy, body.AgentVersion, Protocol,
+		body.RebootPolicy, body.Inventory.LogonTask, body.AgentVersion, Protocol,
 		expires.UTC().Format(audit.TimeFormat), stamp)
 	if err != nil {
 		return fmt.Errorf("recording node %s: %w", body.Name, err)

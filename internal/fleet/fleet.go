@@ -98,6 +98,10 @@ type Node struct {
 	OS            string `json:"os"`
 	DriverVersion string `json:"driver_version"`
 	RebootPolicy  string `json:"reboot_policy"`
+	// LogonTask is 03 §7's other half of reboot safety, and only a WSL2 host
+	// answers it: `present`, `absent`, or `unknown` when Windows could not be
+	// asked. Empty everywhere else, because the question does not arise.
+	LogonTask     string `json:"logon_task"`
 	CertExpiresAt string `json:"cert_expires_at"`
 	// UpgradeTarget and UpgradeError are why this node is not running the
 	// fleet's version (R5-15). Both empty when it is. A fleet that has stopped
@@ -204,14 +208,14 @@ const nodeColumns = `name, state, coalesce(last_seen, ''), coalesce(agent_versio
 	coalesce(driver_version, ''), reboot_policy, coalesce(cert_expires_at, ''),
 	coalesce(approved_by, ''), coalesce(approved_at, ''),
 	coalesce(upgrade_target, ''), coalesce(upgrade_error, ''),
-	gpus_json, offer_json, constraints_json, topology_json`
+	gpus_json, offer_json, constraints_json, topology_json, logon_task`
 
 func scanNode(s interface{ Scan(...any) error }, n *Node, now time.Time) error {
 	var gpus, offer, constraints, topology string
 	if err := s.Scan(&n.Name, &n.State, &n.LastSeen, &n.AgentVersion, &n.Protocol,
 		&n.Arch, &n.OS, &n.DriverVersion, &n.RebootPolicy, &n.CertExpiresAt,
 		&n.ApprovedBy, &n.ApprovedAt, &n.UpgradeTarget, &n.UpgradeError,
-		&gpus, &offer, &constraints, &topology); err != nil {
+		&gpus, &offer, &constraints, &topology, &n.LogonTask); err != nil {
 		return err
 	}
 	n.Stale = Stale(n.LastSeen, now)

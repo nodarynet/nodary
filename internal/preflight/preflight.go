@@ -172,6 +172,7 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkRAMPerGPU(ctx, o))
 	add(checkFreeVRAM(ctx, o))
 	add(checkEncryptedRoot())
+	add(checkWSLLogonTask(ctx))
 	add(checkNFT(o))
 
 	sort.SliceStable(r.Checks, func(i, j int) bool {

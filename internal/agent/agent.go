@@ -32,6 +32,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/buildinfo"
+	"github.com/nodarynet/nodary/internal/preflight"
 )
 
 // ErrPin is a control plane whose certificate is not the one this node was told
@@ -288,12 +289,16 @@ type Inventory struct {
 	// Topology is how the cards reach each other (R7-03). Empty on a host with
 	// one card, none, or on WSL2, all of which are answers rather than faults.
 	Topology Topology
+	// LogonTask is whether this WSL2 host starts the distribution at logon
+	// (03 §7). Empty on anything that is not WSL2.
+	LogonTask string
 }
 
 // raw renders the inventory for the wire.
 func (i Inventory) raw() api.Inventory {
 	out := api.Inventory{Arch: i.Arch, OS: i.OS, DriverVersion: i.DriverVersion,
-		GPUs: json.RawMessage("[]"), Topology: json.RawMessage("{}")}
+		GPUs: json.RawMessage("[]"), Topology: json.RawMessage("{}"),
+		LogonTask: i.LogonTask}
 	if len(i.GPUs) > 0 {
 		if raw, err := json.Marshal(i.GPUs); err == nil {
 			out.GPUs = raw
@@ -322,7 +327,8 @@ func LocalInventory(ctx context.Context) Inventory {
 	}
 	gpus = append(gpus, probeDRM(next)...)
 	return Inventory{Arch: runtime.GOARCH, OS: runtime.GOOS,
-		DriverVersion: driver, GPUs: gpus, Topology: probeTopology(ctx)}
+		DriverVersion: driver, GPUs: gpus, Topology: probeTopology(ctx),
+		LogonTask: preflight.WSLLogonTask(ctx)}
 }
 
 // BackendNames is what this build can run, before node.toml narrows it.

@@ -149,6 +149,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		DriverVersion: body.Inventory.DriverVersion,
 		GPUsJSON:      rawOrDefault(body.Inventory.GPUs, "[]"),
 		TopologyJSON:  rawOrDefault(body.Inventory.Topology, "{}"),
+		LogonTask:     body.Inventory.LogonTask,
 		ResetDone:     body.ResetDone,
 		RestartDone:   body.RestartDone,
 		Rev:           body.Rev,
