@@ -144,16 +144,34 @@ func mustAsset(t *testing.T, f *fixture, name string) string {
 	return body(t, resp)
 }
 
+// nodeForTheConsole finds the JavaScript runtime the two checks below borrow.
+//
+// On a developer machine without node they skip, which is the right answer: a
+// check that runs on CI and on any machine that has a parser is worth more than
+// no check at all. On CI it is a failure instead — .github/workflows/ci.yml
+// installs node for exactly these two tests, and a check that quietly stopped
+// running is worse than one that was never written, because the tree still
+// reads as though the screens are covered.
+func nodeForTheConsole(t *testing.T) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err == nil {
+		return node
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatalf("no node on PATH, and CI installs one for the console's checks: %v", err)
+	}
+	t.Skip("no node on PATH to parse and run the console's scripts with")
+	return ""
+}
+
 // The console's scripts are embedded, so a syntax error in one ships in the
 // binary and shows as a blank page with a message only the browser console
 // has. Nothing in Go parses JavaScript, so this borrows a parser when the host
 // has one and says so when it does not — a check that runs on CI and on any
 // developer machine with node, rather than no check at all.
 func TestTheConsoleScriptsParse(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("no node on PATH to parse the console's scripts with")
-	}
+	node := nodeForTheConsole(t)
 	entries, err := os.ReadDir(filepath.Join("ui"))
 	if err != nil {
 		t.Fatal(err)
@@ -346,10 +364,7 @@ func TestTheConsoleStylesheetDefinesEveryTokenItUses(t *testing.T) {
 // nothing on the page, and one that lets a JavaScript value through as a word.
 // Like TestTheConsoleScriptsParse it borrows node when the host has one.
 func TestEveryConsoleViewRenders(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("no node on PATH to run the console's views with")
-	}
+	node := nodeForTheConsole(t)
 	f := newFixture(t)
 	n := f.join("gpu-01")
 	f.place("gpu-01", "dep_one", 0)

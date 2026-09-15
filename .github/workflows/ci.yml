@@ -17,6 +17,14 @@ jobs:
         with:
           go-version: "1.27"
           cache: true
+      # The console's two JavaScript checks borrow a parser and a runtime:
+      # nothing in Go parses or executes app.js, so without node they skip and
+      # the screens go unchecked. The runner image happens to ship one, which
+      # is not a thing to depend on — internal/api/ui_test.go fails rather than
+      # skips when CI is set, so removing this step is loud.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - run: make check
 
   # R5-25. Does the tree build and pass under Go's FIPS 140-3 module, and does
