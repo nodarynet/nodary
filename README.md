@@ -98,6 +98,8 @@ every mutating call passes through the audit layer.
 - **Runs model servers as systemd units** against containerd, through declarative
   backend descriptors — vLLM, SGLang and llama.cpp today; adding
   another is a TOML file, not a code change. llama.cpp serves GGUF and runs where VRAM is short.
+  Which of them a node is offered follows the GPU it has: see
+  [which backend runs on which GPU](#which-backend-runs-on-which-gpu).
 - **Stages weights with verified transfers** — resumable, including a fully offline
   path for air-gapped sites.
 - **Issues, revokes and meters.** Every request is metered against the person who
@@ -142,6 +144,39 @@ install` reaches the same state ([ADR 0004](dev/adr/0004-release-artifacts-and-c
 Nodes run Linux. A Windows machine with an NVIDIA GPU joins **inside WSL2** as an
 ordinary Linux node ([01](dev/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)).
 macOS builds are the operator CLI only.
+
+### Which backend runs on which GPU
+
+Read this before you buy the card, not after. A node's GPU vendor is detected at
+enrollment, and `nodary model register` offers what that silicon can actually run
+rather than a list you have to check yourself.
+
+| Your GPU | Backends offered | Recommended |
+| :--- | :--- | :--- |
+| **NVIDIA** | SGLang, vLLM, llama.cpp | SGLang |
+| **AMD** — Radeon, Instinct, APU | llama.cpp on Vulkan | llama.cpp |
+| **Intel** — Arc, integrated | llama.cpp on Vulkan | llama.cpp |
+| Anything else exposing a DRM render node | llama.cpp on Vulkan | llama.cpp |
+
+**AMD and Intel are served through Vulkan, not ROCm or XPU, and that is a
+decision rather than a gap.** Both vendors do publish images for the other two
+backends, and nodary pins neither: there is no single "vLLM on AMD" image but a
+matrix of `rdna`, `cdna` and per-`gfx` builds, no "SGLang on AMD" image but
+Instinct-only `mi30x`/`mi35x` tags with no consumer Radeon build at all, and both
+come from publishers other than the projects that write the software — 10–33 GB
+each, against 0.1 GB for the Vulkan llama.cpp image that reaches the same cards.
+The reasoning is in [R6b](dev/plans/R6b-the-silicon-matrix.md).
+
+If you own the hardware that makes that trade the other way — an Instinct box
+where ROCm's throughput is the whole point — the route is a backend descriptor of
+your own, which is a TOML file naming an image you trust
+([04 §9](dev/specs/04-backends.md#9-registering-a-backend)). nodary will offer it
+on the silicon it declares. What nodary will not do is pin those images on your
+behalf and stand behind them.
+
+A backend placed on silicon it does not declare is **refused by name**, at the
+moment you register it, rather than discovered as a container that starts on the
+node and exits looking for CUDA.
 
 ## Editions
 

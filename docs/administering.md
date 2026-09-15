@@ -316,6 +316,63 @@ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct \
 
 `nodary node show <node-name>` follows the deployment from `starting` to `ready`.
 
+### Which backend runs on which GPU
+
+You did not pass `--backend` above, and that is the normal case: the node's GPU vendor is
+detected at enrollment and `model register` defaults to the backend that silicon can run,
+printing which one it chose and why.
+
+| Node's GPU | `--backend` accepted | Default |
+| :--- | :--- | :--- |
+| **NVIDIA** | `sglang`, `vllm`, `llama-cpp` | `sglang` |
+| **AMD** — Radeon, Instinct, APU | `llama-cpp` | `llama-cpp` |
+| **Intel** — Arc, integrated | `llama-cpp` | `llama-cpp` |
+
+```console
+$ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct --node fractal ...
+✔ backend            sglang (recommended for nvidia GPUs on fractal)
+```
+
+It is a default, not a restriction — `--backend vllm` on an NVIDIA node is an ordinary thing
+to do. What is refused is a backend the node cannot run at all:
+
+```console
+$ sudo nodary model register Qwen/Qwen2.5-0.5B-Instruct --node radeon-01 --backend vllm ...
+nodary model register: radeon-01 has amd GPUs and vllm runs on nvidia.
+  On this node: llama-cpp (recommended)
+```
+
+`nodary backend list` shows the same thing as a table, including any descriptor this site has
+registered itself:
+
+```console
+$ nodary backend list
+NAME         API      LAYOUT        SILICON           SOURCE            CAPABILITIES
+llama-cpp    openai   single-file   nvidia/amd/intel  built-in          cpu-offload quant:gguf
+sglang       openai   hf-cache      nvidia            built-in          tensor-parallel lora quant:awq/gptq/fp8
+vllm         openai   hf-cache      nvidia            built-in          tensor-parallel expert-parallel lora quant:awq/gptq/fp8
+```
+
+**AMD and Intel are reached through Vulkan rather than ROCm or XPU.** That is a decision, and
+[R6b](../dev/plans/R6b-the-silicon-matrix.md) is the reasoning: there is no single "vLLM on
+AMD" image but a matrix of per-architecture builds, no consumer-Radeon SGLang image at all,
+and both come from publishers other than the projects that write the software. The Vulkan
+llama.cpp image is 0.1 GB against 10–33 GB for the ROCm ones and reaches the same cards.
+
+If your site owns hardware that makes that trade the other way, register your own descriptor
+naming the image you trust ([04 §9](../dev/specs/04-backends.md#9-registering-a-backend)) and
+say which silicon it runs on:
+
+```toml
+[backend]
+name    = "sglang-rocm"
+silicon = ["amd"]
+image_default = "lmsysorg/sglang:v0.5.19-rocm700-mi30x"
+```
+
+nodary will offer it on AMD nodes. It will not be *recommended* — this build recommends only
+what it pins and tests — and nodary does not stand behind an image it did not choose.
+
 ### Provenance
 
 `--origin-org` and `--origin-country` declare where the weights came from, and `--license`

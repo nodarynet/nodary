@@ -1,8 +1,8 @@
 # R6b — Which backend runs on which silicon, and who gets offered what
 
 **Slice of:** [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) ·
-**Follows:** [R6a](R6a-a-second-gpu-vendor.md) · **Status:** scoped — NVIDIA is served
-natively, everything else is llama.cpp on Vulkan
+**Follows:** [R6a](R6a-a-second-gpu-vendor.md) · **Status:** built (R6-16 – R6-23) — NVIDIA is
+served natively, everything else is llama.cpp on Vulkan
 
 [R6a §8](R6a-a-second-gpu-vendor.md#8-what-this-slice-deliberately-does-not-do) ends by saying
 "the README should say which backends run on which silicon rather than leaving a reader to
