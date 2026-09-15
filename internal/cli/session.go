@@ -18,6 +18,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/core"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/secret"
@@ -341,7 +342,11 @@ func exitFor(err error) int {
 		errors.Is(err, backup.ErrExists),
 		// dev/specs/11-failure-modes.md §3: state moved between the preview
 		// and the apply, so what would be applied is not what was approved.
-		errors.Is(err, attest.ErrIntentChanged):
+		errors.Is(err, attest.ErrIntentChanged),
+		// A roll that would take the model's last replica down. A precondition
+		// the caller resolves — by passing --allow-downtime or adding a
+		// replica — rather than a failure.
+		errors.Is(err, fleet.ErrWouldDropTheModel):
 		return ExitPrecondition
 	case errors.Is(err, backup.ErrExposedDestination),
 		errors.Is(err, audit.ErrDeliveryBlocked),

@@ -195,3 +195,55 @@ func errCode(doc map[string]any) string {
 	code, _ := e["code"].(string)
 	return code
 }
+
+// R8-05's other half: a rolling restart that would take the model's last
+// replica down.
+//
+// **It reached a caller as a 500 with the message withheld.**
+// `fleet.ErrWouldDropTheModel` was in neither front end's error table, so the
+// one refusal that names the flag that resolves it — `--allow-downtime` —
+// arrived as "the server failed to handle this request". An operator over
+// `--server`, and the console, had no way to learn what to do. The third time
+// an unrecognized error has done this here; the first two are recorded against
+// R2-28.
+func TestARestartThatWouldDropTheModelSaysSo(t *testing.T) {
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	f.setPassword("alice", "correct horse battery staple")
+	cookie := f.loginCookie("alice", "correct horse battery staple")
+
+	// One replica, and it is serving. Restarting it is a gap.
+	if status, raw := n.call(t, f, http.MethodPost, "/agent/status", api.StatusReport{
+		Protocol: api.Protocol, AgentVersion: "0.0.0-test",
+		Inventory:   api.Inventory{Arch: "amd64", OS: "linux"},
+		Deployments: []api.StatusUnit{{ID: "dep_one", State: "ready", Health: "healthy"}},
+	}); status != http.StatusOK {
+		t.Fatalf("status: %d %s", status, raw)
+	}
+
+	justify := map[string]string{api.HeaderJustify: "the server is wedged and will not answer"}
+	status, doc := f.ceremonyStep(http.MethodPost,
+		"/models/acme%2Ftiny/restart?node=gpu-01&dry_run=true", cookie, justify)
+	if status == http.StatusInternalServerError {
+		t.Fatalf("the refusal came back as a 500 with the message withheld: %v", doc)
+	}
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %v", status, doc)
+	}
+	if code := errCode(doc); code != "would_drop_the_model" {
+		t.Errorf("code = %q, want would_drop_the_model", code)
+	}
+	// The message has to name the way out, because it is the only place an
+	// operator learns there is one.
+	if msg, _ := doc["error"].(map[string]any)["message"].(string); !strings.Contains(msg, "allow-downtime") {
+		t.Errorf("the refusal does not name the flag that accepts the gap: %q", msg)
+	}
+
+	// And with the gap accepted, it previews.
+	status, doc = f.ceremonyStep(http.MethodPost,
+		"/models/acme%2Ftiny/restart?node=gpu-01&allow_downtime=true&dry_run=true", cookie, justify)
+	if status != http.StatusOK {
+		t.Fatalf("with allow_downtime: %d %v", status, doc)
+	}
+}

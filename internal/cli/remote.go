@@ -438,7 +438,11 @@ func (e *remoteError) exit() int {
 	case "invalid_configuration":
 		return ExitFailure
 	case "conflict", "revision_changed", "intent_changed",
-		"idempotency_key_reused", "idempotency_key_in_flight":
+		"idempotency_key_reused", "idempotency_key_in_flight",
+		// 03 §7's roll refusing to take the last replica down. The same exit
+		// the local route gives it, because a caller resolves it the same way:
+		// pass --allow-downtime, or add a replica first.
+		"would_drop_the_model":
 		return ExitPrecondition
 	case "not_found", "internal":
 		return ExitFailure

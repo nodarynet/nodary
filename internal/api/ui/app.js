@@ -275,7 +275,8 @@ views.push({
       el("td", { class: "num" }, (d.gpus || []).join(", ") || "—"),
       el("td", {}, egress(d)),
       el("td", {}, (d.routes || []).join(", ") || el("span", { class: "dim" }, "no route")),
-      el("td", { class: "dim" }, since(d.updated_at))));
+      el("td", { class: "dim" }, since(d.updated_at)),
+      el("td", {}, restartButton(node, d))));
 
     show(
       el("h1", {}, node.name, " ", nodeState(node)),
@@ -302,7 +303,7 @@ views.push({
       nodeActions(node),
 
       el("h2", {}, "Deployments"),
-      table(["Deployment", "Model", "State", "GPUs", "Egress", "Routes", "Updated"],
+      table(["Deployment", "Model", "State", "GPUs", "Egress", "Routes", "Updated", ""],
         deployments, "Nothing is placed on this node."),
       topology(node));
   },
@@ -720,6 +721,24 @@ async function act(spec) {
         + "were reading. The preview below is the current one.");
       continue;
     }
+    // 409 would_drop_the_model: 03 §7 refuses a roll that takes the last
+    // replica down, and the refusal names the way out. Offered rather than
+    // hidden — and the cost is stated in the operator's own terms before they
+    // take it, which is R8-05.
+    if (done.code === "would_drop_the_model" && spec.allowDowntime) {
+      const accept = await modal(spec.title, [
+        el("p", { class: "problem" }, done.message),
+        el("p", { class: "note" },
+          "Accepting the gap restarts the only replica that is serving. Requests to this "
+          + "model are refused until it answers again, which for a large model is minutes."),
+      ], [
+        { value: "", label: "Cancel" },
+        { value: "go", label: "Accept the gap", kind: "danger" },
+      ]);
+      if (accept !== "go") return false;
+      spec = { ...spec, path: spec.allowDowntime, allowDowntime: null };
+      continue;
+    }
     // 409 revision_changed: another administrator applied a revision since this
     // screen read its object. A real conflict, surfaced rather than resolved by
     // silently overwriting them.
@@ -1086,3 +1105,23 @@ views.push({
       table(["Seq", "Applied", "By", "Why", ""], rows, "No revision has been applied."));
   },
 });
+
+
+/** restartButton is 03 §7's rolling restart, from the one screen that knows
+ *  which node a deployment is on — `?node=` is required for a restart, which is
+ *  inherently one machine's act.
+ *
+ *  `allowDowntime` carries the path to retry with rather than a flag, so the
+ *  decision to accept the gap is a different request and not a boolean this
+ *  page could set on its own.
+ */
+function restartButton(node, d) {
+  if (d.disabled) return el("span", { class: "dim" }, "disabled");
+  const at = "/models/" + encodeURIComponent(d.model_id) + "/restart?node="
+    + encodeURIComponent(node.name);
+  return button("Restart", {
+    title: `Restart ${d.model_id} on ${node.name}`,
+    path: at, verb: "Restart",
+    allowDowntime: at + "&allow_downtime=true",
+  });
+}

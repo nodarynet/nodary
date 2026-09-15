@@ -19,6 +19,7 @@ import (
 	"github.com/nodarynet/nodary/internal/attest"
 	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/policy"
 	"github.com/nodarynet/nodary/internal/replay"
@@ -76,6 +77,15 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, identity.ErrBadTransition),
 		errors.Is(err, backup.ErrExists):
 		return http.StatusConflict, "conflict"
+
+	// 03 §7's rolling restart, refusing to take the last replica down. Its own
+	// code because a client acts on it: the refusal names the flag that accepts
+	// the gap, and a console can offer it rather than making the operator find
+	// the CLI. It was in neither table, so it reached a caller as a 500 with
+	// the message withheld — the third time an unrecognized error has done that
+	// here, and the first two are recorded against R2-28.
+	case errors.Is(err, fleet.ErrWouldDropTheModel):
+		return http.StatusConflict, "would_drop_the_model"
 
 	// 09 §2: a mutation whose If-Match no longer holds. Its own code rather
 	// than the shared "conflict", because a client acts on it differently —
