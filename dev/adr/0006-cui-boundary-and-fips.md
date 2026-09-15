@@ -37,6 +37,47 @@ configured.
 There is no flag that turns content retention on. If it is ever needed it arrives as a
 separate, loudly-named capability, not as an option on the metering path.
 
+### Amended: a failed container's own output, and where the line actually falls
+
+Found while building [R2-29](../tasks/R2-control-plane.md), and recorded because §1 as written
+and [11 §2](../specs/11-failure-modes.md) contradicted each other. 11 §2 asks the agent to
+capture a failed deployment's last hundred log lines; the unit's `ExecStart` is `nerdctl run`,
+so that journal is the **container's** stdout, and nothing in nodary constrains what a backend
+prints into it. Those lines were going to `deployment.last_error` *and*, verbatim, into the
+`node.deployment_failed` event — which is a record in the append-only chain that
+[13 §3](../specs/13-evidence.md) exports to an assessor.
+
+**The line is not "no bytes from a container", it is "nothing nodary cannot retract".** §1's
+subject is what nodary *records about a request*: the metering schema is closed and has no
+field to write a body into, and that is unchanged. A crashed server's own output is not nodary
+recording a request — it is the evidence an operator needs to fix the thing, and removing it
+would leave them with the sentence nodary wrote and nothing the container said.
+
+So the two sinks are treated differently, and the difference is what is reversible:
+
+| | `deployment.last_error` | the audit chain |
+| :--- | :--- | :--- |
+| Holds the log | yes — 11 §2's hundred lines, bounded to 2048 bytes | **no** — the reason, and `captured_log_bytes` |
+| Overwritten | by the next failure on that deployment | never; append-only by construction |
+| Leaves the boundary | no | yes, in the evidence bundle |
+
+`captured_log_bytes` is there so the fact survives when the content does not: an assessor
+reading the chain can see a log was captured and how much of one, and
+`GET /deployments/{id}/logs` is where it is.
+
+**What this does not claim.** A backend could still be *told* to log prompts — by a deployment's
+`env`, which is an unconstrained string map — and a server that dies mid-request may print that
+request in a traceback whatever its settings say. Neither is closed by a flag, and a denylist of
+environment variables would need every variable four upstreams read at every version they are
+pinned to, which is advice rather than a control and would read as a guarantee. What is closed is
+the irreversible path, and it is closed structurally: `noteChange` is not given the log to carry,
+and a test plants a canary in the journal and searches every byte of the emitted event
+([R4-45](../tasks/R4-agent.md)).
+
+All four backends this build pins print no prompt text at their defaults, read from the version
+each digest is a build of rather than recalled — which is why this is a boundary worth stating
+rather than an incident.
+
 ### 2. The FIPS artifact ships in `fips140=on`, and `fips140=only` is a named target
 
 A `GOFIPS140=v1.0.0` build ships through the four existing channels

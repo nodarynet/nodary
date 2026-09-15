@@ -26,7 +26,6 @@ Security Plan by mistake.
 | A UI of any kind | [R7](tasks/R7-ui-readonly.md), [R8](tasks/R8-ui-mutating.md) |
 | OIDC. [07 §1](specs/07-identity-audit.md) makes local accounts the initial mechanism deliberately rather than by omission | — |
 | SSP narratives — parameterized text per practice, filled with this install's values | [R9-11/20](tasks/R9-evidence-remediation.md) |
-| The control that would keep a backend's own logging out of the audit chain. A deployment's last hundred log lines are captured on failure ([11 §2](specs/11-failure-modes.md)) and reach both the database and the chain, and nothing constrains what the container printed into them | [R4-45](tasks/R4-agent.md) |
 | npm's `latest` tag still resolves to the release candidate, and only publishing `0.0.1` moves it | [R5-24](tasks/R5-install.md) |
 
 ## Built, and not yet proved on hardware
@@ -41,7 +40,7 @@ different claim from either "done" or "not built".
 | A node upgrading itself from the control plane's mirror against a signature it verifies | a real fleet. The fetch, verify, place, flip and restart sequence is exercised by [`hack/test-selfupgrade.sh`](../hack/test-selfupgrade.sh) against a throwaway key, not by a node in the field |
 | TensorRT-LLM's stage → prepare → serve lifecycle | an engine build on a real GPU |
 
-## Two claims worth stating precisely
+## Three claims worth stating precisely
 
 **FIPS.** Every channel ships a binary built against Go's validated FIPS 140-3
 cryptographic module. **nodary itself is not a validated product and will not
@@ -58,6 +57,19 @@ What still needs root on a host is what is *about* that host: `server install`,
 rather than a gap, and a verb that has not been converted refuses `--server`
 rather than quietly acting locally.
 
+**Request content.** nodary records that a request happened and never what it said: the
+metering schema has no field to write a body into, and a canary driven through the gateway
+is searched for in every byte of the database, its write-ahead log and the gateway's log.
+The one place a container's own bytes are kept is a failed deployment's last hundred journal
+lines, which [11 §2](specs/11-failure-modes.md) asks for and an operator needs — bounded to
+2048 bytes, overwritten by that deployment's next failure, and **deliberately not carried
+into the audit chain**, which is append-only and leaves the boundary in the evidence bundle.
+The chain records that a log was captured and how large it was, not what was in it.
+What that does not claim: a deployment's `env` could still tell a backend to log prompts,
+and a server that dies mid-request may print it in a traceback. Neither is closed by a flag,
+and all four pinned backends print no prompt text at their defaults.
+[ADR 0006](adr/0006-cui-boundary-and-fips.md)
+
 ## Milestones
 
 | | | |
@@ -66,7 +78,7 @@ rather than quietly acting locally.
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
 | **R2** Control plane | 44 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register`, a derived image built over HTTP, and a failed deployment's captured log served by its own id |
 | **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
-| **R4** Agent | 44 of 45 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer |
+| **R4** Agent | 45 of 45 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer, and a failed container's own output kept where an operator reads it and out of the chain that leaves the boundary |
 | **R5** Install | 32 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, the offline bundle an air-gapped site installs from, an unsupported platform refused by name in every channel, a separately signed component manifest a site can take a fix from without waiting for a release, a shipped binary built against Go's validated FIPS 140-3 module, and nodes that upgrade themselves from the control plane's mirror against a signature they verify without trusting it |
 | **R6** Backends | 17 of 17 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it, the `api` dialect governing what may join a route, the stage → prepare → serve lifecycle for backends that compile an engine before they can answer, TensorRT-LLM, and derived images — a base image corrected for this site, built on the control plane behind an egress allowlist, recorded with the digest it produced, required to be reproducible under a regulated profile, and served to the nodes that run it; an image resolved for the platform and GPU vendor of the node it is placed on rather than of the control plane it was typed at, and a device argument rendered for that vendor — CDI and `--gpus` on NVIDIA, a `/dev/dri` render node the kernel named on everything else |
 | **R9** Evidence | 18 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check`, the offline route a site with no network receives revisions by, the decision clock that makes an undecided advisory a POA&M item, and the decision itself as an audited act |
