@@ -1,7 +1,7 @@
 # R6a — A second GPU vendor: llama.cpp on Vulkan
 
 **Slice of:** [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) ·
-**Tasks:** R4-41, R4-42, R6-13, R6-14 · **Status:** all four built; the pin and real AMD hardware remain
+**Tasks:** R4-41, R4-42, R6-13, R6-14 · **Status:** all four built and the image pinned; real AMD hardware remains
 
 llama.cpp is embedded and serves GGUF on CUDA ([R6-02](../tasks/R6-backends.md), `61946b4`).
 The project publishes the same server built against Vulkan, which is the practical route to
@@ -169,7 +169,7 @@ one before it, which is why this is one slice and not four.
       vendor; `model register` resolves against the node's rather than the control plane's
 - [x] **R6-14** `gpuFlag` renders per vendor; `[backend.gpu] mechanism` is **deleted** from the
       descriptor schema, being a field nothing has ever read
-- [ ] Pin `server-vulkan` beside `server-cuda` for `llama-cpp`, and only then
+- [x] Pin `server-vulkan` beside `server-cuda` for `llama-cpp`, and only then
 - [ ] Verify on real AMD hardware: enroll, approve, register a GGUF, serve a token, and run
       `nodary node verify-egress` — the isolation assertion has never run on a non-NVIDIA node
 

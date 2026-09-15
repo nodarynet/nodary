@@ -9,11 +9,17 @@
 # The image is `server-cuda` from ghcr.io/ggml-org/llama.cpp, the project's own
 # publication, pinned by digest in components.json like every other. The same
 # repository publishes `server-vulkan`, `server-intel` and a CPU-only `server`,
-# which is the route to hosts that are not NVIDIA. The seam those need is now
-# built -- preflight, enumeration and the device flag all ask the vendor that
-# answered (R4-41, R4-42, R6-14), and an artifact may pin a per-vendor image
-# (R6-13) -- and what remains is the pin itself and a run on real AMD hardware,
-# so this descriptor still names the one the fleet has been proved against.
+# which is the route to hosts that are not NVIDIA. That route is built:
+# preflight, enumeration and the device flag all ask the vendor that answered
+# (R4-41, R4-42, R6-14), an artifact may pin a per-vendor image (R6-13), and
+# components.json pins `server-vulkan-b4738` for `amd` beside this one. A node
+# whose cards are AMD resolves that image and is handed a /dev/dri render node
+# instead of a CDI device; nothing about this descriptor changes. `server-intel`
+# and the CPU-only `server` are not pinned -- an Intel node enumerates and then
+# finds no image, which is the honest refusal rather than a gap.
+#
+# **None of the AMD path has run on an AMD card.** The development fleet is
+# WSL2, where /sys/class/drm holds no cards at all.
 [backend]
 name           = "llama-cpp"
 api            = "openai"

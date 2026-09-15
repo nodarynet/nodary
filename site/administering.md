@@ -373,10 +373,12 @@ which no other backend here does.
 !!! note "The image is NVIDIA's build"
     The pinned image is `server-cuda` from the project's own publication at
     `ghcr.io/ggml-org/llama.cpp`. That repository also ships `server-vulkan`, `server-intel`
-    and a CPU-only `server`, which are the route to hosts that are not NVIDIA. The seam they
-    need is built: preflight, GPU enumeration and the device flag each ask the vendor that
-    answered, and a manifest artifact may pin a per-vendor image. What is not done is the pin
-    itself and a run on real AMD hardware, so no non-NVIDIA image is pinned in this release.
+    and a CPU-only `server`, which are the route to hosts that are not NVIDIA. That route is
+    built: preflight, GPU enumeration and the device flag each ask the vendor that answered,
+    and `server-vulkan` is pinned for `amd` beside the CUDA build — a node with AMD cards
+    resolves it and is handed a `/dev/dri` render node rather than a CDI device. `server-intel`
+    and the CPU-only `server` are not pinned. **None of it has run on an AMD card yet**, so
+    treat the AMD path as built and unproven.
 
 ## Changing what is deployed
 
