@@ -26,7 +26,7 @@ Security Plan by mistake.
 | A UI of any kind | [R7](tasks/R7-ui-readonly.md), [R8](tasks/R8-ui-mutating.md) |
 | OIDC. [07 §1](specs/07-identity-audit.md) makes local accounts the initial mechanism deliberately rather than by omission | — |
 | SSP narratives — parameterized text per practice, filled with this install's values | [R9-11/20](tasks/R9-evidence-remediation.md) |
-| The HTTP surface for backends, derived images and deployment listing. The CLI verbs are built and audited; the API does not carry them yet | [R2-03/27/29](tasks/R2-control-plane.md) |
+| Creating, deleting and building a backend over HTTP — the CLI verbs are built and audited and the API carries only the reads — and a deployment's container logs, which no front end offers at all | [R2-27/29](tasks/R2-control-plane.md) |
 | npm's `latest` tag still resolves to the release candidate, and only publishing `0.0.1` moves it | [R5-24](tasks/R5-install.md) |
 
 ## Built, and not yet proved on hardware
@@ -63,7 +63,7 @@ rather than quietly acting locally.
 | :--- | :--- | :--- |
 | **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
 | **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
-| **R2** Control plane | 41 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R2** Control plane | 42 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
 | **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
 | **R4** Agent | 44 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer |
 | **R5** Install | 32 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, the offline bundle an air-gapped site installs from, an unsupported platform refused by name in every channel, a separately signed component manifest a site can take a fix from without waiting for a release, a shipped binary built against Go's validated FIPS 140-3 module, and nodes that upgrade themselves from the control plane's mirror against a signature they verify without trusting it |
