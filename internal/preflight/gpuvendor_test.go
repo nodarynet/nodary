@@ -167,3 +167,24 @@ func TestAMixedHostStillNeedsTheToolkit(t *testing.T) {
 		t.Errorf("the toolkit was skipped on a host whose NVIDIA driver answers: %s", got.Detail)
 	}
 }
+
+// **A check called with a zero Options must not panic.** setDefaults runs
+// inside Run, so every check test arrives with a nil runner — and the moment a
+// check that never shelled out starts to, that becomes a nil dereference.
+//
+// Written without a t.Skip on purpose. The test that would otherwise have
+// caught this skips itself on any host with nvidia-ctk installed, which is
+// every developer machine with an NVIDIA GPU, so `make check` passed and CI
+// panicked. This one runs everywhere.
+func TestACheckCalledDirectlyDoesNotNeedARunner(t *testing.T) {
+	ctx := context.Background()
+	for _, role := range []Role{RoleNode, RoleServer} {
+		// The return value is the host's business; not panicking is this
+		// test's.
+		_ = checkContainerToolkit(ctx, Options{Role: role})
+		_ = checkDriver(ctx, Options{Role: role})
+		_ = checkGPUs(ctx, Options{Role: role})
+		_ = checkRAMPerGPU(ctx, Options{Role: role})
+		_ = checkFreeVRAM(ctx, Options{Role: role})
+	}
+}

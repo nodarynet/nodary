@@ -66,7 +66,7 @@ func checkWSLPassthrough(ctx context.Context, o Options, h hostFS) Check {
 	// Which copy wins. A check for the WSL library's mere presence would pass
 	// on exactly the broken host this exists to catch, because installing a
 	// distribution driver does not remove it — it gets in front of it.
-	out, err := o.run(ctx, "ldconfig", "-p")
+	out, err := o.exec(ctx, "ldconfig", "-p")
 	if err != nil {
 		// A check that cannot run is not a check that passed (R5-01).
 		c.Level, c.Detail = LevelSkip, "ldconfig is not usable, so the loader order is unknown: "+err.Error()

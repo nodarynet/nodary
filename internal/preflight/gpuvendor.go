@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -102,8 +103,34 @@ func sysfsField(dir, name string) string {
 // rather than cached: preflight runs a handful of times, and a cached "no"
 // would outlive a driver an operator installed while reading the output.
 func nvidiaAnswers(ctx context.Context, o Options) bool {
-	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index", "--format=csv,noheader")
+	// **Defaulted here rather than assumed.** setDefaults runs inside Run, so a
+	// check called directly — which every check test does — arrives with a nil
+	// runner. checkContainerToolkit shelled out to nothing before this change
+	// and so never noticed; adding the question turned a zero Options into a
+	// nil dereference, which CI found and `make check` on a host with
+	// nvidia-ctk installed did not, because the test that would have caught it
+	// skips itself there.
+	out, err := o.exec(ctx, "nvidia-smi", "--query-gpu=index", "--format=csv,noheader")
 	return err == nil && len(nonEmptyLines(string(out))) > 0
+}
+
+// exec runs a command, defaulting the runner.
+//
+// **setDefaults runs inside Run**, so a check invoked directly — which every
+// check test does — arrives with a nil `run` and dereferences it. That was true
+// of checkDriver and its neighbours long before R4-42; the only reason it never
+// showed is that nothing called them outside Run until a test did.
+func (o Options) exec(ctx context.Context, name string, args ...string) ([]byte, error) {
+	run := o.run
+	if run == nil {
+		run = execRun
+	}
+	return run(ctx, name, args...)
+}
+
+// execRun is the real runner, and the default for an Options that names none.
+func execRun(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, Resolve(name), args...).Output()
 }
 
 // otherVendor is the vendor of the cards this host has that NVIDIA's driver

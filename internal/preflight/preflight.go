@@ -129,9 +129,7 @@ func (o *Options) setDefaults() {
 		o.Now = time.Now
 	}
 	if o.run == nil {
-		o.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-			return exec.CommandContext(ctx, Resolve(name), args...).Output()
-		}
+		o.run = execRun
 	}
 	if o.MinModelsGB == 0 {
 		o.MinModelsGB = defaultMinModelsGB
@@ -218,7 +216,7 @@ func checkPlatform() Check {
 
 func checkSystemd(ctx context.Context, o Options) Check {
 	c := Check{Name: "systemd"}
-	out, err := o.run(ctx, "systemctl", "--version")
+	out, err := o.exec(ctx, "systemctl", "--version")
 	if err != nil {
 		c.Level = LevelFail
 		c.Detail = "systemctl is not usable: " + err.Error()
@@ -291,7 +289,7 @@ func checkDriver(ctx context.Context, o Options) Check {
 		c.Level, c.Detail = LevelSkip, "not required for a control plane"
 		return c
 	}
-	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader")
+	out, err := o.exec(ctx, "nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader")
 	if err != nil {
 		// A host whose GPUs are somebody else's is not a host with a broken
 		// NVIDIA driver, and this check is a hard failure for a node (R4-42).
@@ -329,7 +327,7 @@ func checkGPUs(ctx context.Context, o Options) Check {
 		c.Level, c.Detail = LevelSkip, "not required for a control plane"
 		return c
 	}
-	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader")
+	out, err := o.exec(ctx, "nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader")
 	if err != nil {
 		// Reported rather than skipped: this check answers "does this host
 		// have GPUs at all", and cards the kernel can see are an answer to
@@ -459,7 +457,7 @@ func checkSwap() Check {
 // not start is otherwise a long afternoon.
 func checkLSM(ctx context.Context, o Options) Check {
 	c := Check{Name: "lsm"}
-	if out, err := o.run(ctx, "getenforce"); err == nil {
+	if out, err := o.exec(ctx, "getenforce"); err == nil {
 		if strings.EqualFold(firstLine(string(out)), "Enforcing") {
 			c.Level = LevelWarn
 			c.Detail = "SELinux is enforcing; containerd and the isolated network may need policy"
@@ -488,7 +486,7 @@ func checkRAMPerGPU(ctx context.Context, o Options) Check {
 		c.Level, c.Detail = LevelSkip, "not required for a control plane"
 		return c
 	}
-	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+	out, err := o.exec(ctx, "nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
 	if err != nil {
 		if v := otherVendor(); v != "" {
 			notNVIDIA(&c, v, "nvidia-smi's memory query")
@@ -810,7 +808,7 @@ func checkFreeVRAM(ctx context.Context, o Options) Check {
 		c.Level, c.Detail = LevelSkip, "not required for a control plane"
 		return c
 	}
-	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index,memory.free,memory.total",
+	out, err := o.exec(ctx, "nvidia-smi", "--query-gpu=index,memory.free,memory.total",
 		"--format=csv,noheader,nounits")
 	if err != nil {
 		// Already a skip, so the change here is only that it says which of the
