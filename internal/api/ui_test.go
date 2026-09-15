@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -394,7 +395,11 @@ func TestEveryConsoleViewRenders(t *testing.T) {
 	// `logs` a captured tail to show.
 	if status, raw := n.call(t, f, http.MethodPost, "/agent/status", api.StatusReport{
 		Protocol: api.Protocol, AgentVersion: "0.0.0-test",
-		Inventory:   api.Inventory{Arch: "amd64", OS: "linux"},
+		// A card the driver found, so the fleet table has a count to put a vendor
+		// beside. The vendor itself is read from the *offer*, which is the
+		// authority on it everywhere else in the tree.
+		Inventory: api.Inventory{Arch: "amd64", OS: "linux",
+			GPUs: json.RawMessage(`[{"index":0,"name":"card","memory_mib":8192}]`)},
 		Deployments: []api.StatusUnit{{ID: "dep_one", State: "failed", Health: "unknown", Error: "boom"}},
 	}); status != http.StatusOK {
 		t.Fatalf("status: %d %s", status, raw)
@@ -424,6 +429,26 @@ func TestEveryConsoleViewRenders(t *testing.T) {
 	if err != nil {
 		t.Errorf("a console view did not render: %v\n%s", err, out)
 	}
+
+	// R6-17 put a vendor on every card, and the console shows a count. A node's
+	// silicon decides which backends may be placed on it — sglang and vLLM are
+	// CUDA-only — so a screen that says "1" and not which kind of 1 cannot
+	// answer the question an operator opened it to ask.
+	for _, route := range []string{"fleet", "node"} {
+		if !strings.Contains(textOf(string(out), route), "nvidia") {
+			t.Errorf("the %s screen does not say what silicon the node has:\n%s", route, out)
+		}
+	}
+}
+
+// textOf pulls one screen's rendered text out of the harness's output.
+func textOf(out, route string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(line, "text   "+route+": "); ok {
+			return rest
+		}
+	}
+	return ""
 }
 
 // The brand files exist twice, and the copies have to stay the same drawing.

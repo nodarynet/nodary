@@ -210,6 +210,11 @@ closes. · [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugin
   - *found:* **a test was holding the defect in place.** `TestOneParameterSetTranslatesThroughEachDescriptor` asserted that sglang *drops* `gpu_memory_fraction`, reasoning that guessing a flag is worse than dropping one. The reasoning is right and the premise was wrong: SGLang has `--mem-fraction-static`. A gap in a descriptor had been written down as a rule
   - *found:* **nothing tested the CLI against the node.** `model register` wrote a document, the applier accepted it, and no test asked whether the node would run it. `internal/cli/backendseam_test.go` now does, for every built-in, and it catches all three of R6-20 to R6-22
 
+- [x] **R6-23** The console names a node's silicon, not just a count of cards · [R7-02](R7-console.md)
+  - the fleet table said `2` and the node page said `linux/amd64`. Which vendor those cards are is what decides which backends may be placed there ([R6-17](#)), so a screen that shows a count cannot answer the question an operator opened it to ask
+  - *done:* one `silicon()` helper, read from the **offer** — the authority on the vendor everywhere else in the tree — with an absent vendor meaning nvidia, the same default the manifest and the agent take
+  - *done:* `internal/api/testdata/render.mjs` now prints each screen's rendered text, so a test can assert that a fact reached the page rather than only that the page was not blank
+
 - [ ] **R6-19** The matrix is published — which backend runs on which silicon, in `README.md` and `docs/administering.md` · [R6a §8](../plans/R6a-a-second-gpu-vendor.md#8-what-this-slice-deliberately-does-not-do), [R6b §3](../plans/R6b-the-silicon-matrix.md)
   - this is [R6a §8](../plans/R6a-a-second-gpu-vendor.md)'s actual request — "the README should say which backends run on which silicon rather than leaving a reader to assume the matrix is full"
   - it is the part a buyer reads **before** they buy the card, which is the only moment the information is worth anything

@@ -294,9 +294,27 @@ function gpus(node) {
   const present = (node.gpus || []).length;
   const offered = (node.offer && node.offer.gpus ? node.offer.gpus : []).length;
   if (!present) return el("span", { class: "dim" }, "none");
-  if (offered === present) return el("span", {}, String(present));
-  return el("span", {}, `${offered} of ${present} `,
-    el("span", { class: "dim" }, "offered"));
+  const count = offered === present
+    ? el("span", {}, String(present))
+    : el("span", {}, `${offered} of ${present} `, el("span", { class: "dim" }, "offered"));
+  return el("span", {}, count, " ", el("span", { class: "dim" }, silicon(node)));
+}
+
+/** silicon is the GPU vendor a node's cards are.
+ *
+ * It decides which backends may be placed here — sglang and vLLM are CUDA-only
+ * and llama.cpp reaches everything through Vulkan — so a console that shows a
+ * count and not a vendor cannot answer the question an operator is on this
+ * screen to ask, which is where a model can go.
+ *
+ * An absent vendor is nvidia, the same default the offer, the manifest and the
+ * agent all take: every image nodary pins is a CUDA build, and a vendor names
+ * what differs from that.
+ */
+function silicon(node) {
+  const cards = (node.offer && node.offer.gpus) || [];
+  if (!cards.length) return "";
+  return [...new Set(cards.map((g) => g.vendor || "nvidia"))].sort().join(" + ");
 }
 
 /** rebootPolicy is displayed prominently because R7-02 asks for it: a node
@@ -425,6 +443,7 @@ views.push({
       el("h1", {}, node.name, " ", nodeState(node)),
       el("p", { class: "note" },
         `${node.os}/${node.arch}`,
+        silicon(node) ? ` · ${silicon(node)}` : "",
         node.driver_version ? ` · driver ${node.driver_version}` : "",
         node.agent_version ? ` · agent ${node.agent_version}` : "",
         ` · seen ${since(node.last_seen)} · `,

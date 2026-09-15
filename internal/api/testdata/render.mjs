@@ -103,6 +103,10 @@ for (const screen of context.__views) {
       }
     }
     console.log(`ok     ${screen.route}`);
+    // The text itself, so a caller can assert that a fact reached the page
+    // rather than only that the page was not blank. Bounded, because a screen
+    // with a hundred rows is not a useful thing to print.
+    console.log(`text   ${screen.route}: ${text.slice(0, 600)}`);
   } catch (err) {
     console.log(`THREW  ${screen.route}: ${(err && err.stack) || err}`);
     failed++;
