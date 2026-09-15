@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/agent"
+	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/install"
 )
@@ -206,6 +207,19 @@ func (w *wizard) model(node string) int {
 		return ExitOK
 	}
 
+	// **The card, then what runs on it, then what to put on disk.** The GPU
+	// index used to be asked after the weights had already been downloaded,
+	// which was harmless while every node was NVIDIA and every backend read a
+	// HuggingFace cache. It is not harmless now: which backend this node can
+	// run follows the vendor of the assigned card (R6-17), and which *shape*
+	// the weights have to be in follows the backend. Downloading first meant
+	// choosing the layout before knowing the backend that reads it.
+	gpu := w.string("GPU index", "0")
+	backendName, layout, ok := w.backend(node, gpu)
+	if !ok {
+		return ExitFailure
+	}
+
 	// Every path into model() ends in this wizard's own machine being the
 	// node: afterEnroll only runs after --with-node or a `node install` that
 	// is itself joining, and a control-plane-only install returns before
@@ -216,27 +230,50 @@ func (w *wizard) model(node string) int {
 	dir := orElse(w.modelsDir, agent.DefaultModelsDir())
 	source := "local"
 	manifest := ""
-	switch w.choice("Weights for "+repo, []string{
-		"Download and stage them now (recommended)",
-		"Already staged under the models directory on this node",
-		"I already have a manifest (from stage-model.sh, run elsewhere)",
-	}) {
-	case 0:
-		if !w.fetchWeights(repo, dir) {
-			return ExitFailure
+	staged := "Already staged under the models directory on this node"
+	fromManifest := "I already have a manifest (from stage-model.sh, run elsewhere)"
+
+	// **A single-file backend is not offered a download, because there is not
+	// one to offer.** scripts/stage-model.sh fetches a repository's flat files
+	// and prefers safetensors; a GGUF repository publishes several quantizations
+	// side by side, and llama.cpp's layout is one file. Offering "download and
+	// stage them now" here would fetch the wrong shape and be refused by
+	// `model register` a minute later, with the operator having done nothing
+	// wrong. Naming the one file they must place is the honest prompt.
+	if layout == "single-file" {
+		fmt.Fprintf(w.e.stdout,
+			"  %s reads a %s layout — one weights file, not a directory of tensors.\n"+
+				"  Place it in %s/%s before continuing; the downloader fetches whole\n"+
+				"  repositories and cannot choose which quantization you want.\n",
+			backendName, layout, dir, strings.ReplaceAll(repo, "/", "--"))
+		if w.choice("Weights for "+repo, []string{staged, fromManifest}) == 1 {
+			source = "remote"
+			if manifest = w.string("Manifest path (nodary-manifest.sha256)", ""); manifest == "" {
+				fmt.Fprintln(w.e.stderr, "nodary install: a manifest path is required for a remote download")
+				return ExitUsage
+			}
 		}
-	case 2:
-		source = "remote"
-		manifest = w.string("Manifest path (nodary-manifest.sha256, from stage-model.sh)", "")
-		if manifest == "" {
-			fmt.Fprintln(w.e.stderr, "nodary install: a manifest path is required for a remote download")
-			return ExitUsage
+	} else {
+		switch w.choice("Weights for "+repo, []string{
+			"Download and stage them now (recommended)", staged, fromManifest,
+		}) {
+		case 0:
+			if !w.fetchWeights(repo, dir) {
+				return ExitFailure
+			}
+		case 2:
+			source = "remote"
+			manifest = w.string("Manifest path (nodary-manifest.sha256, from stage-model.sh)", "")
+			if manifest == "" {
+				fmt.Fprintln(w.e.stderr, "nodary install: a manifest path is required for a remote download")
+				return ExitUsage
+			}
 		}
 	}
 
-	gpu := w.string("GPU index", "0")
 	port := w.string("Port", "8001")
 	args := w.dbArgs([]string{repo, "--node", node, "--gpu", gpu, "--port", port,
+		"--backend", backendName,
 		"--yes", "--justify", "registered during interactive install"})
 	if source == "remote" {
 		args = append(args, "--source", "remote", "--manifest", manifest)
@@ -277,6 +314,80 @@ func (w *wizard) model(node string) int {
 		return cmdTokenCreate(w.e, tokenArgs)
 	}
 	return ExitOK
+}
+
+// backend asks which backend to serve with, offering what this node's cards can
+// actually run — R6-18.
+//
+// **backend.Offer and not a list written here**, which is the whole of the
+// task: two places that decide which backends are legal will disagree, and the
+// wizard is where a first-time operator meets the question. It returns the
+// weights layout alongside, because the next question is what to put on disk
+// and only the descriptor knows what shape that is.
+//
+// No --server: every path into the wizard's model step ends in this machine
+// being both the control plane and the node.
+func (w *wizard) backend(node, gpu string) (string, string, bool) {
+	indices, ok := parseGPUList(w.e, gpu)
+	if !ok {
+		return "", "", false
+	}
+	_, vendor, ok := nodeTarget(w.e, nil, w.db, node, indices)
+	if !ok {
+		return "", "", false
+	}
+	reports, ok := backendReports(w.e, "install", nil, w.db)
+	if !ok {
+		return "", "", false
+	}
+	offer, recommend := backend.Offer(reports, vendor)
+	if len(offer) == 0 {
+		fmt.Fprintf(w.e.stderr, "nodary install: no backend this build has runs on %s GPUs\n",
+			orElse(vendor, "this node's"))
+		return "", "", false
+	}
+
+	name := offer[0]
+	switch {
+	case len(offer) == 1:
+		// A question with one answer is not a question. Saying which one and
+		// why is worth more than a prompt that can only be answered one way.
+		where := "on this node"
+		if vendor != "" {
+			where = "on " + vendor + " GPUs"
+		}
+		fmt.Fprintf(w.e.stdout, "Backend: %s — the only one this build runs %s\n", name, where)
+	default:
+		// The recommendation first: choice() takes the first option on a blank
+		// answer, so the order *is* the default.
+		options := []string{recommend}
+		for _, n := range offer {
+			if n != recommend {
+				options = append(options, n)
+			}
+		}
+		if recommend == "" {
+			options = offer
+		}
+		labels := make([]string, len(options))
+		for i, n := range options {
+			labels[i] = n
+			if n == recommend {
+				labels[i] = n + " (recommended)"
+			}
+		}
+		question := "Backend"
+		if vendor != "" {
+			question += " for " + vendor + " GPUs"
+		}
+		name = options[w.choice(question, labels)]
+	}
+
+	layout, ok := weightsLayoutFor(w.e, nil, w.db, name)
+	if !ok {
+		return "", "", false
+	}
+	return name, layout, true
 }
 
 // pendingNode is the one node an install just enrolled.

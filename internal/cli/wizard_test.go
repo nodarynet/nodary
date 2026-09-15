@@ -98,8 +98,9 @@ func TestWizardWalksApproveStageRegisterGrantAndKey(t *testing.T) {
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
+		"0",         // gpu — asked before the backend, which follows the card's vendor
+		"",          // backend: the recommendation for this node's silicon
 		"2",         // weights: already staged under the models directory
-		"0",         // gpu
 		"8001",      // port
 		"y",         // create a user?
 		"alice",     // name
@@ -168,9 +169,10 @@ func TestWizardDownloadsAndStagesNow(t *testing.T) {
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
+		"0",         // gpu
+		"",          // backend: the recommendation
 		"",          // weights: download and stage them now (the default)
 		"hf_secret", // HuggingFace token
-		"0",         // gpu
 		"8001",      // port
 		"n",         // create a user?
 	}, "\n") + "\n"
@@ -245,9 +247,10 @@ func TestWizardOffersARemoteDownloadInsteadOfAlreadyStagedWeights(t *testing.T) 
 		"y",         // approve fractal now?
 		"y",         // stage and register a model now?
 		"acme/tiny", // model
+		"0",         // gpu
+		"",          // backend: the recommendation
 		"3",         // weights: I already have a manifest
 		manifest,    // manifest path
-		"0",         // gpu
 		"8001",      // port
 		"n",         // create a user?
 		"n",         // mint a service key? (unreached if no user, but harmless)
@@ -340,5 +343,68 @@ func TestInstallControlPlaneOnlyDoesNotTryToEnroll(t *testing.T) {
 	}
 	if strings.Contains(stderr, "Approve") {
 		t.Errorf("tried to approve a node that was never enrolled:\n%s", stderr)
+	}
+}
+
+// R6-18: the wizard offers what the node being installed can actually run.
+//
+// The install wizard is where a first-time operator meets the question, and it
+// used to not ask it at all — it took `model register`'s default, which was the
+// literal string "vllm" for every node in the fleet. On an AMD node that is a
+// backend with no image, and the operator would have met the refusal after the
+// download rather than before it.
+func TestTheWizardOffersOnlyWhatAnAMDNodeCanRun(t *testing.T) {
+	a := newAppliance(t)
+	a.enrolledAs("fractal", "linux", "amd64", offerOf("amd"))
+
+	// A GGUF on the shelf, in llama.cpp's flat single-file directory.
+	models := t.TempDir()
+	dir := filepath.Join(models, "acme--tiny")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tiny-q4_k_m.gguf"), []byte("GGUF, allegedly"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script := strings.Join([]string{
+		"acme/tiny", // model
+		"0",         // gpu
+		// No backend prompt: llama-cpp is the only one that runs on amd, and a
+		// question with one answer is not a question.
+		"1",    // weights: already staged
+		"8001", // port
+		"n",    // create a user?
+	}, "\n") + "\n"
+
+	e, out, errOut := wizardEnv(script)
+	w := &wizard{e: e, db: a.db, key: a.key, modelsDir: models}
+	if code := w.model("fractal"); code != ExitOK {
+		t.Fatalf("model: exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
+	}
+
+	stdout := out.String()
+	if !strings.Contains(stdout, "llama-cpp") || !strings.Contains(stdout, "amd") {
+		t.Errorf("the wizard does not say which backend it chose or why:\n%s", stdout)
+	}
+	// **The download is not offered, and that is the point.** stage-model.sh
+	// fetches a repository's flat files and prefers safetensors; llama.cpp's
+	// layout is one GGUF. Offering it here would download the wrong shape and
+	// be refused by `model register` a minute later.
+	if strings.Contains(stdout, "Download and stage them now") {
+		t.Errorf("a single-file backend was offered a repository download:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "single-file") || !strings.Contains(stdout, "acme--tiny") {
+		t.Errorf("the one file to place, and where, is not named:\n%s", stdout)
+	}
+
+	_, cfg, _ := a.run("config", "show", "--format", "json")
+	if !strings.Contains(cfg, `"backend": "llama-cpp"`) {
+		t.Errorf("the deployment did not get llama-cpp:\n%s", cfg)
+	}
+	// And the Vulkan image, not the CUDA one: the whole chain from the node's
+	// offer through the backend to the digest has to hold.
+	if !strings.Contains(cfg, "ggml-org/llama.cpp@sha256:") {
+		t.Errorf("no llama.cpp image was pinned:\n%s", cfg)
 	}
 }
