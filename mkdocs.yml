@@ -3,8 +3,8 @@ site_description: Run LLMs on your own GPUs, and be able to show how.
 site_url: https://nodarynet.github.io/nodary/
 repo_url: https://github.com/nodarynet/nodary
 repo_name: nodarynet/nodary
-edit_uri: edit/main/site/
-docs_dir: site
+edit_uri: edit/main/docs/
+docs_dir: docs
 site_dir: public
 
 nav:
