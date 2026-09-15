@@ -1,7 +1,7 @@
 # R3b — A second data plane, and Bifrost as the default
 
 **Slice of:** [R3](../tasks/R3-gateway.md) ·
-**Tasks:** R3-17 – R3-25 · **Status:** planned, nothing built; §2's spike decides the shape
+**Tasks:** R3-17 – R3-25 · **Status:** the spike is run (gates 1 and 3 settled, gate 2 all but one item) and R3-17 is built; R3-18 is next
 
 [ADR 0009](../adr/0009-bifrost-as-the-default-data-plane.md) proposes Bifrost as the default
 data plane with LiteLLM retained, and [06 §7](../specs/06-gateway.md#7-the-data-plane) states
@@ -251,8 +251,10 @@ rather than a property of whichever plane happens to speak more dialects.
 
 ## 5. Steps
 
-- [ ] The spike (§2): three gates measured against the pinned image, written up beside the FIPS spike, ADR 0009's status line updated with the result
-  - part of gate 2 is measured and written up in [the spike](../spike-bifrost.md): the vendor round trip, and the cold start that fails without it. Gates 1 and 3 remain
+- [x] The spike (§2): three gates measured against the pinned image, written up beside the FIPS spike, ADR 0009's status line updated with the result
+  - **gate 1** chose [shape P](../spike-bifrost.md#6-gate-1--both-shapes-report-who-served-only-one-of-them-fails-over) and contradicted the rule §3.3 wrote for choosing: both shapes report who served, but Bifrost's retries stay inside a key and only failover crosses providers, so K cannot satisfy R3-14
+  - **gate 3** is [§7](../spike-bifrost.md#7-gate-3--the-dialect-survives-and-the-provider-type-the-gate-named-does-not-exist). The dialect survives — all four request shapes, against the live SGLang deployment, and the gateway's suite through a real Bifrost fails only where its own stub answers a streaming request with a non-SSE body — but **there is no `vllm` provider type in this release**, and §7.10 turns §3.4's fallback from contingent into required
+  - **gate 2** is measured except for what the process does with content before `logs_store` is turned off
 - [x] R3-17 — the seam, LiteLLM alone behind it, no behavior change, every test green
 - [ ] R3-18 — `bifrost` in the manifest by digest, generated, moved by `upgrade`
 - [ ] R3-19 — the renderer in **shape P** (§3.3, settled by the spike), the pinned table, the assertion — **two files**: `bifrost.json` and the stub datasheet its `file://` URLs name ([the spike](../spike-bifrost.md#3-file-works-and-the-content-is-almost-free))
@@ -289,6 +291,21 @@ does.
 | `docs/administering.md` | attribution, the master key, backup contents, the CVE path, and a section on choosing and switching the plane | open |
 
 ## 7. Open items
+
+- **Settled by the spike, and folded into the tasks above:** the provider type
+  ([§7.1](../spike-bifrost.md)), `base_url` without `/v1` (§7.3), the 300 s request timeout and
+  120 s stream idle timeout (§7.6), the `model` field carrying the upstream's id (§7.7),
+  `should_drop_params` (§7.11), `BIFROST_SKIP_WRITE_CHECK` for a read-only mount (§7.12).
+
+- **The config store is no longer avoidable.** [§7.10](../spike-bifrost.md) finds
+  `enforce_auth_on_inference` inert without it — the auth middleware is skipped outright and
+  the admin API answers unauthenticated. §3.4's fallback becomes the design, which means a
+  SQLite file under `/var/lib/nodary/bifrost/` joins the set R3-15's canary is searched for.
+  ADR 0009 records it as a cost paid rather than a cost risked.
+
+- **A dead member costs 15 seconds of boot** ([§7.12](../spike-bifrost.md)), because every
+  provider's models are listed at startup and `live_models_sync_interval: 0` does not disable
+  that pass. A control plane restarting with one node down waits for it, per member.
 
 - **The version this plan was written against.** §3.3's JSON and ADR 0009's table come from v1
   documentation; the release is **v2.1.1**, which moved configuration into a SQLite store.

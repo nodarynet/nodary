@@ -9,13 +9,27 @@ passes its three gates, and not before. [ADR 0008](0008-container-runtime.md) wa
 its measurements; this one is written before them, and says so rather than reading as though
 the measurements were in.
 
-**Gate 1 has run and chose shape P** — not the shape §3.3's rule pointed at. Both shapes name
-who served, accurately; only one fails over, because Bifrost retries inside a key and falls
-back only between providers. §2's `max_retries` row is corrected below. **Part of gate 2 has run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather than the
-v1 documentation this was written from. It found nothing that stops the decision and two
-things that change §2: the data plane reaches its vendor on a timer, and on defaults it
-**refuses to start** without that reach. Both are pinned in §2's table below. Gates 1 and 3
-are unrun, so this is still Proposed.
+**All three gates have now run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather
+than the v1 documentation this was written from. **None of them fails**, and this is still
+Proposed for one reason, stated below.
+
+**Gate 1 chose shape P** — not the shape §3.3's rule pointed at. Both shapes name who served,
+accurately; only one fails over, because Bifrost retries inside a key and falls back only
+between providers. §2's `max_retries` row is corrected below.
+
+**Gate 2** found the data plane reaches its vendor on a timer and on defaults **refuses to
+start** without that reach, both pinned in §2's table below and both closed by `file://` URLs.
+
+**Gate 3** found the dialect survives — chat, streamed chat, `/v1/completions`, tool calls and
+embeddings all pass through against a real backend — and found that **this release has no
+`vllm` provider type**, only the generic `openai` custom type, which is sufficient.
+
+**What holds it at Proposed is [§7.10](../spike-bifrost.md):** `enforce_auth_on_inference` is
+inert without the config store — the auth middleware is skipped outright and the admin API
+answers unauthenticated. The credential the gateway holds cannot be enforced from the rendered
+file alone, so accepting this ADR now means accepting a SQLite store the data plane writes
+**inside the CUI boundary**, which R3-15's canary must then be searched for across. That is a
+cost this ADR did not price, and it is the one thing left to decide.
 
 ## Context
 

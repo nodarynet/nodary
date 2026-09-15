@@ -8,10 +8,11 @@ pulled 2026-09-15; docker 29.7.2 / overlayfs / WSL2
 Throwaway work, kept as a memo. Everything below was run against the real image, not
 reasoned about; the commands are given so each result can be reproduced or contradicted.
 
-**Gate 3 is not yet run.** §1–§4 cover a question pulled forward because it can stop the
-whole slice — whether a data plane inside a CUI boundary can be made to stop talking to its
-vendor. §6 is gate 1, and it **chooses shape P and contradicts the rule R3b §3.3 wrote for
-choosing**.
+§1–§4 cover a question pulled forward because it can stop the whole slice — whether a data
+plane inside a CUI boundary can be made to stop talking to its vendor. §6 is gate 1, and it
+**chooses shape P and contradicts the rule R3b §3.3 wrote for choosing**. §7 is gate 3, and
+it **removes the option the gate was written to choose between**: this release has no `vllm`
+provider type at all.
 
 ## 0. The plan's examples are a major version behind
 
@@ -138,12 +139,9 @@ here is that the vendor round trip is not compulsory.
 
 ## 5. Open
 
-- Gate 3 is unrun: whether the `vllm` provider type serves llama.cpp and TensorRT-LLM's
-  OpenAI frontends unchanged, and the timeout numbers.
 - `enforce_auth_on_inference` defaults to **false**, and `GET /api/config` answered 200 with
-  no credential on a default install. Both are gate 2 items in their own right and are only
-  noted here, not yet measured against
-  [§3.4](plans/R3b-a-second-data-plane.md#34-the-credential-lives-where-litellms-does).
+  no credential on a default install. [§7.10](#710-enforce_auth_on_inference-cannot-be-satisfied-from-the-file-alone)
+  takes this further and finds it cannot be turned on from the file at all.
 - `enable_logging` defaults to **true** with `disable_content_logging: false`. Turning the
   logs store off set `is_logs_connected: false`, but what the process does with content
   before that point is not yet measured.
@@ -236,3 +234,187 @@ policy. Loopback is exempt "regardless of this setting", and
 `http://127.0.0.1:<port>/v1`, so **nodary as it stands is unaffected**. It is recorded because
 the day a member is addressed by anything but loopback, this is the error, and nothing in the
 tree would explain it.
+
+## 7. Gate 3 — the dialect survives, and the provider type the gate named does not exist
+
+Run against the **live SGLang deployment from the R6 proof** — `qwen2.5-0.5b-instruct` on
+`127.0.0.1:8001`, real weights on a real GPU — rather than llama.cpp.
+[R3b §2](plans/R3b-a-second-data-plane.md#2-the-spike-measured-before-anything-is-designed)
+nominated llama.cpp as "the cheapest pinned backend"; SGLang was already serving on this host
+and is equally *not vLLM*, which is the whole of the question. Shape P throughout: one custom
+provider per member, configuration mounted read-only, config store and logs store off,
+`framework.pricing` on `file://` per [§3](#3-file-works-and-the-content-is-almost-free).
+
+### 7.1 `vllm` is not a provider type this release has
+
+The published schema's `base_provider_type` enum carries 32 values, `vllm` and `sgl` among
+them. The pinned binary refuses both:
+
+```
+warn  failed to process provider as-vllm: custom provider validation failed: unsupported base_provider_type: vllm
+warn  failed to process provider as-sgl:  custom provider validation failed: unsupported base_provider_type: sgl
+```
+
+**A warning, not a failure** — the provider is dropped and the server starts without it, so a
+renderer that emitted `vllm` would produce a data plane that comes up healthy and serves
+nothing on that member. Only `openai` was accepted, and §7.2 shows it is sufficient.
+
+So gate 3's question — "does the `vllm` provider type serve these frontends unchanged, or do
+they need the generic `openai` custom type" — is answered by the first option not existing.
+It also confirms [§7](plans/R3b-a-second-data-plane.md#7-open-items)'s open item in a second
+form: **the published schema is ahead of the pinned image**, so a field read from the schema
+is a hypothesis until the binary accepts it.
+
+### 7.2 All four request shapes pass through `openai`
+
+| Shape | Result |
+| :--- | :--- |
+| chat, non-streamed | 200; `usage` present |
+| chat, streamed | 26 SSE frames, `data: [DONE]` sent, **exactly one** chunk carrying `usage` — which is what [R3-07](tasks/R3-gateway.md)'s metering reads |
+| `/v1/completions` | 200, `object: text_completion` |
+| tool call | `tools` forwarded, `tool_calls` relayed verbatim (§7.4) |
+| embeddings | relayed verbatim with `usage` (§7.4) |
+
+Attribution rides along on all of them: `X-Bifrost-Routing-Info-Provider` on the response and
+in every streamed chunk's `extra_fields`, as gate 1 found.
+
+**`/v1/completions` works because of a shim, not a passthrough.**
+`client.compat.convert_text_to_chat` defaults **true** and Bifrost converts the legacy route
+into a chat call. It is a default this product depends on, so it belongs in
+[§3.5](plans/R3b-a-second-data-plane.md#35-pinned-off-asserted-on-the-bytes-and-re-checked-on-the-host)'s
+table for the reason everything else there is: written explicitly or inherited from whatever
+a future release decides.
+
+### 7.3 `base_url` must not carry `/v1`
+
+[`gatewaysync.go`](../internal/cli/gatewaysync.go) renders `http://127.0.0.1:<port>/v1` for
+LiteLLM. Bifrost appends the path itself, and the same string produced `404` on **every**
+request, reported as `provider API error (status 404)` with no hint of a doubled path.
+R3-19's renderer writes the origin only.
+
+### 7.4 Two shapes the live deployment could not answer — and one is nodary's bug
+
+SGLang refused `/v1/embeddings` (`This model does not appear to be an embedding model by
+default. Please add --is-embedding`), which is a fact about the model, not the plane. But the
+tool call came back as **prose**:
+
+```json
+"message": {"content": "<tool_call>\n{\"name\": \"get_weather\", ...}\n</tool_call>",
+            "tool_calls": null}
+```
+
+Identical direct to `127.0.0.1:8001`, so Bifrost is not involved: **nodary's sglang descriptor
+declares no tool-call parser**, and SGLang emits the raw template without one. A client asking
+for a tool call through nodary today gets a string it has to parse itself. Tracked as
+[R6-26](tasks/R6-backends.md).
+
+Both shapes were re-run against a stub emitting proper `tool_calls` and embeddings. Bifrost
+relayed both exactly, including `finish_reason: "tool_calls"` and the arguments string.
+
+### 7.5 Bifrost replaces the upstream's error body
+
+SGLang's message above became `{"error":{"message":"provider API error (status 400)"}}`. The
+status survives; the reason does not. [11 §4](specs/11-failure-modes.md#4-gateway)'s rows are
+about what an operator sees when a member misbehaves, and under Bifrost they will see a status
+and a generic sentence. `send_back_raw_response` exists and is unmeasured.
+
+### 7.6 The numbers gate 3 asked for
+
+- **Default request timeout: 300 s.** Measured against an upstream that accepts the connection
+  and never writes: `504` after `301s`, and the error names its own default —
+  *"request timed out (default is 300 seconds). You can increase it by setting the
+  default_request_timeout_in_seconds in the network_config"*.
+- **Stream idle timeout: 120 s**, from the schema's description. Not echoed by the API.
+- `GET /api/providers` reports `default_request_timeout_in_seconds: 0` and `max_retries: 0`,
+  which mean **unset**, not zero. So neither can be confirmed from the running configuration,
+  and R3-19 must write both explicitly — the discipline `pinnedOff` already follows, for the
+  same reason.
+
+300 s is a long time to hold a request for a member that is never going to answer, against
+[§7](plans/R3b-a-second-data-plane.md#7-open-items)'s already-measured 15.7 s fallback window.
+
+### 7.7 The response's `model` field carries the upstream's id, not the route's
+
+`model: "qwen2.5-0.5b-instruct"` — not the `as-openai/…` the catalog lists, and not the name
+the client asked for. LiteLLM returns the `model_name` from `model_list`, which nodary renders
+as the **route** name. So the same client gets a different `model` back depending on which
+plane is installed, on a field every OpenAI SDK surfaces. `base_key.aliases` carries a
+`model_name` field that may close the gap; unmeasured, and R3-19's to settle.
+
+### 7.8 A bare model name routes, and upstream headers come through
+
+No `provider/model` prefix is required: the member whose key lists that model answers. Since
+nodary's clients send a route name and never a provider, the renderer puts the route name in
+each member's `keys[].models`. `/v1/models` on Bifrost lists prefixed ids, but nodary's
+gateway answers that route from its own allowlist and never proxies it, so nothing is visible
+to clients.
+
+Bifrost also **forwards the upstream's own response headers verbatim** (`X-Upstream-Name:
+stub` arrived unaltered), which is how §7.9's attribution tests passed untouched.
+
+### 7.9 The gateway's suite, pointed at a real Bifrost
+
+Its stub upstream bound to a fixed port, a Bifrost configured against it, and
+`gateway.Options.Upstream` pointed at Bifrost instead. **5 of the package's 32 tests failed,
+all five for one cause**, and it is the fixture's:
+
+```
+provider returned non-SSE response for streaming request (content-type "application/json")
+```
+
+The stub answers `stream: true` with a `chat.completion` body and `application/json`. No real
+backend does that, LiteLLM relayed it anyway, and **Bifrost refuses it**. So the failures say
+the suite's stub is lying about streaming, not that nodary's metering breaks — and they say
+Bifrost is the stricter of the two planes about the SSE contract. Everything else — auth, the
+allowlist, the 503, throttling, the daily budget, non-streamed metering, and all three
+attribution tests — passed through a real Bifrost unchanged.
+
+The seam R3-17 built is what makes that cheap: the only gateway-side field that has to move
+for Bifrost is `Plane.ServedHeader`, from `X-Litellm-Model-Id` to
+`X-Bifrost-Routing-Info-Provider`.
+
+### 7.10 `enforce_auth_on_inference` cannot be satisfied from the file alone
+
+With `config_store.enabled: false` the binary logs
+
+```
+error  auth middleware requires config store, skipping auth middleware initialization
+```
+
+and `GET /api/config` answered **200 with no credential**, reporting
+`auth_config.is_enabled: false`. [§3.4](plans/R3b-a-second-data-plane.md#34-the-credential-lives-where-litellms-does)
+plans one virtual key held in the rendered file; this release will not enforce it without the
+config store. **That makes §3.4's named fallback required rather than contingent**, and it
+drags the SQLite config store — and therefore R3-15's canary search over it — back in.
+
+### 7.11 `should_drop_params` defaults to true
+
+A parameter Bifrost does not recognize is **dropped**, not passed and not refused. In front of
+backends whose vocabularies nodary deliberately does not normalize
+([04 §3](specs/04-backends.md#3-normalize-the-few-pass-through-the-rest)'s `extra`), that is a
+silent-loss path between the gateway and the engine. Another row for §3.5's table.
+
+### 7.12 Read-only is refused, and a dead member delays the boot
+
+`-v …:ro` is refused outright:
+
+```
+Error: /app/data is not writable by UID:GID 1000:0 (owned by 1000:1000)
+  Set BIFROST_SKIP_WRITE_CHECK=1 to bypass for read-only deployments with external stores.
+```
+
+With that variable set it starts and serves normally, so [R3-22](tasks/R3-gateway.md)'s
+"starts on the generated file mounted read-only" is achievable — the unit R3-20 writes just
+has to carry it.
+
+Separately: adding a member whose upstream never answers took bootstrap from **45 ms to
+15 043 ms**, because Bifrost lists every provider's models at startup. `live_models_sync_interval: 0`
+disables the *background* refresh, not the one at boot. A control plane restarting with one
+dead GPU node waits for it.
+
+### Where this leaves the slice
+
+Nothing here fails gate 3. The dialect survives, the shapes all work, and the seam absorbs the
+one gateway-side change. What moved is the *shape of the work*: §7.1 removes a choice, §7.10
+turns an optional fallback into a requirement, and §7.3, §7.6, §7.7 and §7.11 are four concrete
+things R3-19's renderer has to get right that the plan did not know about.
