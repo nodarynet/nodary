@@ -257,3 +257,66 @@ func TestEveryStampedPackageIsActuallyLinkedIn(t *testing.T) {
 		}
 	}
 }
+
+// R5-22: npm publishes by OIDC, and the point of that is the absence of a
+// credential. A reintroduced NODE_AUTH_TOKEN would publish perfectly well and
+// silently restore the long-lived secret this removed, so the absence is what
+// gets asserted rather than the presence of anything.
+//
+// The trusted publisher on each package is matched on this workflow's filename
+// and the environment its npm job declares, neither of which any schema check
+// can see — so both are pinned here too. Renaming either breaks publishing at
+// the next release, on the one path that has no dry run.
+func TestNpmPublishesWithoutALongLivedToken(t *testing.T) {
+	body, err := os.ReadFile(repoFile(t, ".github/workflows/release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+
+	// Comments are skipped, and deliberately: the job carries a comment saying
+	// there is no NODE_AUTH_TOKEN, and a whole-file grep matched *that* — a
+	// test that fails on its own subject's name is the kind that gets deleted
+	// rather than fixed.
+	for i, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.Contains(line, "NODE_AUTH_TOKEN") || strings.Contains(line, "NPM_TOKEN") {
+			t.Errorf("release.yml:%d publishes with a long-lived credential again, which is "+
+				"what R5-22 removed: %s", i+1, strings.TrimSpace(line))
+		}
+	}
+	// **Scoped to the npm job**, because the PyPI job beside it declares the
+	// same two lines — a whole-file match passed happily while the npm job's
+	// own environment was renamed out from under its trusted publishers.
+	job := jobBlock(t, src, "npm")
+	if !strings.Contains(job, "environment: release") {
+		t.Error("the npm job no longer declares `environment: release`, which every " +
+			"trusted publisher is configured to require")
+	}
+	if !strings.Contains(job, "id-token: write") {
+		t.Error("the npm job has no id-token: write, so npm has no OIDC to authenticate with")
+	}
+}
+
+// jobBlock is one job's YAML, from its key to the next job at the same indent.
+func jobBlock(t *testing.T, src, name string) string {
+	t.Helper()
+	start := strings.Index(src, "\n  "+name+":\n")
+	if start < 0 {
+		t.Fatalf("release.yml declares no %q job at all", name)
+	}
+	rest := src[start+1:]
+	for i, line := range strings.Split(rest, "\n") {
+		if i == 0 {
+			continue
+		}
+		// The next key at job indent ends this block.
+		if len(line) > 2 && line[0] == ' ' && line[1] == ' ' && line[2] != ' ' &&
+			!strings.HasPrefix(strings.TrimSpace(line), "#") && strings.HasSuffix(line, ":") {
+			return rest[:strings.Index(rest, "\n"+line)]
+		}
+	}
+	return rest
+}

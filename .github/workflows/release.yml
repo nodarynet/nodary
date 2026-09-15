@@ -236,6 +236,16 @@ jobs:
         with:
           packages-dir: dist/wheels
 
+  # **No NODE_AUTH_TOKEN anywhere in this job.** npm authenticates by OIDC
+  # against the trusted publisher configured on each of the five packages, the
+  # way PyPI already does here — the npm CLI detects the OIDC environment and
+  # uses it. `id-token: write` is what makes that possible, and removing the
+  # token is what R5-22 is for: it was the last long-lived publishing
+  # credential, and the whole class of failure `EOTP` belongs to.
+  #
+  # The trusted publisher is matched on org, repository, **this filename**, and
+  # the environment named below. Renaming this file or that environment breaks
+  # publishing until the five configurations are updated to match.
   npm:
     needs: build
     runs-on: ubuntu-latest
@@ -248,7 +258,7 @@ jobs:
       # **22, not 20, and this is a requirement rather than hygiene.** npm's
       # Trusted Publishing needs npm >= 11.5.1 on Node >= 22.14.0 (R5-22), and
       # Node 20 cannot satisfy it. Bumped ahead of the switch so that removing
-      # NPM_TOKEN is a one-line change rather than a change that also moves the
+      # NPM_TOKEN was a one-line change rather than one that also moved the
       # runtime under the publish step.
       - uses: actions/setup-node@v4
         with:
@@ -274,14 +284,10 @@ jobs:
       # Platform packages first: the entry package's optionalDependencies must
       # already resolve, or the first person to install it gets a broken tree.
       - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for p in dist/npm/nodary-*/; do
             npm publish --provenance --access public --tag ${{ steps.npmtag.outputs.tag }} "$p"
           done
 
       - name: Publish entry package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public --tag ${{ steps.npmtag.outputs.tag }} dist/npm/nodary
