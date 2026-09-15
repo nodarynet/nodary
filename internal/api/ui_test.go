@@ -282,3 +282,51 @@ func TestTheConsoleDeclaresEveryScreenR7Owes(t *testing.T) {
 		}
 	}
 }
+
+// The stylesheet is a token system, so the way it breaks is a name.
+//
+// A rule that reads `var(--surfce)` is a rule the browser drops on the floor,
+// silently, leaving one panel transparent on a page that otherwise renders —
+// and the two palettes mean a token can be defined in the dark block and
+// missing from the light one, which shows up for whoever has the other setting.
+// Nothing in Go parses CSS. What is worth pinning without a parser is that
+// every token a rule reads is one some block defines, that the light palette
+// defines all of them, and that the file is not truncated mid-rule.
+func TestTheConsoleStylesheetDefinesEveryTokenItUses(t *testing.T) {
+	f := newFixture(t)
+	sheet := mustAsset(t, f, "app.css")
+
+	if opened, closed := strings.Count(sheet, "{"), strings.Count(sheet, "}"); opened != closed {
+		t.Fatalf("app.css has %d { and %d }: it is truncated or a rule is unclosed", opened, closed)
+	}
+
+	// The light palette is the base one: the dark block redefines, it does not
+	// introduce. Cutting the sheet at the media query is what separates them.
+	base := sheet
+	if at := strings.Index(sheet, "@media (prefers-color-scheme: dark)"); at > 0 {
+		base = sheet[:at]
+	} else {
+		t.Error("app.css has no dark palette; the console is expected to follow the viewer's scheme")
+	}
+
+	defines := func(in string) map[string]bool {
+		found := map[string]bool{}
+		for _, m := range regexp.MustCompile(`(--[a-z-]+)\s*:`).FindAllStringSubmatch(in, -1) {
+			found[m[1]] = true
+		}
+		return found
+	}
+	light, all := defines(base), defines(sheet)
+	if len(light) == 0 {
+		t.Fatal("no custom properties were found; app.css is a token system and this found none")
+	}
+	for _, m := range regexp.MustCompile(`var\((--[a-z-]+)`).FindAllStringSubmatch(sheet, -1) {
+		if !all[m[1]] {
+			t.Errorf("app.css reads %s and no block defines it", m[1])
+			continue
+		}
+		if !light[m[1]] {
+			t.Errorf("app.css reads %s and only the dark palette defines it", m[1])
+		}
+	}
+}

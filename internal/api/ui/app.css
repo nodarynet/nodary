@@ -1,84 +1,347 @@
-/* No font file, no icon set, no framework: every byte the console needs is in
-   the binary (internal/api/ui.go says why). System fonts are the one typeface
-   guaranteed to be present on an air-gapped host. */
-:root {
-  --ink: #16181d; --dim: #5b6270; --line: #d9dde5; --bg: #fff; --panel: #f6f7f9;
-  --ok: #1a7f4b; --warn: #a25c00; --bad: #b3261e; --link: #1f4fd8;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; color: var(--ink); background: var(--bg);
-  font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-}
-a { color: var(--link); }
-h1 { font-size: 1.35rem; margin: 0; }
-h2 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+/* The console's design system.
+ *
+ * No font file, no icon set, no framework: every byte the console needs is in
+ * the binary (internal/api/ui.go says why). System fonts are the one typeface
+ * guaranteed to be present on an air-gapped host, and an icon is a word here
+ * rather than a glyph nobody shipped.
+ *
+ * The page is served under `style-src 'self'`, so there are no inline styles
+ * and no `style` attributes — everything a screen needs is a class defined
+ * here. A width that has to be computed (a bar in a chart) is set through
+ * CSSOM in app.js, which the policy does not govern.
+ */
 
-/* --- the shell ---------------------------------------------------------- */
-header.bar {
-  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-  padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); background: var(--panel);
+/* --- tokens --------------------------------------------------------------
+ *
+ * Two palettes, one set of names. Nothing below this block names a colour
+ * directly, so the dark scheme is a redefinition rather than a second
+ * stylesheet that drifts.
+ */
+:root {
+  color-scheme: light;
+
+  --bg: #fbfbfc;
+  --surface: #ffffff;
+  --sunken: #f5f6f8;
+  --rail: #f7f8fa;
+
+  --ink: #14161a;
+  --dim: #5f6775;
+  --faint: #878e9c;
+
+  --line: #e5e8ed;
+  --line-strong: #d2d7e0;
+
+  --accent: #2f5fe0;
+  --accent-ink: #ffffff;
+  --accent-wash: #eef2fd;
+
+  --ok: #0f7b46;
+  --ok-wash: #e9f5ee;
+  --warn: #92560a;
+  --warn-wash: #fdf2e0;
+  --bad: #bc3329;
+  --bad-wash: #fdece9;
+
+  --focus: #2f5fe0;
+
+  --radius: 7px;
+  --radius-sm: 5px;
+  --gap: 1.25rem;
+
+  /* Kept flat deliberately: a control-plane console is read, not admired, and
+     a drop shadow on every panel turns a dense table into visual noise. */
+  --lift: 0 1px 2px rgba(20, 22, 26, .05);
 }
-header.bar .grow { flex: 1; }
-nav.tabs { display: flex; gap: .25rem; flex-wrap: wrap; padding: 0 1.25rem; border-bottom: 1px solid var(--line); }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #0e1013;
+    --surface: #16191f;
+    --sunken: #1b1f26;
+    --rail: #121419;
+
+    --ink: #e7eaf0;
+    --dim: #99a1b0;
+    --faint: #6e7686;
+
+    --line: #262b34;
+    --line-strong: #333a46;
+
+    --accent: #7ea2ff;
+    --accent-ink: #0e1013;
+    --accent-wash: #1a2334;
+
+    --ok: #4ec98a;
+    --ok-wash: #12271d;
+    --warn: #e5a94f;
+    --warn-wash: #2a2011;
+    --bad: #ff8076;
+    --bad-wash: #2d1614;
+
+    --focus: #7ea2ff;
+    --lift: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+  font: 14px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+a:hover { text-decoration-color: currentColor; }
+
+/* One focus treatment everywhere, and it is visible. An operator driving this
+   from the keyboard inside a locked room is a supported way to use it. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+h1 { font-size: 1.1rem; margin: 0; letter-spacing: -.01em; }
+h2 {
+  font-size: .95rem; font-weight: 600; letter-spacing: -.005em;
+  margin: 2rem 0 .65rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+}
+h2:first-child { margin-top: 0; }
+
+/* --- the shell -----------------------------------------------------------
+ *
+ * A rail rather than a row of tabs: there are eleven screens and a tab strip
+ * wraps to two lines on a laptop, which moves every tab when one is added.
+ */
+.app { display: grid; grid-template-columns: 218px 1fr; min-height: 100vh; }
+
+aside.side {
+  display: flex; flex-direction: column; gap: .5rem;
+  background: var(--rail);
+  border-right: 1px solid var(--line);
+  padding: 1rem .75rem;
+  position: sticky; top: 0; height: 100vh;
+}
+
+.brand {
+  display: flex; align-items: baseline; gap: .5rem;
+  padding: .25rem .6rem 1rem;
+  font-weight: 650; font-size: 1.05rem; letter-spacing: -.02em;
+}
+/* The one mark the console has, and it is drawn rather than fetched: an icon
+   set is a file that is not in the binary. */
+.mark {
+  display: inline-block; flex: none;
+  width: .55rem; height: .55rem; border-radius: 50%;
+  background: var(--accent);
+}
+
+nav.tabs { display: flex; flex-direction: column; gap: 1px; }
 nav.tabs a {
-  padding: .6rem .9rem; text-decoration: none; color: var(--dim);
-  border-bottom: 2px solid transparent;
+  padding: .42rem .6rem; border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--dim); font-weight: 500;
 }
-nav.tabs a.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
-main { padding: 1.25rem; }
+nav.tabs a:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); color: var(--ink); }
+nav.tabs a.on { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+
+.side-foot {
+  margin-top: auto; padding: .75rem .6rem 0;
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: .3rem;
+  font-size: .8125rem; color: var(--dim);
+}
+.side-foot .who { color: var(--ink); font-weight: 500; }
 
 /* The active profile is on every screen, not on a settings page: 07 §4 makes
    it the thing that decides what an act costs, and an operator who has to go
    and look is one who assumed. */
-.profile { font-weight: 600; }
+.profile { font-weight: 600; color: var(--ink); }
 .profile.regulated { color: var(--warn); }
 
-/* --- state ------------------------------------------------------------- */
-.pill {
-  display: inline-block; padding: .05rem .5rem; border-radius: 1rem;
-  font-size: .8125rem; border: 1px solid var(--line); background: #fff;
+main { padding: 1.6rem 1.75rem 4rem; min-width: 0; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  aside.side {
+    position: static; height: auto; flex-direction: row; flex-wrap: wrap;
+    align-items: center; gap: .75rem;
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .brand { padding: 0 .5rem 0 0; }
+  nav.tabs { flex-direction: row; flex-wrap: wrap; flex: 1 1 100%; order: 3; }
+  .side-foot {
+    margin-top: 0; padding: 0; border-top: 0; margin-left: auto;
+    flex-direction: row; align-items: center; gap: .75rem;
+  }
+  main { padding: 1.25rem 1rem 3rem; }
 }
-.pill.ok { color: var(--ok); border-color: var(--ok); }
-.pill.warn { color: var(--warn); border-color: var(--warn); }
-.pill.bad { color: var(--bad); border-color: var(--bad); }
+
+/* --- state ---------------------------------------------------------------
+ *
+ * A pill is tinted by what its word means, never by how it is spelled, so
+ * `inconclusive` cannot end up looking like `compliant` because both are long.
+ */
+.pill {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .1rem .5rem; border-radius: 1rem;
+  font-size: .78125rem; font-weight: 550; white-space: nowrap;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--dim);
+}
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-wash); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-wash); }
+.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: var(--bad-wash); }
+
 .dim { color: var(--dim); }
-.note { color: var(--dim); font-size: .875rem; font-weight: 400; }
-.problem { background: #fdecea; border-left: 4px solid var(--bad); padding: .75rem; }
-.empty { color: var(--dim); padding: 1.5rem 0; }
+.note { color: var(--dim); font-size: .8125rem; font-weight: 400; max-width: 70ch; }
+.problem {
+  background: var(--bad-wash); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+  border-left: 3px solid var(--bad); border-radius: var(--radius-sm);
+  padding: .7rem .85rem; color: var(--ink);
+}
+.empty { color: var(--faint); padding: 1.75rem 0; }
 
-/* --- tables ------------------------------------------------------------ */
-table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
-th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { font-size: .8125rem; text-transform: uppercase; letter-spacing: .03em; color: var(--dim); }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8125rem; }
-pre { background: var(--panel); padding: .75rem; overflow-x: auto; border: 1px solid var(--line); }
+/* --- panels and the overview --------------------------------------------- */
+.panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--lift);
+}
 
-/* --- forms and the login card ------------------------------------------ */
-body.centred { display: grid; place-items: center; min-height: 100vh; background: var(--panel); }
-.card { background: #fff; border: 1px solid var(--line); padding: 2rem; width: min(24rem, 92vw); }
-label { display: block; margin: 1rem 0 .25rem; font-weight: 600; }
-input, select { width: 100%; padding: .45rem; font: inherit; border: 1px solid var(--line); }
-button { margin-top: 1.25rem; padding: .5rem 1.1rem; font: inherit; cursor: pointer; }
+.stats {
+  display: grid; gap: .75rem; margin: .25rem 0 .5rem;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+.stat {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .85rem .95rem;
+  display: flex; flex-direction: column; gap: .3rem; box-shadow: var(--lift);
+}
+.stat .label {
+  font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--faint); font-weight: 600;
+}
+.stat .value {
+  font-size: 1.65rem; line-height: 1.1; font-weight: 600;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.stat .value small { font-size: .95rem; font-weight: 500; color: var(--faint); letter-spacing: 0; }
+.stat .foot { font-size: .78125rem; color: var(--dim); }
+.stat.ok .value { color: var(--ok); }
+.stat.warn .value { color: var(--warn); }
+.stat.bad .value { color: var(--bad); }
+
+/* A bar chart with no library: one row per subject, the bar's width set from
+   app.js through CSSOM. Proportional to the busiest row rather than to the
+   total, because the question is which model is carrying the fleet. */
+.bars { display: flex; flex-direction: column; gap: .4rem; margin: .5rem 0 1rem; }
+.bars .barrow { display: grid; grid-template-columns: minmax(6rem, 14rem) 1fr auto; gap: .75rem; align-items: center; }
+.bars .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bars .track { background: var(--sunken); border-radius: 3px; height: .55rem; overflow: hidden; }
+.bars .fill { display: block; height: 100%; background: var(--accent); border-radius: 3px; min-width: 2px; }
+.bars .count { font-variant-numeric: tabular-nums; color: var(--dim); font-size: .8125rem; }
+.bars .fill.warn { background: var(--warn); }
+
+/* A concern is the same row rhythm as a bar without a bar: the count, who it
+   is about, and the screen that can act on it. */
+.bars .barrow.concern {
+  grid-template-columns: auto 1fr auto;
+  padding: .5rem .7rem; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--surface);
+}
+
+/* --- tables --------------------------------------------------------------
+ *
+ * The tables are the product. Dense, but with a header that stays put on a
+ * long audit page and a hairline rather than a grid.
+ */
+table {
+  border-collapse: separate; border-spacing: 0; width: 100%; margin: .25rem 0 1.25rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden;
+}
+th, td { text-align: left; padding: .5rem .7rem; vertical-align: top; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--sunken); color: var(--faint);
+  font-size: .73rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  border-bottom: 1px solid var(--line);
+}
+tbody td { border-bottom: 1px solid var(--line); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: color-mix(in srgb, var(--ink) 2.5%, transparent); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8125rem; }
+code { background: var(--sunken); padding: .05rem .3rem; border-radius: 4px; }
+pre {
+  background: var(--sunken); color: var(--ink); padding: .8rem .9rem;
+  overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius);
+}
+pre code { background: none; padding: 0; }
+
+/* --- forms and the login card -------------------------------------------- */
+body.centred { display: grid; place-items: center; min-height: 100vh; background: var(--bg); }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 2rem; width: min(23rem, 92vw); box-shadow: var(--lift);
+}
+.card h1 { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
+.card .tagline { color: var(--faint); font-size: .8125rem; margin: 0 0 1rem; }
+
+label { display: block; margin: .9rem 0 .25rem; font-weight: 600; font-size: .8125rem; }
+input, select, textarea {
+  width: 100%; padding: .45rem .55rem; font: inherit;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+::placeholder { color: var(--faint); }
+
+button {
+  margin-top: 1.1rem; padding: .42rem 1rem; font: inherit; font-weight: 550;
+  cursor: pointer; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+}
+button:hover { border-color: var(--faint); background: var(--sunken); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); }
+button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--surface); }
+button.danger:hover { background: var(--bad-wash); }
+button.ghost { background: none; border-color: transparent; color: var(--dim); padding: .2rem .4rem; margin: 0; }
+button.ghost:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* The filter row on the audit browser: the same fields `audit list` takes. */
-.filters { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 1rem; color: var(--dim); }
-.filters input { width: auto; flex: 0 1 12rem; }
+.filters {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin: .25rem 0 1rem; color: var(--dim); font-size: .8125rem;
+}
+.filters input { width: auto; flex: 0 1 11rem; }
 
-/* --- the ceremony dialog (R8) ------------------------------------------- */
-dialog { border: 1px solid var(--line); padding: 1.5rem; width: min(34rem, 92vw); }
-dialog::backdrop { background: rgba(0, 0, 0, .35); }
-dialog ul { margin: .5rem 0; padding-left: 1.2rem; }
+/* --- the ceremony dialog (R8) -------------------------------------------- */
+dialog {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1.5rem; width: min(34rem, 92vw);
+  color: var(--ink); background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
+}
+dialog::backdrop { background: rgba(10, 12, 16, .45); }
+dialog ul { margin: .5rem 0; padding-left: 1.1rem; }
 dialog li { margin: .15rem 0; }
 dialog pre { max-height: 14rem; }
-textarea { width: 100%; padding: .45rem; font: inherit; border: 1px solid var(--line); }
-.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: 1.25rem; }
 .row button { margin-top: 0; }
-button.primary { background: var(--ink); color: #fff; border: 1px solid var(--ink); }
-button.danger { color: var(--bad); border-color: var(--bad); }
 
 /* An inline form beside a table: the console's one editing surface outside the
    ceremony dialog, and it still goes through the ceremony to apply. */
-.card-inline { border: 1px solid var(--line); padding: 1rem 1.25rem; margin: 1rem 0; background: var(--panel); max-width: 28rem; }
+.card-inline {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1rem 1.15rem; margin: 1rem 0; background: var(--surface);
+  max-width: 28rem; box-shadow: var(--lift);
+}
 .card-inline label:first-child { margin-top: 0; }

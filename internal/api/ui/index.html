@@ -4,15 +4,18 @@
 <title>nodary</title>
 <link rel="stylesheet" href="app.css">
 </head><body>
-<header class="bar">
- <h1>nodary</h1>
- <span class="grow"></span>
- <span>profile <span id="profile" class="profile dim">…</span></span>
- <span id="who" class="dim">…</span>
- <button id="signout" style="margin:0">Sign out</button>
-</header>
-<nav class="tabs" id="tabs"></nav>
-<main id="view"><p class="empty">Loading…</p></main>
+<div class="app">
+ <aside class="side">
+  <div class="brand"><span class="mark"></span>nodary</div>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="side-foot">
+   <div>profile <span id="profile" class="profile">…</span></div>
+   <div class="who" id="who">…</div>
+   <button id="signout" class="ghost">Sign out</button>
+  </div>
+ </aside>
+ <main id="view"><p class="empty">Loading…</p></main>
+</div>
 <dialog id="ceremony"></dialog>
 <script src="app.js"></script>
 </body></html>
