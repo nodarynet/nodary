@@ -15,6 +15,11 @@ nav:
 
 theme:
   name: material
+  # The header is `primary: black` in both schemes, so the logo sits on a dark
+  # bar either way and wants the light-on-dark drawing. The favicon goes on the
+  # browser's own chrome, which is not ours to predict.
+  logo: assets/nodary-mark-dark.svg
+  favicon: assets/nodary-mark.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default

@@ -1,4 +1,7 @@
-# nodary
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/nodary-dark.svg">
+  <img src="docs/assets/nodary.svg" alt="nodary" width="320">
+</picture>
 
 ![CI](https://github.com/nodarynet/nodary/actions/workflows/ci.yml/badge.svg)
 ![PyPI](https://img.shields.io/pypi/v/nodary)
