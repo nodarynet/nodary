@@ -58,9 +58,17 @@ function table(headings, rows, emptyMessage) {
     el("tbody", {}, rows));
 }
 
+/** show puts a screen on the page.
+ *
+ * The nulls are dropped here rather than at every call site. `replaceChildren`
+ * takes `(Node or DOMString)`, so a `null` from a `cond ? el(…) : null` does
+ * not vanish — WebIDL converts it to the *string* "null" and the screen ends
+ * with the word printed on it. `el` has always filtered its own children this
+ * way; this is the same filter one level up, where every view's top level is.
+ */
 function show(...nodes) {
   const view = document.getElementById("view");
-  view.replaceChildren(...nodes);
+  view.replaceChildren(...nodes.flat().filter((n) => n !== null && n !== undefined && n !== false));
 }
 
 function problem(err) {

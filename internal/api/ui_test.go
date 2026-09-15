@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/pem"
 	"io"
 	"net/http"
 	"os"
@@ -329,5 +330,65 @@ func TestTheConsoleStylesheetDefinesEveryTokenItUses(t *testing.T) {
 		if !light[m[1]] {
 			t.Errorf("app.css reads %s and only the dark palette defines it", m[1])
 		}
+	}
+}
+
+// Every view, executed against the real handlers.
+//
+// **The rest of the console's tests read it; this one runs it.** They check
+// which endpoints it names, which screens it declares and which tokens its
+// stylesheet uses — all of it static, none of it executing a line. The two
+// faults that actually reached a commit were a view that vanished and a view
+// that rendered the word "null", and no amount of reading found either.
+//
+// testdata/render.mjs is a DOM with no layout and no events, so this cannot see
+// a screen that renders badly. It sees a screen that throws, one that puts
+// nothing on the page, and one that lets a JavaScript value through as a word.
+// Like TestTheConsoleScriptsParse it borrows node when the host has one.
+func TestEveryConsoleViewRenders(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("no node on PATH to run the console's views with")
+	}
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	f.setPassword("alice", "correct horse battery staple")
+	cookie := f.loginCookie("alice", "correct horse battery staple")
+
+	// Something for the screens to render: a node that has reported, with a
+	// deployment that failed, which is what puts rows on `attention` and gives
+	// `logs` a captured tail to show.
+	if status, raw := n.call(t, f, http.MethodPost, "/agent/status", api.StatusReport{
+		Protocol: api.Protocol, AgentVersion: "0.0.0-test",
+		Inventory:   api.Inventory{Arch: "amd64", OS: "linux"},
+		Deployments: []api.StatusUnit{{ID: "dep_one", State: "failed", Health: "unknown", Error: "boom"}},
+	}); status != http.StatusOK {
+		t.Fatalf("status: %d %s", status, raw)
+	}
+
+	// The fixture serves real TLS with its own certificate, so node is told to
+	// trust that one rather than told to trust anything: a harness that turned
+	// verification off would be the wrong habit to leave in the tree.
+	ca := filepath.Join(t.TempDir(), "fixture.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: f.srv.Certificate().Raw,
+	}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(node, filepath.Join("testdata", "render.mjs"), filepath.Join("ui", "app.js"))
+	cmd.Env = append(os.Environ(),
+		// app.js prefixes every path with /api/v1 itself, so this is the
+		// origin and nothing more.
+		"ORIGIN="+f.srv.URL,
+		"COOKIE="+cookie.Name+"="+cookie.Value,
+		"NODE_EXTRA_CA_CERTS="+ca,
+		"NODE_NAME=gpu-01",
+		"DEPLOYMENT=dep_one",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Errorf("a console view did not render: %v\n%s", err, out)
 	}
 }
