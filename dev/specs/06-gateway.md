@@ -3,8 +3,8 @@
 ## 1. Request path
 
 ```
-client ──► nodary-gateway ──► LiteLLM ──► deployment
-           authenticate                   (round-robin over ready members)
+client ──► nodary-gateway ──► data plane ──► deployment
+           authenticate                      (spread over ready members)
            resolve user
            check quota
            proxy
@@ -12,9 +12,11 @@ client ──► nodary-gateway ──► LiteLLM ──► deployment
            record
 ```
 
-nodary owns identity, quota, metering and audit. LiteLLM owns OpenAI compatibility, routing,
-retries and fallbacks. Because identity lives in nodary, **LiteLLM runs stateless behind a
-single master key** that is never exposed to clients, and needs no database.
+nodary owns identity, quota, metering and audit. The data plane ([§7](#7-the-data-plane)) owns
+OpenAI compatibility, routing, retries and fallbacks. Because identity lives in nodary, **the
+data plane runs stateless behind a single credential** that is never exposed to clients, and
+needs no database. Two implementations satisfy §7 — Bifrost, the default for a fresh install,
+and LiteLLM — and the gateway does not know which is running.
 
 The gateway serves the OpenAI surface: `/v1/chat/completions`, `/v1/completions`,
 `/v1/embeddings`, `/v1/models`. `/v1/models` returns only the routes the calling user is
@@ -81,8 +83,9 @@ act with an accountable author.
 | Condition | Response |
 | :--- | :--- |
 | No ready deployment on the route | `503`, `Retry-After`, alert raised |
-| Deployment unhealthy mid-request | LiteLLM retries against another member; if none, `503` |
-| LiteLLM unreachable | `502`; the gateway does not attempt to proxy directly to deployments |
+| Deployment unhealthy mid-request | The data plane retries against another member; if none, `503` |
+| Data plane unreachable | `502`; the gateway does not attempt to proxy directly to deployments |
+| Deployment hangs rather than refuses | Retried away from per request until the next sync removes it — after LiteLLM's cooldown, or for up to a sync interval under Bifrost, whose open-source build tracks no member health ([ADR 0009](../adr/0009-bifrost-as-the-default-data-plane.md)) |
 | Quota exceeded | `429` with limit, usage, and reset time |
 | Token revoked mid-stream | Stream completes; the next request is rejected |
 
@@ -99,3 +102,38 @@ Uniform across gateway and API. `code` is stable and machine-readable; `message`
 
 `request_id` appears in the usage record and in the gateway log, so a user's report is
 traceable to one row without guesswork.
+
+## 7. The data plane
+
+The process the gateway proxies to: a **separate, stateless, OpenAI-compatible router on the
+control-plane host**, and the gateway does not know which implementation it is talking to. Two
+exist — **Bifrost**, the default for a fresh install, and **LiteLLM**, the original
+([ADR 0003](../adr/0003-litellm-as-data-plane.md),
+[ADR 0009](../adr/0009-bifrost-as-the-default-data-plane.md)). `data_plane = "bifrost" |
+"litellm"` in `/etc/nodary/server.toml` selects. It is deployment configuration in
+[00 §1](00-overview.md#tool-versus-deployment)'s sense, like the bind address, and an upgrade
+never changes it; a file without the key reads as `litellm`, because that is what every install
+predating the key runs.
+
+Whichever runs, the contract is the same, and each clause is a test against the real pinned
+image rather than a reading of its documentation:
+
+| | |
+| :--- | :--- |
+| **Rendered, never edited** | Its configuration is rendered by `nodary gateway sync` from routes and deployments — only members the fleet reports `ready` and not `disabled`, each with its weight — and rewritten whenever a route or deployment moves ([05 §5](05-catalog.md#5-routes)) |
+| **Stateless** | No database, no persistent store, no configuration written through a UI or an API. Restarting it from the rendered file loses nothing, because nothing lives there |
+| **Records nothing** | Every request-logging, content-logging, tracing, caching and callback setting is written explicitly off, even where off is the default, and the rendered bytes are asserted before the file is written and re-checked on the host. Inside the boundary [ADR 0006](../adr/0006-cui-boundary-and-fips.md) draws, a default that moved under an upgrade is an incident |
+| **Loopback, one credential** | Bound to `127.0.0.1:4000`. It answers only with the credential the gateway holds in `gateway.env`; the client's own bearer never reaches it ([R3-04](../tasks/R3-gateway.md)). The credential exists in the clear in the rendered file and in `gateway.env`, both 0600, and the mode is the whole control ([08 §4](08-data-model.md#4-secrets-at-rest)). No unit passes it on a command line |
+| **Names who served** | Its response tells the gateway which member of the route answered, so a usage row carries the deployment, node and GPU ([§3](#3-metering)). A response that does not say attributes nothing; the gateway never guesses |
+| **Retries on another member** | A member that fails is retried on another before the client sees an error; when none remains, `503` ([§5](#5-failure-behavior)). The retry count and backoff are pinned in the rendered file, never inherited |
+| **Restarted on what it loaded** | `gateway sync` restarts it when the running process started on a configuration other than the one rendered, recorded by digest under `/run/nodary`, not when the file changed ([R3-14](../tasks/R3-gateway.md)) |
+| **Pinned and advised** | An image in the component manifest by digest ([ADR 0004](../adr/0004-release-artifacts-and-channels.md)), moved by `nodary upgrade`, named by the advisory feed |
+
+What differs between implementations is confined to one place in the code: the renderer, the
+assertion table, the unit, the image, the configuration file, and the field or header the
+served member arrives in. The proxy, the metering, the throttle and the allowlist do not branch
+on it. `nodary status` and `doctor` name which one is running.
+
+Switching is an operator's act on the host: change `data_plane`, run `nodary upgrade`. It
+writes the new unit, renders its configuration, stops the old unit and starts the new. The
+gateway is not restarted, because nothing it holds changes.

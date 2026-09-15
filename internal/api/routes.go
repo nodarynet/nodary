@@ -75,6 +75,13 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST", "/agent/renew", s.agentRenew)
 	h("GET", "/agent/dist/{name}", s.serveDist)
 
+	// R7-01: the console. Outside Prefix, like /setup, because these are the
+	// addresses a person opens rather than a program calls. The root is an
+	// exact match — a catch-all would also swallow a mistyped /api/v1 path and
+	// answer a program with a page.
+	mux.HandleFunc("GET /{$}", s.uiRoot)
+	mux.HandleFunc("GET "+UIPath+"{path...}", s.serveUI)
+
 	// The one address a person opens rather than a program calls, so it sits at
 	// the root and not under Prefix. Unauthenticated, like enrollment, and for
 	// the same reason: it runs before the credential it creates exists.

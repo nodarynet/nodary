@@ -285,6 +285,9 @@ type Inventory struct {
 	OS            string
 	DriverVersion string
 	GPUs          []GPU
+	// Topology is how the cards reach each other (R7-03). Empty on a host with
+	// one card, none, or on WSL2, all of which are answers rather than faults.
+	Topology Topology
 }
 
 // raw renders the inventory for the wire.
@@ -294,6 +297,11 @@ func (i Inventory) raw() api.Inventory {
 	if len(i.GPUs) > 0 {
 		if raw, err := json.Marshal(i.GPUs); err == nil {
 			out.GPUs = raw
+		}
+	}
+	if len(i.Topology.Matrix) > 0 {
+		if raw, err := json.Marshal(i.Topology); err == nil {
+			out.Topology = raw
 		}
 	}
 	return out
@@ -314,7 +322,7 @@ func LocalInventory(ctx context.Context) Inventory {
 	}
 	gpus = append(gpus, probeDRM(next)...)
 	return Inventory{Arch: runtime.GOARCH, OS: runtime.GOOS,
-		DriverVersion: driver, GPUs: gpus}
+		DriverVersion: driver, GPUs: gpus, Topology: probeTopology(ctx)}
 }
 
 // BackendNames is what this build can run, before node.toml narrows it.

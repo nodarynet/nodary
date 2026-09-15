@@ -123,6 +123,11 @@ type Node struct {
 	GPUs        json.RawMessage `json:"gpus"`
 	Offer       json.RawMessage `json:"offer"`
 	Constraints json.RawMessage `json:"constraints"`
+	// Topology is how this node's cards reach each other, from
+	// `nvidia-smi topo -m` (R7-03). `{}` on a host with one card, none, or on
+	// WSL2 — an index set is only sensible or not when there is more than one
+	// card to choose between.
+	Topology json.RawMessage `json:"topology"`
 
 	DeploymentCount int `json:"deployment_count"`
 	ReadyCount      int `json:"ready_count"`
@@ -199,14 +204,14 @@ const nodeColumns = `name, state, coalesce(last_seen, ''), coalesce(agent_versio
 	coalesce(driver_version, ''), reboot_policy, coalesce(cert_expires_at, ''),
 	coalesce(approved_by, ''), coalesce(approved_at, ''),
 	coalesce(upgrade_target, ''), coalesce(upgrade_error, ''),
-	gpus_json, offer_json, constraints_json`
+	gpus_json, offer_json, constraints_json, topology_json`
 
 func scanNode(s interface{ Scan(...any) error }, n *Node, now time.Time) error {
-	var gpus, offer, constraints string
+	var gpus, offer, constraints, topology string
 	if err := s.Scan(&n.Name, &n.State, &n.LastSeen, &n.AgentVersion, &n.Protocol,
 		&n.Arch, &n.OS, &n.DriverVersion, &n.RebootPolicy, &n.CertExpiresAt,
 		&n.ApprovedBy, &n.ApprovedAt, &n.UpgradeTarget, &n.UpgradeError,
-		&gpus, &offer, &constraints); err != nil {
+		&gpus, &offer, &constraints, &topology); err != nil {
 		return err
 	}
 	n.Stale = Stale(n.LastSeen, now)
@@ -214,6 +219,7 @@ func scanNode(s interface{ Scan(...any) error }, n *Node, now time.Time) error {
 	n.GPUs = json.RawMessage(gpus)
 	n.Offer = json.RawMessage(offer)
 	n.Constraints = json.RawMessage(constraints)
+	n.Topology = json.RawMessage(topology)
 	return nil
 }
 

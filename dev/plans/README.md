@@ -54,6 +54,7 @@ A plan carries three things the tracker cannot:
 | [R5b — Preflight, `doctor`, and the setup URL](R5b-preflight-and-doctor.md) | [R5](../tasks/R5-install.md) | R5-01, R5-02, R5-04, R5-18, R5-25 | complete |
 | [R5c — The privileged install](R5c-the-privileged-install.md) | [R5](../tasks/R5-install.md) | R5-09, R5-10 | built, unverified on a privileged host |
 | [R6a — A second GPU vendor](R6a-a-second-gpu-vendor.md) | [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) | R4-41, R4-42, R6-13, R6-14 | planned, nothing built |
+| [R3b — A second data plane, Bifrost as the default](R3b-a-second-data-plane.md) | [R3](../tasks/R3-gateway.md) | R3-17 – R3-25 | planned, nothing built; the spike decides the shape |
 
 ## Not a slice
 

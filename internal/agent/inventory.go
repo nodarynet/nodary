@@ -154,3 +154,103 @@ func CDIDevices(ctx context.Context) []string {
 	}
 	return names
 }
+
+// Topology is how a node's cards are connected to each other, from
+// `nvidia-smi topo -m`.
+//
+// **It is why an index set is sensible or not.** dev/specs/03-agent.md §7 lets
+// an operator assign GPUs by index, and two cards on the same NVLink behave
+// nothing like two cards that reach each other across the host bridge — the
+// second pair will run a tensor-parallel deployment at a fraction of the speed
+// for no visible reason. The offer says which cards exist; this says which of
+// them belong together.
+type Topology struct {
+	// Source names the command, because the vocabulary in Matrix is its and
+	// not ours: `NV12`, `PHB`, `SYS` mean what nvidia-smi says they mean, and a
+	// reader needs to know whose legend to look up.
+	Source string `json:"source"`
+	// GPUs are the column headings in order — `GPU0`, `GPU1` — so a matrix
+	// entry can be read without assuming the rows are dense or in index order.
+	GPUs []string `json:"gpus"`
+	// Matrix[i][j] is how GPUs[i] reaches GPUs[j]. Square, with the diagonal
+	// carrying whatever nvidia-smi puts there (`X`).
+	Matrix [][]string `json:"matrix"`
+}
+
+// probeTopology reads the connection matrix, or reports nothing.
+//
+// Nothing is a legitimate answer and not an error: a single-GPU host, a machine
+// with no NVIDIA cards, and WSL2 — where `nvidia-smi topo` is not implemented —
+// all reach it, and none of them is a fault. The parse is deliberately narrow:
+// it takes the columns whose heading begins `GPU` and ignores the affinity
+// columns and the legend, so a future release adding a column changes nothing
+// here.
+func probeTopology(ctx context.Context) Topology {
+	out, err := exec.CommandContext(ctx, preflight.Resolve("nvidia-smi"), "topo", "-m").Output()
+	if err != nil {
+		return Topology{}
+	}
+	return parseTopology(out)
+}
+
+// parseTopology is the matrix reader, apart from the command so that a test
+// can hand it what a real host printed.
+func parseTopology(out []byte) Topology {
+	var t Topology
+	var keep []int
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		// The heading is the first line whose own cells are GPU names; it has
+		// no row label, so the cells are the columns.
+		if t.GPUs == nil {
+			if !isCard(fields[0]) || strings.HasPrefix(line, "GPU") {
+				continue
+			}
+			for i, f := range fields {
+				if isCard(f) {
+					t.GPUs = append(t.GPUs, f)
+					keep = append(keep, i)
+				}
+			}
+			continue
+		}
+		// A row: its label, then one cell per column. The legend that follows
+		// the matrix has no row label beginning GPU, so it falls out here.
+		if !isCard(fields[0]) || len(t.Matrix) >= len(t.GPUs) {
+			continue
+		}
+		row := make([]string, 0, len(keep))
+		for _, i := range keep {
+			if i+1 < len(fields) {
+				row = append(row, fields[i+1])
+			}
+		}
+		if len(row) == len(t.GPUs) {
+			t.Matrix = append(t.Matrix, row)
+		}
+	}
+	if len(t.Matrix) == 0 {
+		return Topology{}
+	}
+	t.Source = "nvidia-smi topo -m"
+	return t
+}
+
+// isCard is `GPU` and a number, which is the only heading that names a card.
+//
+// **Not `strings.HasPrefix(f, "GPU")`,** which is what this was and which the
+// test caught: the header row ends `GPU NUMA ID`, so a prefix match counted a
+// fourth card on a three-card host, every row then failed its length check,
+// and the whole matrix was discarded as unparseable. A parser reading a
+// human-facing table has to be told what a column *is*, not what it starts
+// with.
+func isCard(f string) bool {
+	rest, ok := strings.CutPrefix(f, "GPU")
+	if !ok || rest == "" {
+		return false
+	}
+	return strings.IndexFunc(rest, func(r rune) bool { return r < '0' || r > '9' }) < 0
+}
