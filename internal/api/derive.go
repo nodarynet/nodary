@@ -74,6 +74,15 @@ func (s *Server) buildBackend(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// Refused before the build, not discovered after it. Without a component
+	// cache the export below would write a tar into this process's working
+	// directory, which is not anywhere a node can fetch from — so the image
+	// would be built, recorded, and unreachable.
+	if s.dist == "" {
+		s.fail(w, r, fmt.Errorf("this control plane serves no component cache, so a built "+
+			"image would have nowhere a node could fetch it from"))
+		return
+	}
 
 	// **A dry run does not build.** The rendered change is the recipe and the
 	// image it replaces, neither of which the build decides, so a preview that

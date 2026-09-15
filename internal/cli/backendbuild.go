@@ -43,12 +43,19 @@ var buildRuntime derive.Runner = runNerdctl
 // backend registration" as one area, and a `backend.build` permission mapped to
 // the same role would be vocabulary with no decision inside it.
 //
-// **Local only.** §5 puts builds on the control plane, and there is no endpoint
-// to forward one to — a `--server` build would have to run somewhere, and the
-// only somewhere is here.
+// **`--server` forwards the whole act, it does not build here.** §5 puts a
+// build on the control plane, so an operator at a laptop is asking the control
+// plane to build — the image, the mirror it is exported to and the runtime that
+// produced it all live there, and a build run locally would leave the result on
+// the wrong machine. What crosses the wire is the request and the attestation.
+//
+// It works because a preview does not build (internal/api's buildBackend says
+// why): `attested` renders remotely first to get the hash, and a preview that
+// built would spend the recipe's whole timeout twice for one image.
 func cmdBackendBuild(e env, args []string, verb string) int {
 	fs := newFlagSet(e, "backend "+verb)
 	dbPath, keyPath, credsPath := stateFlags(fs)
+	server := serverFlag(fs)
 	cer := attestFlags(fs)
 	format := formatFlag(fs)
 	distDir := fs.String("dist", "", "the component cache the mirror serves; defaults to "+
@@ -64,6 +71,36 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 		return ExitUsage
 	}
 	name := fs.Arg(0)
+
+	rem, code := remoteFor(e, "backend "+verb, *server, *credsPath, *dbPath, *keyPath)
+	if code >= 0 {
+		return code
+	}
+	if rem != nil {
+		path := "/backends/" + url.PathEscape(name) + "/build"
+		if verb == "rebuild" {
+			path = addQuery(path, "rebuild=true")
+		}
+		// Said rather than ignored, the way `config apply --no-sync` says it:
+		// the mirror a build exports to is a directory on the control-plane
+		// host, and this machine cannot write it.
+		if *distDir != "" {
+			fmt.Fprintf(e.stderr, "--dist has no effect over --server: the image is exported "+
+				"to the\ncontrol plane's own component cache.\n")
+		}
+		out, applied, code := rem.attested(e, "backend "+verb,
+			remoteAct{method: "POST", path: path}, cer, *format)
+		if !applied {
+			return code
+		}
+		digest, _ := out.Result["digest"].(string)
+		fmt.Fprintf(e.stderr,
+			"\n%s is %s. `nodary model register --backend %s` pins it into a deployment;\n"+
+				"deployments already on a previous digest keep serving until they are "+
+				"re-registered.\n", name, digest, name)
+		reportRecord(e, audit.Record{Seq: out.AuditSeq})
+		return ExitOK
+	}
 
 	s, ok := openSession(e, "backend "+verb, *dbPath, *keyPath, *credsPath)
 	if !ok {
