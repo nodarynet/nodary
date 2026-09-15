@@ -135,14 +135,24 @@ jobs:
           # Derived, never stored: the release anchor is the public half of the
           # key that signs the artifacts a few steps below, and a second copy
           # in a secret is a copy that can disagree with the signer.
-          minisign -R -s /tmp/nodary-minisign.key -p /tmp/nodary-minisign.pub
-          release_pub=$(sed -n '2p' /tmp/nodary-minisign.pub)
+          #
+          # `-f` because the file is already there: the install.sh signing step
+          # above recreates it to verify its own signature with, and a bare
+          # `minisign -R` refuses to overwrite and fails the release. Recreating
+          # rather than reading it keeps this step independent of that one.
+          minisign -R -f -s /tmp/nodary-minisign.key -p /tmp/nodary-minisign.pub
+          release_pub=$(awk 'NF{last=$0} END{print last}' /tmp/nodary-minisign.pub)
 
           # The bare payload line for the other two as well, because that is
           # what ParsePublicKey is handed and a newline inside an -X value is a
           # quoting problem with no upside.
-          manifest_pub=$(printf '%s\n' "$NODARY_MANIFEST_PUBKEY" | sed -n '$p')
-          advisory_pub=$(printf '%s\n' "$NODARY_ADVISORY_PUBKEY" | sed -n '$p')
+          #
+          # Last *non-empty* line, not last line: `sed -n 2p key.pub | gh secret
+          # set` stores a trailing newline, and `$p` on that resolves to the
+          # empty string — which this step would then refuse as "missing", about
+          # a secret that is present and correct.
+          manifest_pub=$(printf '%s\n' "$NODARY_MANIFEST_PUBKEY" | awk 'NF{last=$0} END{print last}')
+          advisory_pub=$(printf '%s\n' "$NODARY_ADVISORY_PUBKEY" | awk 'NF{last=$0} END{print last}')
 
           for pair in "NODARY_RELEASE_PUBKEY=$release_pub" \
                       "NODARY_MANIFEST_PUBKEY=$manifest_pub" \
