@@ -260,11 +260,12 @@ func TestANodeWithoutTheContainerToolkitIsRefused(t *testing.T) {
 	if found(Resolve("nvidia-ctk")) || found(Resolve("nvidia-container-cli")) {
 		t.Skip("this host has the toolkit; the refusal cannot be observed here")
 	}
-	if c := checkContainerToolkit(Options{Role: RoleNode}); c.Level != LevelFail {
+	ctx := context.Background()
+	if c := checkContainerToolkit(ctx, Options{Role: RoleNode}); c.Level != LevelFail {
 		t.Errorf("toolkit missing: level = %q, want %q", c.Level, LevelFail)
 	}
 	// A control plane runs no containers, so it must not be blocked by this.
-	if c := checkContainerToolkit(Options{Role: RoleServer}); c.Level != LevelSkip {
+	if c := checkContainerToolkit(ctx, Options{Role: RoleServer}); c.Level != LevelSkip {
 		t.Errorf("control plane: level = %q, want %q", c.Level, LevelSkip)
 	}
 }

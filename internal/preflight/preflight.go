@@ -166,7 +166,7 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkDisk("disk: components", o.DataDir, o.MinDataGB))
 	add(checkPorts(o))
 	add(checkIPTables(o))
-	add(checkContainerToolkit(o))
+	add(checkContainerToolkit(ctx, o))
 
 	// Warnings. 01 §11: these do not block.
 	add(checkSwap())
@@ -293,6 +293,12 @@ func checkDriver(ctx context.Context, o Options) Check {
 	}
 	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader")
 	if err != nil {
+		// A host whose GPUs are somebody else's is not a host with a broken
+		// NVIDIA driver, and this check is a hard failure for a node (R4-42).
+		if v := otherVendor(); v != "" {
+			notNVIDIA(&c, v, "the NVIDIA driver floor")
+			return c
+		}
 		c.Level = LevelFail
 		c.Detail = "nvidia-smi is not usable: " + err.Error()
 		return c
@@ -325,11 +331,29 @@ func checkGPUs(ctx context.Context, o Options) Check {
 	}
 	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader")
 	if err != nil {
+		// Reported rather than skipped: this check answers "does this host
+		// have GPUs at all", and cards the kernel can see are an answer to
+		// that even when nodary cannot place work on them yet.
+		if cards := DRMCards(); len(cards) > 0 {
+			c.Level = LevelSkip
+			names := make([]string, 0, len(cards))
+			for _, k := range cards {
+				names = append(names, k.Name)
+			}
+			c.Detail = fmt.Sprintf("%d %s device(s) the kernel can see: %s; nodary cannot "+
+				"place a deployment on them yet (R6-13, R6-14)",
+				len(cards), cards[0].Vendor, strings.Join(names, ", "))
+			return c
+		}
 		c.Level, c.Detail = LevelFail, "nvidia-smi is not usable: "+err.Error()
 		return c
 	}
 	lines := nonEmptyLines(string(out))
 	if len(lines) == 0 {
+		if cards := DRMCards(); len(cards) > 0 {
+			notNVIDIA(&c, cards[0].Vendor, "nvidia-smi")
+			return c
+		}
 		c.Level = LevelFail
 		c.Detail = "nvidia-smi enumerates no GPUs"
 		if isWSL() {
@@ -466,6 +490,10 @@ func checkRAMPerGPU(ctx context.Context, o Options) Check {
 	}
 	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
 	if err != nil {
+		if v := otherVendor(); v != "" {
+			notNVIDIA(&c, v, "nvidia-smi's memory query")
+			return c
+		}
 		c.Level, c.Detail = LevelWarn, "cannot enumerate GPUs to compare"
 		return c
 	}
@@ -720,11 +748,26 @@ func checkNFT(o Options) Check {
 //
 // So the host provides it, and preflight says so before anything is installed
 // rather than after a deployment has failed for a reason naming something else.
-func checkContainerToolkit(o Options) Check {
+func checkContainerToolkit(ctx context.Context, o Options) Check {
 	c := Check{Name: "container toolkit"}
 	if o.Role == RoleServer {
 		c.Level, c.Detail = LevelSkip, "not required for a control plane"
 		return c
+	}
+	// **Asked before the toolkit is looked for, not after.** The toolkit is
+	// needed exactly when an NVIDIA GPU is present — a host with AMD cards and
+	// a stray nvidia-ctk would otherwise report ok about a package that has
+	// nothing to do with how its GPUs reach a container. Keyed on the driver
+	// answering rather than on sysfs alone, so a mixed host with both an NVIDIA
+	// card and an integrated AMD one is still held to needing it.
+	if !nvidiaAnswers(ctx, o) {
+		if cards := DRMCards(); len(cards) > 0 {
+			c.Level = LevelSkip
+			c.Detail = fmt.Sprintf("not needed for %s: a card reaches a container through "+
+				"/dev/dri, not CDI; nodary cannot place a deployment on one yet "+
+				"(R6-13, R6-14)", cards[0].Vendor)
+			return c
+		}
 	}
 	if path := Resolve("nvidia-ctk"); found(path) {
 		c.Level, c.Detail = LevelOK, path
@@ -770,6 +813,13 @@ func checkFreeVRAM(ctx context.Context, o Options) Check {
 	out, err := o.run(ctx, "nvidia-smi", "--query-gpu=index,memory.free,memory.total",
 		"--format=csv,noheader,nounits")
 	if err != nil {
+		// Already a skip, so the change here is only that it says which of the
+		// two reasons it is: a host that is not NVIDIA, or a host where the
+		// query failed. "cannot read GPU memory" reads as a fault for both.
+		if v := otherVendor(); v != "" {
+			notNVIDIA(&c, v, "nvidia-smi's memory query")
+			return c
+		}
 		c.Level, c.Detail = LevelSkip, "cannot read GPU memory"
 		return c
 	}
