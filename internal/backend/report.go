@@ -19,13 +19,18 @@ type Report struct {
 	// deployment needs to know whether the descriptor came out of this binary
 	// or out of a file somebody added, because only one of those is the same
 	// on every host in the fleet.
-	Source        string       `json:"source"`
-	API           string       `json:"api"`
-	WeightsLayout string       `json:"weights_layout"`
-	MountPath     string       `json:"mount_path,omitempty"`
-	ContainerPort int          `json:"container_port"`
-	ImageDefault  string       `json:"image_default,omitempty"`
-	Capabilities  Capabilities `json:"capabilities"`
+	Source        string `json:"source"`
+	API           string `json:"api"`
+	WeightsLayout string `json:"weights_layout"`
+	MountPath     string `json:"mount_path,omitempty"`
+	ContainerPort int    `json:"container_port"`
+	ImageDefault  string `json:"image_default,omitempty"`
+	// Silicon is the GPU vendors this backend runs on. Rendered rather than
+	// derived on each side, because it is what `model register` filters its
+	// offer by and the CLI holds a Report whether it read the registry on this
+	// machine or over --server.
+	Silicon      []string     `json:"silicon"`
+	Capabilities Capabilities `json:"capabilities"`
 	// Args are the canonical parameter names this backend translates, and
 	// Extra the backend-specific ones it merely passes through. The
 	// distinction is the whole of dev/specs/04-backends.md §3, so it survives
@@ -95,6 +100,7 @@ func NewReport(d Descriptor, source, sha string) Report {
 		Name: b.Name, Source: source, API: b.API,
 		WeightsLayout: b.WeightsLayout, MountPath: b.MountPath,
 		ContainerPort: b.ContainerPort, ImageDefault: b.ImageDefault,
+		Silicon:      b.Silicon,
 		Capabilities: b.Capabilities,
 		Args:         keys(b.Args), Extra: keys(b.Extra),
 		Probe: b.Probe, Prepare: b.Prepare, SHA256: sha, Recipe: b.Derive,

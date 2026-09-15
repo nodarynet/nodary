@@ -75,7 +75,15 @@ func TestModelRegisterTurnsPlacedWeightsIntoAServedRoute(t *testing.T) {
 	if !strings.Contains(show, `"manifest_sha256"`) || strings.Contains(show, `"manifest_sha256": ""`) {
 		t.Errorf("the catalog entry carries no manifest digest:\n%s", show)
 	}
-	if !strings.Contains(show, "vllm/vllm-openai@sha256:") {
+	// **SGLang, not vLLM, and no --backend was passed.** R6-17 makes the
+	// default the backend this node's silicon actually runs, recommended out of
+	// dev/plans/R6b-the-silicon-matrix.md §3 — NVIDIA cards, so sglang. The
+	// choice is printed rather than assumed, because an operator who did not
+	// type it has to be able to see it.
+	if !strings.Contains(stdout, "backend") || !strings.Contains(stdout, "sglang") {
+		t.Errorf("the backend it chose is not reported:\n%s", stdout)
+	}
+	if !strings.Contains(show, "lmsysorg/sglang@sha256:") {
 		t.Errorf("the deployment does not pin an image by digest:\n%s", show)
 	}
 }

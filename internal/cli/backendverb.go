@@ -212,11 +212,15 @@ func cmdBackendList(e env, args []string) int {
 	if *format == "json" {
 		return writeJSON(e, "backend list", map[string]any{"backends": reports})
 	}
-	fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-17s %s\n",
-		"NAME", "API", "LAYOUT", "SOURCE", "CAPABILITIES")
+	// SILICON is here and not only in `backend show` because choosing a backend
+	// is a comparison — dev/plans/R6b-the-silicon-matrix.md §3's table is what
+	// an operator is reading this listing for, and three `backend show` calls
+	// is a worse way to see it than one column.
+	fmt.Fprintf(e.stdout, "%-12s %-8s %-13s %-17s %-17s %s\n",
+		"NAME", "API", "LAYOUT", "SILICON", "SOURCE", "CAPABILITIES")
 	for _, b := range reports {
-		fmt.Fprintf(e.stdout, "%-12s %-10s %-14s %-17s %s\n",
-			b.Name, b.API, b.WeightsLayout, sourceLine(b), capabilityLine(b))
+		fmt.Fprintf(e.stdout, "%-12s %-8s %-13s %-17s %-17s %s\n",
+			b.Name, b.API, b.WeightsLayout, siliconLine(b), sourceLine(b), capabilityLine(b))
 	}
 	return ExitOK
 }
@@ -271,6 +275,7 @@ func cmdBackendShow(e env, args []string) int {
 	fmt.Fprintf(e.stdout, "  api            %s\n", b.API)
 	fmt.Fprintf(e.stdout, "  weights        %s at %s\n", b.WeightsLayout, orElse(b.MountPath, "—"))
 	fmt.Fprintf(e.stdout, "  image          %s\n", orElse(b.ImageDefault, "—"))
+	fmt.Fprintf(e.stdout, "  silicon        %s\n", siliconLine(b))
 	// Only for a derive. "recipe —" against vLLM would put a build phase in
 	// front of an operator that vLLM has not got, the way "prepare —" would.
 	if r := b.Recipe; r != nil {
@@ -362,6 +367,15 @@ func registryDB(e env, verb, dbPath string) (*store.DB, bool) {
 		return nil, false
 	}
 	return db, true
+}
+
+// siliconLine renders the GPU vendors a backend runs on.
+//
+// "—" rather than "any" for a descriptor that declares none: a report with no
+// silicon is one whose descriptor failed to parse, and the vendors are the one
+// field where "unknown" must not read as "all".
+func siliconLine(b backend.Report) string {
+	return orElse(strings.Join(b.Silicon, "/"), "—")
 }
 
 // capabilityLine renders only what a backend *has*.

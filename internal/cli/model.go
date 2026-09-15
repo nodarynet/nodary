@@ -93,7 +93,8 @@ func cmdModelRegister(e env, args []string) int {
 	gpus := fs.String("gpu", "0", "GPU indices on that node, comma-separated")
 	port := fs.Int("port", 8001, "loopback port the deployment publishes (default: the first free one on that node)")
 	route := fs.String("route", "", "the name clients ask for (default: the model's name, lowercased)")
-	backendName := fs.String("backend", "vllm", "backend descriptor")
+	backendName := fs.String("backend", "",
+		"backend descriptor (default: what this node's GPUs run — sglang on NVIDIA, llama-cpp elsewhere)")
 	modelsDir := fs.String("models-dir", "", "where weights are staged (default "+agent.DefaultModelsDir()+")")
 	image := fs.String("image", "", "container image (default: the digest this build pins)")
 	gpuMemory := fs.Float64("gpu-memory", 0.80, "fraction of each card's VRAM to reserve")
@@ -137,6 +138,19 @@ func cmdModelRegister(e env, args []string) int {
 	name := *route
 	if name == "" {
 		name = strings.ToLower(id[strings.LastIndex(id, "/")+1:])
+	}
+
+	// Hoisted out of pinnedImage, which used to be the only thing that asked:
+	// --backend is now settled against the same answer, so the fleet is read
+	// once and the image and the backend cannot disagree about what this node
+	// is. It runs even when --image is given, because a backend placed on the
+	// wrong silicon is wrong whoever chose the image.
+	plat, vendor, ok := nodeTarget(e, rem, *dbPath, *node, indices)
+	if !ok {
+		return ExitFailure
+	}
+	if !chooseBackend(e, rem, *dbPath, *node, vendor, backendName) {
+		return ExitFailure
 	}
 
 	// The weights' layout comes from the backend, which
@@ -240,7 +254,7 @@ func cmdModelRegister(e env, args []string) int {
 
 	pinned := *image
 	if pinned == "" {
-		if pinned, ok = pinnedImage(e, rem, *dbPath, *backendName, *node, indices); !ok {
+		if pinned, ok = pinnedImage(e, rem, *dbPath, *backendName, plat, vendor); !ok {
 			return ExitFailure
 		}
 	}
@@ -406,7 +420,7 @@ func readRemoteManifest(e env, path string) (sum, body string, ok bool) {
 // whichever box the operator typed the command on. That was already wrong for
 // an arm64 node placed from an amd64 control plane — quietly, as an image that
 // will not run — and a vendor axis makes it wrong in a second direction.
-func pinnedImage(e env, rem *remote, dbPath, backend, node string, gpus []int) (string, bool) {
+func pinnedImage(e env, rem *remote, dbPath, backend, plat, vendor string) (string, bool) {
 	// **A derive's image is whatever its build produced**, so it is not in the
 	// component manifest and never will be — the manifest pins what a release
 	// ships, and this was made on this site. Read through the report so the
@@ -427,10 +441,6 @@ func pinnedImage(e env, rem *remote, dbPath, backend, node string, gpus []int) (
 	if !ok {
 		return "", false
 	}
-	plat, vendor, ok := nodeTarget(e, rem, dbPath, node, gpus)
-	if !ok {
-		return "", false
-	}
 	img, err := imageFor(m, backend, plat, vendor)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
@@ -438,6 +448,78 @@ func pinnedImage(e env, rem *remote, dbPath, backend, node string, gpus []int) (
 		return "", false
 	}
 	return img, true
+}
+
+// chooseBackend settles --backend against the silicon the node actually has:
+// R6-17, and dev/plans/R6b-the-silicon-matrix.md §3's table reaching the verb an
+// operator types.
+//
+// **A default, not a restriction.** An operator who names a backend gets it,
+// unless the node cannot run it at all — and then the refusal arrives here,
+// with the node in front of them, rather than as a model server on a GPU host
+// that cannot find CUDA and a machine they may have no shell on.
+//
+// The matrix is backend.Offer's, not this function's, so the install wizard
+// (R6-18) answers the same question the same way.
+func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string) bool {
+	reports, ok := backendReports(e, "model register", rem, dbPath)
+	if !ok {
+		return false
+	}
+	offer, recommend := backend.Offer(reports, vendor)
+
+	if *name == "" {
+		if recommend == "" {
+			// Reachable only on a site whose eligible backends are all its
+			// own: this build pins llama.cpp for every vendor it names. Saying
+			// so beats picking one of somebody else's descriptors and calling
+			// it a recommendation.
+			fmt.Fprintf(e.stderr, "nodary model register: no backend this build pins runs on "+
+				"%s GPUs.\n  Name one with --backend: %s\n",
+				orElse(vendor, "this node's"),
+				orElse(strings.Join(offer, ", "), "nothing registered here either"))
+			return false
+		}
+		*name = recommend
+		why := "recommended"
+		if vendor != "" {
+			why = "recommended for " + vendor + " GPUs on " + node
+		}
+		fmt.Fprintf(e.stdout, "%s %-18s %s (%s)\n", mark(preflight.LevelOK), "backend", *name, why)
+		return true
+	}
+
+	// An unknown name is left alone: weightsLayoutFor refuses it a moment
+	// later, naming what this build and this registry actually have, which is
+	// the message worth getting. And a node that has offered nothing is not
+	// judged — guessing a vendor here would refuse a correct command.
+	if vendor == "" {
+		return true
+	}
+	for _, r := range reports {
+		if r.Name != *name || r.RunsOn(vendor) {
+			continue
+		}
+		fmt.Fprintf(e.stderr, "nodary model register: %s has %s GPUs and %s runs on %s.\n",
+			node, vendor, *name, orElse(strings.Join(r.Silicon, ", "), "nothing it declares"))
+		fmt.Fprintf(e.stderr, "  On this node: %s\n", alternatives(offer, recommend))
+		return false
+	}
+	return true
+}
+
+// alternatives is what the operator can have instead, with the recommendation
+// marked — and marked only when there is more than one to choose between.
+func alternatives(offer []string, recommend string) string {
+	switch {
+	case len(offer) == 0:
+		return "nothing"
+	case recommend == "":
+		return strings.Join(offer, ", ")
+	case len(offer) == 1:
+		return offer[0] + " (recommended)"
+	}
+	return strings.Join(offer, ", ") + " (recommended: " + recommend + ")"
 }
 
 // nodeTarget is the platform and GPU vendor an image has to run on.

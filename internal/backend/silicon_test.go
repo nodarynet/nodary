@@ -122,3 +122,64 @@ timeout_s = 1800
 		t.Errorf("a derive claiming its own silicon was accepted: %v", err)
 	}
 }
+
+// R6b §3's table, driven. One ordered preference list has to reproduce a
+// per-vendor matrix exactly, or the matrix is written down in two places.
+func TestTheOfferIsTheMatrix(t *testing.T) {
+	all, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := Reports(all)
+	for _, c := range []struct {
+		vendor    string
+		offer     []string
+		recommend string
+	}{
+		{"nvidia", []string{"llama-cpp", "sglang", "vllm"}, "sglang"},
+		{"amd", []string{"llama-cpp"}, "llama-cpp"},
+		{"intel", []string{"llama-cpp"}, "llama-cpp"},
+		// A node that has offered nothing, and a GPU offered before there was
+		// a vendor axis at all. Both are nvidia, everywhere else in the tree.
+		{"", []string{"llama-cpp", "sglang", "vllm"}, "sglang"},
+	} {
+		offer, recommend := Offer(reports, c.vendor)
+		if strings.Join(offer, ",") != strings.Join(c.offer, ",") {
+			t.Errorf("%q offers %v, want %v", c.vendor, offer, c.offer)
+		}
+		if recommend != c.recommend {
+			t.Errorf("%q recommends %q, want %q", c.vendor, recommend, c.recommend)
+		}
+	}
+}
+
+// A site's own descriptor is offered on the silicon it declares and is never
+// recommended: this build has no basis for suggesting an image it has not
+// tested, and a descriptor that could nominate itself would outrank the ones
+// that were.
+func TestARegisteredDescriptorIsOfferedAndNotRecommended(t *testing.T) {
+	mine := Report{Name: "sglang-rocm", Source: SourceRegistered, Silicon: []string{"amd"}}
+	all, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := append(Reports(all), mine)
+
+	offer, recommend := Offer(reports, "amd")
+	if strings.Join(offer, ",") != "llama-cpp,sglang-rocm" {
+		t.Errorf("offer = %v, want the registered one beside llama-cpp", offer)
+	}
+	if recommend != "llama-cpp" {
+		t.Errorf("recommend = %q, want the backend this build pins", recommend)
+	}
+
+	// And when nothing this build pins is eligible, there is an offer and no
+	// recommendation — which is a different answer from having nothing.
+	offer, recommend = Offer([]Report{mine}, "amd")
+	if len(offer) != 1 || offer[0] != "sglang-rocm" {
+		t.Errorf("offer = %v, want the one descriptor that runs there", offer)
+	}
+	if recommend != "" {
+		t.Errorf("recommend = %q, want no suggestion at all", recommend)
+	}
+}

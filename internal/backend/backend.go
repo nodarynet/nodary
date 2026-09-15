@@ -263,16 +263,6 @@ func (p Prepare) Argv(src, out string, tensorParallel int) ([]string, error) {
 var (
 	apis    = []string{"openai", "triton", "custom"}
 	layouts = []string{"hf-cache", "single-file", "engine-dir"}
-	// silicon is internal/preflight's vendor vocabulary and nothing finer.
-	// dev/plans/R6b-the-silicon-matrix.md §2 is why three names are enough:
-	// the splits that would need more of them — ROCm or not, RDNA or CDNA —
-	// exist only inside images this release does not pin. Widening it is a
-	// decision with a plan behind it, not a word somebody adds here.
-	//
-	// Not imported from internal/preflight: that package probes a host, and a
-	// descriptor parser that cannot run on a machine with no GPU at all is
-	// worse than three strings written twice.
-	silicon = []string{"nvidia", "amd", "intel"}
 )
 
 // Parse reads one descriptor.
@@ -553,18 +543,6 @@ func (d Descriptor) Args(modelPath string, p Params, extra []string) ([]string, 
 
 // render substitutes {v}. A template may hold a space — llama.cpp's `-m {v}` —
 // so the result is split into separate argv elements rather than left as one.
-// RunsOn is whether this backend declares it runs on a vendor's silicon.
-//
-// The empty vendor is nvidia, which is agent.GPU.VendorName's default and the
-// manifest's base entry: every image nodary pins is a CUDA build, and a vendor
-// key names what differs from that rather than restating it.
-func (d Descriptor) RunsOn(vendor string) bool {
-	if vendor == "" {
-		vendor = "nvidia"
-	}
-	return contains(d.Backend.Silicon, vendor)
-}
-
 func render(tmpl, v string) string { return strings.ReplaceAll(tmpl, "{v}", v) }
 
 // scalar is how a canonical parameter becomes a command-line value.
