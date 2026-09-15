@@ -124,13 +124,13 @@ func TestEventsAreEmittedOnAChangeAndNotOnEveryReport(t *testing.T) {
 
 	// The first sighting of a deployment is not a change. A restarted agent
 	// would otherwise write an event for everything already running.
-	d.noteChange("dep_a", "ready", "", EgressVerdict{State: "compliant"})
+	d.noteChange("dep_a", "ready", "", 0, EgressVerdict{State: "compliant"})
 	if got := d.events.Take(time.Now()); len(got) != 0 {
 		t.Errorf("the first report of a deployment emitted %v", actions(got))
 	}
 
 	// Holding steady says nothing.
-	d.noteChange("dep_a", "ready", "", EgressVerdict{State: "compliant"})
+	d.noteChange("dep_a", "ready", "", 0, EgressVerdict{State: "compliant"})
 	if got := d.events.Take(time.Now()); len(got) != 0 {
 		t.Errorf("an unchanged report emitted %v", actions(got))
 	}
@@ -138,7 +138,7 @@ func TestEventsAreEmittedOnAChangeAndNotOnEveryReport(t *testing.T) {
 	// A breach, and then its clearing. Both directions: a breach that cleared
 	// is the half an assessor needs, because it says the control was not in
 	// force for a window and when.
-	d.noteChange("dep_a", "ready", "", EgressVerdict{State: "non-compliant", Reason: "reached 1.1.1.1:443"})
+	d.noteChange("dep_a", "ready", "", 0, EgressVerdict{State: "non-compliant", Reason: "reached 1.1.1.1:443"})
 	got := d.events.Take(time.Now())
 	if len(got) != 1 || got[0].Action != "node.egress_non_compliant" {
 		t.Fatalf("a breach emitted %v", actions(got))
@@ -148,7 +148,7 @@ func TestEventsAreEmittedOnAChangeAndNotOnEveryReport(t *testing.T) {
 	}
 	d.events.Delivered(len(got))
 
-	d.noteChange("dep_a", "ready", "", EgressVerdict{State: "compliant"})
+	d.noteChange("dep_a", "ready", "", 0, EgressVerdict{State: "compliant"})
 	if got := actions(d.events.Take(time.Now())); len(got) != 1 || got[0] != "node.egress_compliant" {
 		t.Errorf("the breach clearing emitted %v", got)
 	}
@@ -156,7 +156,7 @@ func TestEventsAreEmittedOnAChangeAndNotOnEveryReport(t *testing.T) {
 
 	// A failure carries its reason, and recovering from one says nothing —
 	// the recovery shows as the next state on the heartbeat.
-	d.noteChange("dep_a", "failed", "the image is not pinned", EgressVerdict{State: "compliant"})
+	d.noteChange("dep_a", "failed", "the image is not pinned", 0, EgressVerdict{State: "compliant"})
 	got = d.events.Take(time.Now())
 	if len(got) != 1 || got[0].Action != "node.deployment_failed" {
 		t.Fatalf("a failure emitted %v", actions(got))

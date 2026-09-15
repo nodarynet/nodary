@@ -499,13 +499,13 @@ func TestReadyMeansServingNotMerelyActive(t *testing.T) {
 	}}
 	u := Unit{Deployment: "d1"}
 
-	if got, _ := d.observedState(context.Background(), u, Status{Health: "unknown"}); got != "starting" {
+	if got, _ := observedDetail(d, u, Status{Health: "unknown"}); got != "starting" {
 		t.Errorf("active with unknown health = %q, want starting", got)
 	}
-	if got, _ := d.observedState(context.Background(), u, Status{Health: "unhealthy"}); got != "starting" {
+	if got, _ := observedDetail(d, u, Status{Health: "unhealthy"}); got != "starting" {
 		t.Errorf("active but unhealthy = %q, want starting", got)
 	}
-	if got, _ := d.observedState(context.Background(), u, Status{Health: "healthy"}); got != "ready" {
+	if got, _ := observedDetail(d, u, Status{Health: "healthy"}); got != "ready" {
 		t.Errorf("active and healthy = %q, want ready", got)
 	}
 
@@ -515,7 +515,7 @@ func TestReadyMeansServingNotMerelyActive(t *testing.T) {
 			return nil, errNotActive
 		},
 	}}
-	if got, _ := down.observedState(context.Background(), u, Status{Health: "healthy"}); got != "stopped" {
+	if got, _ := observedDetail(down, u, Status{Health: "healthy"}); got != "stopped" {
 		t.Errorf("an inactive unit = %q, want stopped", got)
 	}
 }
@@ -528,13 +528,22 @@ var errNotActive = errors.New("inactive")
 // limit); this is the agent telling `failed` apart from `stopped`, which it
 // could not do while it compared is-active's output against "active" and
 // dropped the rest.
+// observedDetail is what an operator sees: the state, and the reason joined
+// with what the container printed the way report() joins them for
+// deployment.last_error. The chain's copy is the reason alone — R4-45, covered
+// in events_test.go.
+func observedDetail(d *Daemon, u Unit, s Status) (string, string) {
+	state, reason, logs := d.observedState(context.Background(), u, s)
+	return state, failureText(reason, logs)
+}
+
 func TestACrashLoopedUnitIsFailedWithItsLog(t *testing.T) {
 	h, f := newFakeHost(t)
 	f.failed["nodary-model@d1.service"] = true
 	f.journal = "RuntimeError: CUDA out of memory"
 	d := &Daemon{Host: h}
 
-	state, detail := d.observedState(context.Background(), Unit{Deployment: "d1"}, Status{Health: "unknown"})
+	state, detail := observedDetail(d, Unit{Deployment: "d1"}, Status{Health: "unknown"})
 	if state != "failed" {
 		t.Errorf("state = %q, want failed: systemd stopped restarting it", state)
 	}
@@ -555,7 +564,7 @@ func TestAFailureAlwaysCarriesAReasonEvenWithNoLog(t *testing.T) {
 	f.journal = ""
 	d := &Daemon{Host: h}
 
-	state, detail := d.observedState(context.Background(), Unit{Deployment: "d1"}, Status{Health: "unknown"})
+	state, detail := observedDetail(d, Unit{Deployment: "d1"}, Status{Health: "unknown"})
 	if state != "failed" || detail == "" {
 		t.Errorf("state = %q, detail = %q; want failed with a non-empty reason", state, detail)
 	}
@@ -574,12 +583,12 @@ func TestADeploymentThatNeverBecomesReadyFailsAtItsTimeout(t *testing.T) {
 
 	// Under the timeout it is starting, not failed: a model server loading
 	// weights legitimately answers nothing for minutes.
-	if state, _ := d.observedState(context.Background(), u,
+	if state, _ := observedDetail(d, u,
 		Status{Health: "unknown", Waiting: 59 * time.Second}); state != "starting" {
 		t.Errorf("state = %q at 59s of a 60s timeout, want starting", state)
 	}
 
-	state, detail := d.observedState(context.Background(), u,
+	state, detail := observedDetail(d, u,
 		Status{Health: "unknown", Waiting: 61 * time.Second})
 	if state != "failed" {
 		t.Errorf("state = %q past the timeout, want failed", state)
@@ -589,7 +598,7 @@ func TestADeploymentThatNeverBecomesReadyFailsAtItsTimeout(t *testing.T) {
 	}
 
 	// A deployment that is answering is ready regardless of how long it took.
-	if state, _ := d.observedState(context.Background(), u,
+	if state, _ := observedDetail(d, u,
 		Status{Health: "healthy", Waiting: 0}); state != "ready" {
 		t.Errorf("state = %q for a healthy deployment, want ready", state)
 	}
@@ -769,7 +778,7 @@ func TestADeploymentWaitingOnItsBuildIsNotReportedStopped(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &Daemon{Host: h, last: Plan{Prepare: []Prepared{tc.prepared}}}
-			state, detail := d.observedState(context.Background(), u, Status{Health: "unknown"})
+			state, detail := observedDetail(d, u, Status{Health: "unknown"})
 			if state != tc.wantState {
 				t.Fatalf("state = %q, want %q", state, tc.wantState)
 			}

@@ -387,7 +387,12 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 	}
 	for _, u := range d.last.Units {
 		s := byID[u.Deployment]
-		state, detail := d.observedState(ctx, u, s)
+		state, reason, logs := d.observedState(ctx, u, s)
+		// The operator's copy carries both. `deployment.last_error` is
+		// overwritten by the next failure and read by `nodary node show` and
+		// GET /deployments/{id}/logs; the chain's copy, below, gets the reason
+		// and the log's size rather than its content (R4-45).
+		detail := failureText(reason, logs)
 		artifact := ""
 		if b, needs := built[u.Deployment]; needs && b.State == StatePrepared {
 			artifact = b.Key
@@ -396,7 +401,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 		if restartFinished(d.restarting, u.Deployment, state) {
 			body.RestartDone = append(body.RestartDone, u.Deployment)
 		}
-		d.noteChange(u.Deployment, state, detail, d.lastEgress[u.Deployment])
+		d.noteChange(u.Deployment, state, reason, len(logs), d.lastEgress[u.Deployment])
 		body.Deployments = append(body.Deployments, api.StatusUnit{
 			ID:     u.Deployment,
 			State:  state,
@@ -607,7 +612,7 @@ func stagingStatus(st Stage) api.StatusStaging {
 // ordinarily, and for a failure the reason plus the tail of the unit's log,
 // which dev/specs/11-failure-modes.md §2 asks for and 0006_fleet.sql's
 // CHECK (state <> 'failed' OR last_error IS NOT NULL) requires.
-func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, detail string) {
+func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, reason, logs string) {
 	// **Before systemd is believed.** A deployment whose engine is still
 	// compiling has no unit started, so activeState reports `inactive` and the
 	// switch below reads that as `stopped` — true of the unit, false of the
@@ -619,9 +624,9 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 			continue
 		}
 		if b.State == StateFailed {
-			return "failed", b.Reason
+			return "failed", b.Reason, ""
 		}
-		return "preparing", b.Reason
+		return "preparing", b.Reason, ""
 	}
 	switch d.Host.activeState(ctx, UnitName(u.Deployment)) {
 	case "active":
@@ -631,9 +636,10 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 		// kept kicking would be the system grinding against a failure
 		// instead of an operator seeing one. `nodary model restart` is the
 		// explicit unstick, the same shape `restage` is for corrupt weights.
-		return "failed", d.failureDetail(ctx, u, "systemd stopped restarting it after repeated failures")
+		reason, logs := d.failureDetail(ctx, u, "systemd stopped restarting it after repeated failures")
+		return "failed", reason, logs
 	default:
-		return "stopped", s.Error
+		return "stopped", s.Error, ""
 	}
 	// **Active is not ready.** dev/specs/03-agent.md §7 waits for `ready` and
 	// counts ready replicas before allowing a rolling restart to proceed, so
@@ -646,7 +652,7 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 	// when no container existed at all, and would let a rolling restart count a
 	// still-pulling replica as the last live one.
 	if s.Health == "healthy" {
-		return "ready", ""
+		return "ready", "", ""
 	}
 
 	// R4-21, the other half: a deployment that never becomes ready is failed
@@ -656,13 +662,14 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 	// so it means "has not served yet", not "is unwell now" — the latter is
 	// `unhealthy`, which R4-20 already decides and which does not expire.
 	if timeout := time.Duration(u.Probe.ReadyTimeoutS) * time.Second; timeout > 0 && s.Waiting > timeout {
-		return "failed", d.failureDetail(ctx, u,
+		reason, logs := d.failureDetail(ctx, u,
 			fmt.Sprintf("never answered %s in the %s its backend allows", u.Probe.Health, timeout))
+		return "failed", reason, logs
 	}
-	return "starting", s.Error
+	return "starting", s.Error, ""
 }
 
-// failureDetail is why it failed plus the tail of the unit's log.
+// failureDetail is why it failed, and separately the tail of the unit's log.
 //
 // dev/specs/11-failure-modes.md §2 asks for the last 100 lines, and
 // 0006_fleet.sql's CHECK (state <> 'failed' OR last_error IS NOT NULL) makes
@@ -671,12 +678,32 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 // reason stands alone when the journal has nothing to add, and the log is
 // bounded by tail() — an error message is evidence, a megabyte of one is a
 // denial of service against the heartbeat.
-func (d *Daemon) failureDetail(ctx context.Context, u Unit, why string) string {
-	logs := d.Host.LogTail(ctx, UnitName(u.Deployment), 100)
-	if logs == "" {
-		return why
+//
+// **Two returns, not one string, and that is the whole of R4-45.** The unit's
+// ExecStart is `nerdctl run`, so this journal is the *container's* stdout and
+// nothing in nodary constrains what a backend prints into it. Joined, it went
+// to two places: `deployment.last_error`, which the next failure overwrites
+// and an operator reads, and the `node.deployment_failed` event, which is a
+// record in an append-only chain that dev/specs/13-evidence.md exports to an
+// assessor. Separated, the caller can send the reason to both and the log to
+// only the first.
+func (d *Daemon) failureDetail(ctx context.Context, u Unit, why string) (reason, logs string) {
+	out := d.Host.LogTail(ctx, UnitName(u.Deployment), 100)
+	if out == "" {
+		return why, ""
 	}
-	return why + "\n" + tail([]byte(logs))
+	return why, tail([]byte(out))
+}
+
+// failureText is the operator's copy: nodary's own reason for the failure and
+// what the container printed, joined. `deployment.last_error` carries this and
+// the audit chain does not (R4-45), so the join lives in one place rather than
+// being open-coded at each caller that wants the whole of it.
+func failureText(reason, logs string) string {
+	if logs == "" {
+		return reason
+	}
+	return reason + "\n" + logs
 }
 
 // Backoff, with jitter. dev/specs/11-failure-modes.md §1 asks for both: the
@@ -750,7 +777,7 @@ type reportedState struct {
 // The first report of a deployment is not a change. A node restarting would
 // otherwise write an event for everything it is already running, which is
 // noise at exactly the moment somebody is reading the chain.
-func (d *Daemon) noteChange(deployment, state, detail string, egress EgressVerdict) {
+func (d *Daemon) noteChange(deployment, state, reason string, logBytes int, egress EgressVerdict) {
 	if d.events == nil {
 		return
 	}
@@ -765,10 +792,22 @@ func (d *Daemon) noteChange(deployment, state, detail string, egress EgressVerdi
 	}
 
 	if state != was.state && state == "failed" {
+		detail := map[string]any{"reason": reason, "from": was.state}
+		// **The log's size, never the log.** R4-45: this journal is the
+		// container's own stdout, a chain record cannot be retracted, and
+		// dev/specs/13-evidence.md hands a segment of the chain to an
+		// assessor. The reason is nodary's own sentence about what happened
+		// and is safe to carry; what the container printed is not, because
+		// nothing constrains what that is. Recording the size keeps the fact
+		// that a log exists — an assessor can see one was captured, and
+		// `nodary node show` or GET /deployments/{id}/logs holds it.
+		if logBytes > 0 {
+			detail["captured_log_bytes"] = logBytes
+		}
 		d.events.Add(api.NodeEvent{
 			ID: eventID(), At: now.UTC().Format(api.EventTimeFormat),
 			Action: "node.deployment_failed", Target: deployment,
-			Detail: map[string]any{"reason": detail, "from": was.state},
+			Detail: detail,
 		})
 	}
 	// Every move of the egress verdict, in both directions. A breach that
