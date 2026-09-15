@@ -26,10 +26,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/identity"
 )
 
 // StaleAfter is dev/specs/11-failure-modes.md §1's silence threshold.
@@ -456,4 +459,44 @@ func EgressState(deployments []Deployment) string {
 		return EgressCompliant
 	}
 	return EgressInconclusive
+}
+
+// Log is what the fleet holds of one deployment's output.
+//
+// **Captured, not streamed.** dev/specs/00-overview.md §2 makes traffic to a
+// node agent-initiated, so the control plane has no channel to ask one for a
+// container's stdout on demand — the same wall `gateway sync` met for a route
+// on another node. What it does hold is what
+// dev/specs/11-failure-modes.md §2 already asks the agent to capture: the last
+// hundred lines of the unit's journal, sent on the heartbeat that reported the
+// failure. So this answers "why did it fail", which is the question an
+// operator has, and not "what is it printing now", which needs a channel that
+// does not exist.
+type Log struct {
+	Deployment string `json:"deployment"`
+	Node       string `json:"node"`
+	State      string `json:"state"`
+	// CapturedAt is the deployment's last update, which for a failure is when
+	// the lines below were taken. Named for what it is rather than reused as
+	// `updated_at`: a timestamp that means two things is read as the wrong one.
+	CapturedAt string `json:"captured_at"`
+	// Lines is empty for a deployment that has not failed, and that is an
+	// answer rather than a gap — nothing is captured while a deployment is
+	// healthy, so an empty string here is "it has not failed", not "the log
+	// was lost".
+	Lines string `json:"lines"`
+}
+
+// DeploymentLog reads what was captured for one deployment.
+func DeploymentLog(ctx context.Context, q config.Querier, id string) (Log, error) {
+	out := Log{Deployment: id}
+	err := q.QueryRowContext(ctx,
+		`SELECT node_name, state, coalesce(last_error, ''), updated_at
+		 FROM deployment WHERE id = ?`, id).
+		Scan(&out.Node, &out.State, &out.Lines, &out.CapturedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Log{}, fmt.Errorf("%w: no deployment %q; `nodary node show` names them",
+			identity.ErrNotFound, id)
+	}
+	return out, err
 }

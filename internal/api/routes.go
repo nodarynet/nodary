@@ -134,6 +134,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/models/{id}", s.showFleet("models"))
 	h("GET", "/deployments", s.listFleet("deployments"))
 	h("GET", "/deployments/{id}", s.showFleet("deployments"))
+	h("GET", "/deployments/{id}/logs", s.deploymentLogs)
 	h("GET", "/routes", s.listFleet("routes"))
 	h("GET", "/routes/{name}", s.showFleet("routes"))
 	h("PUT", "/routes/{name}", s.putRoute)
@@ -626,6 +627,33 @@ func (s *Server) showBackend(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("%w: %s", identity.ErrNotFound, err)
 		}
 		return rep, nil
+	})
+}
+
+// deploymentLogs is GET /deployments/{id}/logs — R2-29.
+//
+// **What was captured, not a live tail, and the difference is not a
+// limitation to apologize for.** dev/specs/00-overview.md §2 makes traffic to
+// a node agent-initiated, so the control plane has no channel to ask one for a
+// container's stdout on demand; R3-14 met the same wall for a route on another
+// node and named it rather than rendering something that answers nothing. What
+// does exist is dev/specs/11-failure-modes.md §2's capture: the agent sends the
+// last hundred lines of the unit's journal on the heartbeat that reports a
+// failure, and they are kept against the deployment. That answers the question
+// an operator actually arrives with — why did this fail — from a control plane
+// that never had to reach into the node to learn it.
+//
+// Its own path rather than a field on GET /deployments/{id}, because that
+// endpoint answers from the configuration snapshot: it says what was asked
+// for, and this says what happened. Addressed by deployment id so an operator
+// does not have to know which node it landed on first.
+//
+// PermStateRead, like every other fleet read. The same bytes already reach a
+// viewer through GET /nodes/{name}, so gating this path more tightly would be
+// theater rather than a control.
+func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request) {
+	s.read(w, r, string(identity.PermStateRead), func(d core.Deps) (any, error) {
+		return fleet.DeploymentLog(r.Context(), d.DB.Read(), r.PathValue("id"))
 	})
 }
 
