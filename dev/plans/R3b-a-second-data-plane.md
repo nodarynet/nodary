@@ -160,11 +160,18 @@ rewrites that one field, the way it already rewrites `stream_options`
 Attribution is the gateway's own pick unless a fallback served the request, which needs a
 provider-level signal — the same measurement as K's, one level up.
 
-**The rule.** K if gate 1 finds a key-level signal; P if it finds only a provider-level one. K
-is preferred because it keeps member selection in the component that owns retries, which is
-ADR 0003's split; P is acceptable because the gateway already holds the ready set and a weighted
-pick is a few lines rather than a router. Whichever wins, the other is deleted rather than kept
-behind a flag.
+**The rule, as written.** K if gate 1 finds a key-level signal; P if it finds only a
+provider-level one. K is preferred because it keeps member selection in the component that
+owns retries, which is ADR 0003's split; P is acceptable because the gateway already holds the
+ready set and a weighted pick is a few lines rather than a router. Whichever wins, the other is
+deleted rather than kept behind a flag.
+
+**Settled: P, and the rule above was wrong** ([gate 1](../spike-bifrost.md#6-gate-1--both-shapes-report-who-served-only-one-of-them-fails-over)).
+Both shapes report who served, accurately, streamed and not — so the rule's test picks K. Its
+*reason* does not survive contact: Bifrost retries inside a key and fails over only between
+providers, so shape K returns `502` to the client when a member dies rather than trying the
+next one, and cannot satisfy [R3-14](../tasks/R3-gateway.md). P also reports more — `is_fallback`
+and `primary_provider`, which say who was *meant* to serve as well as who did. K is deleted.
 
 ### 3.4 The credential lives where LiteLLM's does
 
@@ -246,7 +253,7 @@ rather than a property of whichever plane happens to speak more dialects.
   - part of gate 2 is measured and written up in [the spike](../spike-bifrost.md): the vendor round trip, and the cold start that fails without it. Gates 1 and 3 remain
 - [ ] R3-17 — the seam, LiteLLM alone behind it, no behavior change, every test green
 - [ ] R3-18 — `bifrost` in the manifest by digest, generated, moved by `upgrade`
-- [ ] R3-19 — the renderer in the shape the spike chose, the pinned table, the assertion — **two files**: `bifrost.json` and the stub datasheet its `file://` URLs name ([the spike](../spike-bifrost.md#3-file-works-and-the-content-is-almost-free))
+- [ ] R3-19 — the renderer in **shape P** (§3.3, settled by the spike), the pinned table, the assertion — **two files**: `bifrost.json` and the stub datasheet its `file://` URLs name ([the spike](../spike-bifrost.md#3-file-works-and-the-content-is-almost-free))
 - [ ] R3-20 — the credential, the locked admin surface, the unit, no secret on argv
 - [ ] R3-21 — attribution through the signal the spike found, asserted against the image streamed and not
 - [ ] R3-22 — the real image on the generated file, through the gateway, the canary searched for
@@ -289,8 +296,12 @@ does.
   object is `additionalProperties: false`: a block written at the wrong depth is accepted,
   ignored, and leaves no message.
 
-- **The hung-member window.** Bifrost's open-source build has no cooldown, so between a member
-  hanging and the next sync, a weight's share of requests wait a timeout before falling back.
+- **The hung-member window, now measured at 15.7 s.** A request whose primary member had gone
+  away entirely took 15.7 seconds to come back from the fallback
+  ([gate 1](../spike-bifrost.md#two-numbers-worth-keeping)), and pays that on every request
+  until `gateway sync` removes the member. Bifrost's open-source build has no cooldown, so
+  between a member hanging and the next sync, a weight's share of requests wait a timeout
+  before falling back.
   The sync interval is a minute and the agent's probe needs three failures first
   ([03 §7](../specs/03-agent.md#7-gpu-assignment-health-restart-reboot)). If the spike's timeout
   numbers make that window worse than [11 §4](../specs/11-failure-modes.md#4-gateway) should

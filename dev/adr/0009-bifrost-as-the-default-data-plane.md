@@ -9,7 +9,9 @@ passes its three gates, and not before. [ADR 0008](0008-container-runtime.md) wa
 its measurements; this one is written before them, and says so rather than reading as though
 the measurements were in.
 
-**Part of gate 2 has run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather than the
+**Gate 1 has run and chose shape P** — not the shape §3.3's rule pointed at. Both shapes name
+who served, accurately; only one fails over, because Bifrost retries inside a key and falls
+back only between providers. §2's `max_retries` row is corrected below. **Part of gate 2 has run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather than the
 v1 documentation this was written from. It found nothing that stops the decision and two
 things that change §2: the data plane reaches its vendor on a timer, and on defaults it
 **refuses to start** without that reach. Both are pinned in §2's table below. Gates 1 and 3
@@ -110,7 +112,8 @@ because the failure looks exactly like success:
 | `plugins` | none | a plugin is how content leaves the process — `otel`, `maxim`, `datadog` and `semantic_cache` each do |
 | `mcp` | absent | a tool executor in the data path is a new capability, never a default |
 | `governance.auth_config.is_enabled` | `true`, under a credential nobody keeps | Bifrost has no switch that removes its dashboard and admin API, and both are open until an administrator exists. On loopback, locked under a password rendered and recorded nowhere, they are off in effect |
-| `providers.*.network_config.max_retries` | `2` | the default is `0`; [R3-14](../tasks/R3-gateway.md)'s "retried on another member, not returned to the client" |
+| `providers.*.network_config.max_retries` | `2` | the default is `0`. **It does not satisfy [R3-14](../tasks/R3-gateway.md) on its own**: measured, a retry re-tries the same key and a dead member returns `502` to the client. "Another member" is a *fallback*, which is provider-level — the reason [the spike](../spike-bifrost.md#6-gate-1--both-shapes-report-who-served-only-one-of-them-fails-over) chose shape P |
+| `providers.*.network_config.allow_private_network` | left `false` | the default refuses RFC 1918, and loopback is exempt regardless. `gatewaysync.go` renders every member as `http://127.0.0.1:<port>/v1`, so nothing needs it — recorded because the error when it does bite names an IP rather than a policy |
 | request and stream-idle timeouts | pinned | a generation takes minutes; a default read off documentation is not a value nodary can stand behind |
 | `framework.pricing.pricing_url`, `.model_parameters_url`, `.mcp_library_url` | `file://` paths into the rendered directory | **measured, not read off documentation.** On defaults these are fetched from `getbifrost.ai`, and on a cold start with no egress the process exits 1 rather than degrading. [The spike](../spike-bifrost.md#1-on-defaults-it-will-not-start-without-the-internet) |
 | `framework.pricing.mcp_library_sync_interval`, `.live_models_sync_interval` | `0` | the schema names `0` as the air-gapped setting for the first. The second re-fetches each *provider's* model list, which for nodary is a loopback backend, and is off because nothing here changes between renders |

@@ -8,9 +8,10 @@ pulled 2026-09-15; docker 29.7.2 / overlayfs / WSL2
 Throwaway work, kept as a memo. Everything below was run against the real image, not
 reasoned about; the commands are given so each result can be reproduced or contradicted.
 
-**Gates 1 and 3 are not yet run.** This page covers one question that was pulled forward
-because it can stop the whole slice: whether a data plane inside a CUI boundary can be made
-to stop talking to its vendor.
+**Gate 3 is not yet run.** §1–§4 cover a question pulled forward because it can stop the
+whole slice — whether a data plane inside a CUI boundary can be made to stop talking to its
+vendor. §6 is gate 1, and it **chooses shape P and contradicts the rule R3b §3.3 wrote for
+choosing**.
 
 ## 0. The plan's examples are a major version behind
 
@@ -137,8 +138,8 @@ here is that the vendor round trip is not compulsory.
 
 ## 5. Open
 
-- Gates 1 and 3 are unrun: the served-member signal that decides shape **K** or **P**, and
-  whether the `vllm` provider type serves llama.cpp and TensorRT-LLM's OpenAI frontends.
+- Gate 3 is unrun: whether the `vllm` provider type serves llama.cpp and TensorRT-LLM's
+  OpenAI frontends unchanged, and the timeout numbers.
 - `enforce_auth_on_inference` defaults to **false**, and `GET /api/config` answered 200 with
   no credential on a default install. Both are gate 2 items in their own right and are only
   noted here, not yet measured against
@@ -148,3 +149,90 @@ here is that the vendor round trip is not compulsory.
   before that point is not yet measured.
 - Whether the pricing scheduler, which "checks every 5m", ever retries the URL after a
   `file://` load — the run above was watched for minutes, not hours.
+
+## 6. Gate 1 — both shapes report who served; only one of them fails over
+
+Two upstreams behind one model name, each answering `served-by-a` / `served-by-b` so the
+signal can be checked against the truth rather than taken on trust. Run from the pinned
+LiteLLM image, the way
+[`litellm_docker_test.go`](../internal/gateway/litellm_docker_test.go) already does.
+
+### Both shapes carry an accurate signal
+
+**Shape K** — one `vllm` provider, two keys, weights 3 and 1 — reports the key by name:
+
+```
+X-Bifrost-Routing-Info-Key: dep_tiny_gpu02        (also extra_fields.routing_info.key)
+```
+
+Over 40 requests the header named the upstream that actually answered **40 times out of 40**,
+and the spread was 31/9 against a configured 3:1. Streaming carries it in the response header
+*and* in every SSE chunk's `extra_fields`. On §2's decision table that is "a key-level
+signal", which is the condition §3.3 wrote for choosing **K**.
+
+**Shape P** — one custom provider per member, `base_provider_type: "openai"` — reports the
+provider by name in the same places, equally accurate.
+
+### And then a member dies
+
+This is the finding. With one upstream stopped, **shape K returns the error to the client**:
+
+| | |
+| :--- | :--- |
+| 4 of 12 | `502`, `routing_info.key: dep_tiny_gpu01`, after **10–17 seconds** |
+| 3 of 12 | `200` — the share weighted to the healthy member anyway |
+| 5 of 12 | still unanswered when the client gave up at 15 s |
+
+`max_retries: 2` retried **the same key**. It never tried the other member. The schema says
+why: the only fallback Bifrost has is `routing_rule.fallbacks`, "Fallback provider chain in
+order" — and `load_balancer_config.append_fallbacks_to_pinned` likewise appends *providers*.
+**Failover is provider-level; a key has nothing to fall back to.**
+
+Shape P, same dead member, with the sibling named as a fallback:
+
+```
+HTTP/1.1 200 OK
+X-Bifrost-Routing-Info-Provider: dep_tiny_gpu02          <- who served
+X-Bifrost-Routing-Info-Is-Fallback: true                 <- that it was not the first choice
+X-Bifrost-Routing-Info-Primary-Provider: dep_tiny_gpu01  <- who should have
+X-Bifrost-Fallback-Index: 1
+X-Bifrost-Upstream-Latency-Ms: 15684.390
+```
+
+with `served-by-b` in the body. Identical under streaming, in the header and in every chunk.
+
+### What this does to §3.3's rule
+
+[§3.3](plans/R3b-a-second-data-plane.md#33-the-rendering-shape-is-the-spikes-to-choose) says
+"**K** if gate 1 finds a key-level signal", and prefers K *because* it "keeps member selection
+in the component that owns retries, which is ADR 0003's split". Gate 1 finds a key-level
+signal — and finds that the second half of that sentence is not true of this software.
+Bifrost's retries stay inside a key; its failover crosses providers. A shape that puts every
+member in one provider therefore cannot satisfy
+[R3-14](tasks/R3-gateway.md)'s "retried on another member, not returned to the client", which
+the rule assumed would come for free.
+
+**So: shape P.** Not because K's signal was missing, but because K's *reason* was. P also
+turns out to report strictly more — `is_fallback` and `primary_provider` say not just who
+served but who was meant to, which is a distinction
+[R3-21](tasks/R3-gateway.md)'s usage row can record and LiteLLM's single header cannot.
+
+### Two numbers worth keeping
+
+- **15.7 seconds** from request to fallback answer, against a member whose host had gone away
+  entirely. That is [§7](plans/R3b-a-second-data-plane.md#7-open-items)'s hung-member window,
+  measured rather than feared, and it is per request until `gateway sync` removes the member.
+- `provider_response_headers` passes the upstream's own headers through
+  (`{"X-Upstream-Name":"b"}`), which is a second attribution channel nodary does not need and
+  should know exists.
+
+### One trap found on the way
+
+The first shape-K run failed every request with `502` and
+`connection to private IP 172.19.0.2 is not allowed`. `network_config.allow_private_network`
+defaults to **false** — RFC 1918 is refused — and the message reads like a fault rather than a
+policy. Loopback is exempt "regardless of this setting", and
+[`gatewaysync.go:293`](../internal/cli/gatewaysync.go) renders every member as
+`http://127.0.0.1:<port>/v1`, so **nodary as it stands is unaffected**. It is recorded because
+the day a member is addressed by anything but loopback, this is the error, and nothing in the
+tree would explain it.
