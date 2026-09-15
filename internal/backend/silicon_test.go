@@ -183,3 +183,53 @@ func TestARegisteredDescriptorIsOfferedAndNotRecommended(t *testing.T) {
 		t.Errorf("recommend = %q, want no suggestion at all", recommend)
 	}
 }
+
+// What the images themselves need, measured against the registries and against
+// a real run rather than read from documentation.
+//
+// A descriptor cannot be checked against its image by any test that does not
+// pull 14 GB, so the measurement is written down here instead: these are the
+// entrypoints as published, and a descriptor that stops matching one is a
+// deployment that exits on its first line.
+func TestTheShippedDescriptorsDeclareWhatTheirImagesNeed(t *testing.T) {
+	all, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Entrypoint, as published:
+	//   vllm/vllm-openai   ["vllm", "serve"]            -> takes an argv of flags
+	//   ggml-org/llama.cpp ["/app/llama-server"]        -> takes an argv of flags
+	//   lmsysorg/sglang    ["/opt/nvidia/nvidia_entrypoint.sh"], no Cmd, and that
+	//                      script ends in `exec "$@"`  -> needs the program too
+	command := map[string]string{
+		"vllm":      "",
+		"llama-cpp": "",
+		"sglang":    "python3 -m sglang.launch_server",
+	}
+	for name, want := range command {
+		if got := all[name].Backend.Command; got != want {
+			t.Errorf("%s declares command %q, want %q", name, got, want)
+		}
+	}
+
+	// **Every backend is told where to listen.** The unit runs the container on
+	// an isolated bridge and publishes `-p 127.0.0.1:host:container`, so a
+	// server on the container's own loopback answers nobody. Measured defaults:
+	// sglang 127.0.0.1, llama.cpp 127.0.0.1, vLLM 0.0.0.0 — so vLLM was the
+	// only backend that could ever have served a request, and it is the only
+	// one the MVP was proved with.
+	//
+	// vLLM declares it anyway. A default is not a guarantee, and the failure if
+	// one moves is a deployment that starts, reports healthy to nothing, and
+	// serves nobody.
+	for name, d := range all {
+		if _, ok := d.Backend.Args["host"]; !ok {
+			t.Errorf("%s does not declare a host argument, so nodary cannot tell it to "+
+				"listen anywhere the published port can reach", name)
+		}
+		if _, ok := d.Backend.Args["port"]; !ok {
+			t.Errorf("%s does not declare a port argument, so it listens wherever it likes "+
+				"and the publish is rendered from container_port", name)
+		}
+	}
+}

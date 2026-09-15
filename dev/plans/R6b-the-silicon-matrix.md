@@ -25,6 +25,7 @@ registry fact (`ggml-org` publishes no `server-rocm`, and that inverted the desi
 | `lmsysorg/sglang` ROCm tags | `v0.5.19-rocm{10,700,720,724}-mi{30,35}x` — **Instinct only**, no RDNA build |
 | `rocm/sgl-dev` | same shape: `mi35x`, `mi45x` |
 | ROCm image sizes | **10–33 GB**, against roughly 5–9 GB for the CUDA images |
+| *(corrected, measured from the registries 2026-09-15)* | the CUDA figure holds for vLLM at **8.6 GB** compressed and not for SGLang, which is **14.2 GB**. llama.cpp is **1.7 GB** on CUDA and **0.1 GB** on Vulkan — the image this plan routes AMD and Intel to is the smallest thing nodary pins by two orders of magnitude, which strengthens §1 rather than weakening it |
 | `ggml-org/llama.cpp` variants | `server`, `server-cuda`, `server-vulkan`, `server-intel`, `server-musa`; still no `server-rocm` |
 
 ## 1. Decided: no ROCm, no XPU. AMD and Intel are Vulkan

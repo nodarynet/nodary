@@ -25,6 +25,11 @@ type Report struct {
 	MountPath     string `json:"mount_path,omitempty"`
 	ContainerPort int    `json:"container_port"`
 	ImageDefault  string `json:"image_default,omitempty"`
+	// Command is what the image is given before the arguments, empty for an
+	// image that starts itself. An operator reading a listing has to be able to
+	// see it: it is the difference between a descriptor that will start and one
+	// that will exit on its first line.
+	Command string `json:"command,omitempty"`
 	// Silicon is the GPU vendors this backend runs on. Rendered rather than
 	// derived on each side, because it is what `model register` filters its
 	// offer by and the CLI holds a Report whether it read the registry on this
@@ -101,6 +106,7 @@ func NewReport(d Descriptor, source, sha string) Report {
 		WeightsLayout: b.WeightsLayout, MountPath: b.MountPath,
 		ContainerPort: b.ContainerPort, ImageDefault: b.ImageDefault,
 		Silicon:      b.Silicon,
+		Command:      b.Command,
 		Capabilities: b.Capabilities,
 		Args:         keys(b.Args), Extra: keys(b.Extra),
 		Probe: b.Probe, Prepare: b.Prepare, SHA256: sha, Recipe: b.Derive,

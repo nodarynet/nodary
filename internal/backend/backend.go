@@ -68,6 +68,21 @@ type Backend struct {
 	MountPath     string `json:"mount_path" toml:"mount_path"`
 	ContainerPort int    `json:"container_port" toml:"container_port"`
 	ImageDefault  string `json:"image_default" toml:"image_default"`
+	// Command is what the image needs before the rendered arguments, for an
+	// image that declares no default command of its own.
+	//
+	// **Measured, not anticipated.** `lmsysorg/sglang`'s entrypoint is
+	// /opt/nvidia/nvidia_entrypoint.sh with no Cmd, and that script ends in
+	// `exec "$@"` -- so an argv of flags and no program exits immediately with
+	// `exec: --: invalid option`. vLLM's entrypoint is `vllm serve` and
+	// llama.cpp's is /app/llama-server, which is why neither ever needed one.
+	//
+	// Empty for both of those, and empty is the right default: an image that
+	// knows how to start itself must not have a command put in front of it.
+	//
+	// Split on whitespace and placed ahead of the argv, never through a shell --
+	// Prepare.Command's rule, for Prepare.Command's reason.
+	Command string `json:"command,omitempty" toml:"command"`
 	// Silicon is the GPU vendors this backend runs on, in internal/preflight's
 	// vocabulary: nvidia, amd, intel.
 	//
@@ -331,6 +346,12 @@ func (d Descriptor) Validate() error {
 	case b.Probe.ReadyTimeoutS <= 0:
 		return fmt.Errorf("%w: %s: probe.ready_timeout_s must be positive — 11 §2 marks a deployment failed at it",
 			ErrInvalid, b.Name)
+	case strings.ContainsAny(b.Command, shellish):
+		// A command is an argv, not a shell. A pipe or a redirection here would
+		// reach the program as an argument instead of doing what it looks like,
+		// which is derive.steps' rule and the same trap.
+		return fmt.Errorf("%w: %s: command %q contains a shell metacharacter; it is an argv, "+
+			"not a shell", ErrInvalid, b.Name, b.Command)
 	case len(b.Silicon) == 0:
 		return fmt.Errorf("%w: %s: silicon is required — name the GPU vendors this backend "+
 			"runs on (%s); an omitted list would mean \"any card\", which is how a CUDA-only "+

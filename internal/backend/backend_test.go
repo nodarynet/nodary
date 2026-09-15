@@ -46,6 +46,7 @@ func TestOneParameterSetTranslatesThroughEachDescriptor(t *testing.T) {
 		}},
 		{"sglang", []string{
 			"--model-path=/models/gemma",
+			"--mem-fraction-static=0.92",
 			"--context-length=131072",
 			"--tp-size=2",
 			"--enable-prefix-caching",
@@ -62,15 +63,21 @@ func TestOneParameterSetTranslatesThroughEachDescriptor(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s argv =\n  %v\nwant\n  %v", tc.backend, got, tc.want)
 		}
-		// SGLang's descriptor has no gpu_memory_fraction, so it is dropped
-		// rather than invented — 04 §3 puts anything outside the canonical set
-		// in extra_args, and guessing a flag produces a container that fails at
-		// start for a reason nobody can trace.
-		if tc.backend == "sglang" && !reflect.DeepEqual(dropped, []string{"gpu_memory_fraction"}) {
-			t.Errorf("sglang dropped %v, want gpu_memory_fraction reported", dropped)
-		}
-		if tc.backend == "vllm" && len(dropped) != 0 {
-			t.Errorf("vllm dropped %v, want nothing", dropped)
+		// **This used to assert that sglang dropped gpu_memory_fraction**, on
+		// the reasoning that 04 §3 puts anything outside a backend's vocabulary
+		// in extra_args and that guessing a flag produces a container failing
+		// for a reason nobody can trace. The reasoning is right and the premise
+		// was wrong: SGLang has `--mem-fraction-static`, "the fraction of the
+		// memory used for static allocation", so declaring it is the
+		// translation a descriptor exists to carry rather than a guess. The
+		// test had turned a gap in the descriptor into a rule.
+		//
+		// It mattered: `model register` writes gpu_memory_fraction on every
+		// registration, and plan.go refuses a deployment whose parameters were
+		// dropped — so this one missing line made every default registration on
+		// sglang a deployment the node would not render.
+		if len(dropped) != 0 {
+			t.Errorf("%s dropped %v; both descriptors translate this whole set", tc.backend, dropped)
 		}
 	}
 }

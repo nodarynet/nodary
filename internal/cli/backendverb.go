@@ -276,6 +276,12 @@ func cmdBackendShow(e env, args []string) int {
 	fmt.Fprintf(e.stdout, "  weights        %s at %s\n", b.WeightsLayout, orElse(b.MountPath, "—"))
 	fmt.Fprintf(e.stdout, "  image          %s\n", orElse(b.ImageDefault, "—"))
 	fmt.Fprintf(e.stdout, "  silicon        %s\n", siliconLine(b))
+	// Only for an image that needs one, the way `prepare` and `recipe` are
+	// shown only when they exist: "command —" against vLLM would put a thing in
+	// front of an operator that vLLM has not got.
+	if b.Command != "" {
+		fmt.Fprintf(e.stdout, "  command        %s  (this image declares none)\n", b.Command)
+	}
 	// Only for a derive. "recipe —" against vLLM would put a build phase in
 	// front of an operator that vLLM has not got, the way "prepare —" would.
 	if r := b.Recipe; r != nil {

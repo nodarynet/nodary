@@ -10,6 +10,12 @@ weights_layout = "hf-cache"
 mount_path     = "/root/.cache/huggingface"
 container_port = 30000
 image_default  = "lmsysorg/sglang:latest"
+# **The image declares no command.** Its entrypoint is NVIDIA's
+# /opt/nvidia/nvidia_entrypoint.sh, which ends in `exec "$@"`, and there is no
+# Cmd behind it -- so an argv of flags and no program exits immediately with
+# `exec: --: invalid option`. vLLM's entrypoint is `vllm serve` and llama.cpp's
+# is /app/llama-server, which is why only this one needs saying.
+command        = "python3 -m sglang.launch_server"
 # NVIDIA only. `lmsysorg/sglang` does publish ROCm tags -- and every one of
 # them is `mi30x`/`mi35x`, which is Instinct. There is no RDNA build at all, so
 # on the Radeon workstation a small site is likeliest to own, this backend has
@@ -30,6 +36,15 @@ tensor_parallel = "--tp-size={v}"
 max_context     = "--context-length={v}"
 quantization    = "--quantization={v}"
 port            = "--port={v}"
+# ServerArgs defaults host to 127.0.0.1, which inside a container on an
+# isolated bridge is reachable by nothing. The agent sets this to 0.0.0.0
+# because the descriptor declares it.
+host            = "--host={v}"
+# SGLang's spelling of the canonical fraction: "the fraction of the memory used
+# for static allocation (model weights and KV cache memory pool)". Its own
+# default is None -- it picks one -- so a `--gpu-memory` an operator typed was
+# both dropped and unenforced.
+gpu_memory_fraction = "--mem-fraction-static={v}"
 
 [backend.probe]
 health          = "/health"

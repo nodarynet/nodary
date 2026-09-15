@@ -181,6 +181,7 @@ mount_path      = "/root/.cache/huggingface"
 container_port  = 8000
 image_default   = "vllm/vllm-openai:v0.23.0"
 silicon         = ["nvidia"]      # nvidia | amd | intel
+command         = ""              # only for an image that declares none
 
 [backend.capabilities]
 tensor_parallel = true
@@ -223,6 +224,28 @@ is offered it, which it could not be if the matrix lived in nodary's code. A
 derive ([§5](#5-derived-images)) may not set it and inherits its parent's: a
 corrected image is the same backend, on the same silicon.
 
+**A descriptor says what its image needs to start, and nothing about where to
+listen.** Two facts that look alike and belong on opposite sides of the line.
+
+`command` is for an image that declares no default command of its own. Measured:
+`vllm/vllm-openai`'s entrypoint is `["vllm", "serve"]` and
+`ghcr.io/ggml-org/llama.cpp`'s is `/app/llama-server`, so both take an argv of
+flags; `lmsysorg/sglang`'s is NVIDIA's `nvidia_entrypoint.sh` with no `Cmd`
+behind it, and that script ends in `exec "$@"` — so flags with no program exit
+immediately with `exec: --: invalid option`. Empty is the right default, because
+a command placed in front of an image that starts itself is a broken argv. It is
+split on whitespace and never passed through a shell.
+
+**The listen address and the container port are nodary's**, not the
+descriptor's and not the deployment's. The unit runs each container on an
+isolated network and publishes `-p 127.0.0.1:<host>:<container_port>`
+([03 §6](03-agent.md#6-unit-template)), so a server on the container's own
+loopback is reachable by nothing and a server on a port the publish does not
+name is reachable by nothing. A descriptor therefore declares `host` and `port`
+in `[backend.args]` — the spelling, which does vary — and the agent supplies
+`0.0.0.0` and `container_port`. Measured defaults: SGLang and llama.cpp both
+bind `127.0.0.1`, vLLM binds `0.0.0.0`.
+
 **A descriptor does not say how a GPU is reached.** Earlier drafts carried
 `[backend.gpu] mechanism`, and nothing ever read it. The mechanism is not a
 property of the backend: the same llama.cpp descriptor reaches a card by
@@ -240,6 +263,7 @@ is refused if a descriptor still declares it.
 name = "sglang"
 api  = "openai"
 silicon = ["nvidia"]
+command = "python3 -m sglang.launch_server"   # its image declares none
 weights_layout = "hf-cache"
 mount_path = "/root/.cache/huggingface"
 container_port = 30000
@@ -249,6 +273,7 @@ model_path      = "--model-path={v}"
 tensor_parallel = "--tp-size={v}"
 max_context     = "--context-length={v}"
 port            = "--port={v}"
+host            = "--host={v}"
 
 [backend.probe]
 health = "/health"

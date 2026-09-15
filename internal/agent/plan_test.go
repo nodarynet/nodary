@@ -78,8 +78,15 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 		// host's: the argv runs inside the container. Positional, not
 		// `--model=`: `vllm serve` takes the model as its first argument and
 		// removed the flag, and the descriptor renders `{v}` for it.
+		// **--host and --port are nodary's, not the deployment's** (R6-21). The
+		// container runs on an isolated bridge and the unit publishes
+		// `-p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT}`, so a server
+		// bound anywhere else is reachable by nothing. vLLM already defaulted
+		// to both of these, which is why it was the only backend that ever
+		// worked; sglang and llama.cpp default to 127.0.0.1.
 		"NODARY_ARGS": "/root/.cache/huggingface/hub/models--acme--tiny " +
-			"--max-model-len=131072 --tensor-parallel-size=2 --enable-prefix-caching",
+			"--host=0.0.0.0 --max-model-len=131072 --port=8000 " +
+			"--tensor-parallel-size=2 --enable-prefix-caching",
 		"NODARY_CONTAINER_PORT": "8000",
 		"NODARY_GPUS":           "--gpus device=0,1",
 		// Empty and still present. The template reads `$NODARY_ENV`, and a
@@ -223,11 +230,19 @@ func TestWhatANodeRefusesAndWhy(t *testing.T) {
 		// 04 §3 puts anything outside the canonical set in extra_args. Guessing
 		// a flag produces a container that fails at start for a reason nobody
 		// can trace back to here, so the deployment is refused instead.
+		// **This used to name sglang and gpu_memory_fraction**, and sglang now
+		// translates that to --mem-fraction-static: the descriptor had a gap and
+		// this test was holding it in place, which mattered because
+		// `model register` writes gpu_memory_fraction on every registration.
+		//
+		// What is under test is the *mechanism* — a canonical name a descriptor
+		// does not declare is refused rather than dropped in silence — so the
+		// parameter here is one no descriptor in this tree declares, rather
+		// than a translation one of them is missing.
 		{"a parameter the backend does not take",
 			func(d *api.DesiredDeployment) {
-				d.Backend = "sglang"
-				d.Params = json.RawMessage(`{"gpu_memory_fraction":0.9}`)
-			}, "does not take gpu_memory_fraction"},
+				d.Params = json.RawMessage(`{"draft_model":"acme/tiny-draft"}`)
+			}, "does not take draft_model"},
 		// The unit template expands ${NODARY_ARGS} unquoted, so systemd splits
 		// it on whitespace and no quoting we invent would survive.
 		{"an extra arg with whitespace in it",

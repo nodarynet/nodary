@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -149,7 +150,8 @@ func cmdModelRegister(e env, args []string) int {
 	if !ok {
 		return ExitFailure
 	}
-	if !chooseBackend(e, rem, *dbPath, *node, vendor, backendName) {
+	chosen, ok := chooseBackend(e, rem, *dbPath, *node, vendor, backendName)
+	if !ok {
 		return ExitFailure
 	}
 
@@ -259,7 +261,28 @@ func cmdModelRegister(e env, args []string) int {
 		}
 	}
 
-	params := map[string]any{"served_name": name, "gpu_memory_fraction": *gpuMemory}
+	// **Only what the backend declares.** This wrote both of these on every
+	// registration regardless of backend, and internal/agent/plan.go refuses a
+	// deployment whose parameters were dropped — so registering on a backend
+	// that translates neither produced a document that applied cleanly and a
+	// node that then would not render it, which is the failure 04 §7 exists to
+	// prevent. Asked of the descriptor rather than tabulated here: Report.Args
+	// is already the list of canonical names a backend translates, and an
+	// operator's own descriptor answers it the same way.
+	params := map[string]any{}
+	if slices.Contains(chosen.Args, "served_name") {
+		params["served_name"] = name
+	}
+	if slices.Contains(chosen.Args, "gpu_memory_fraction") {
+		params["gpu_memory_fraction"] = *gpuMemory
+	} else if flagWasSet(fs, "gpu-memory") {
+		// Typed explicitly and not available is a refusal by name. Dropping it
+		// silently would leave an operator believing a limit is in force.
+		fmt.Fprintf(e.stderr, "nodary model register: %s has no VRAM fraction to set, so "+
+			"--gpu-memory %g would do nothing.\n  Drop it, or choose a backend that takes "+
+			"one.\n", *backendName, *gpuMemory)
+		return ExitUsage
+	}
 	raw, err := json.Marshal(params)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
@@ -461,10 +484,10 @@ func pinnedImage(e env, rem *remote, dbPath, backend, plat, vendor string) (stri
 //
 // The matrix is backend.Offer's, not this function's, so the install wizard
 // (R6-18) answers the same question the same way.
-func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string) bool {
+func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string) (backend.Report, bool) {
 	reports, ok := backendReports(e, "model register", rem, dbPath)
 	if !ok {
-		return false
+		return backend.Report{}, false
 	}
 	offer, recommend := backend.Offer(reports, vendor)
 
@@ -478,7 +501,7 @@ func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string
 				"%s GPUs.\n  Name one with --backend: %s\n",
 				orElse(vendor, "this node's"),
 				orElse(strings.Join(offer, ", "), "nothing registered here either"))
-			return false
+			return backend.Report{}, false
 		}
 		*name = recommend
 		why := "recommended"
@@ -486,7 +509,7 @@ func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string
 			why = "recommended for " + vendor + " GPUs on " + node
 		}
 		fmt.Fprintf(e.stdout, "%s %-18s %s (%s)\n", mark(preflight.LevelOK), "backend", *name, why)
-		return true
+		return reportNamed(reports, *name), true
 	}
 
 	// An unknown name is left alone: weightsLayoutFor refuses it a moment
@@ -494,7 +517,7 @@ func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string
 	// the message worth getting. And a node that has offered nothing is not
 	// judged — guessing a vendor here would refuse a correct command.
 	if vendor == "" {
-		return true
+		return reportNamed(reports, *name), true
 	}
 	for _, r := range reports {
 		if r.Name != *name || r.RunsOn(vendor) {
@@ -503,9 +526,21 @@ func chooseBackend(e env, rem *remote, dbPath, node, vendor string, name *string
 		fmt.Fprintf(e.stderr, "nodary model register: %s has %s GPUs and %s runs on %s.\n",
 			node, vendor, *name, orElse(strings.Join(r.Silicon, ", "), "nothing it declares"))
 		fmt.Fprintf(e.stderr, "  On this node: %s\n", alternatives(offer, recommend))
-		return false
+		return backend.Report{}, false
 	}
-	return true
+	return reportNamed(reports, *name), true
+}
+
+// reportNamed is one backend out of a listing, zero when nothing matches —
+// which is an unknown name, and weightsLayoutFor refuses that a moment later
+// with the message worth getting.
+func reportNamed(all []backend.Report, name string) backend.Report {
+	for _, r := range all {
+		if r.Name == name {
+			return r
+		}
+	}
+	return backend.Report{}
 }
 
 // alternatives is what the operator can have instead, with the recommendation

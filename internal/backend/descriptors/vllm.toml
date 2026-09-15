@@ -41,6 +41,10 @@ dtype               = "--dtype={v}"
 # enforceable rather than documentation.
 quantization        = "--quantization={v}"
 port                = "--port={v}"
+# vLLM already defaults to 0.0.0.0, so this changed nothing when it was added --
+# which is the reason to add it. The publish is `-p 127.0.0.1:host:container`
+# and a backend that moved its default would become unreachable silently.
+host                = "--host={v}"
 
 # WSL2 has no unified virtual addressing, and vLLM's v2 model runner requires
 # it: the engine dies at startup with `RuntimeError: UVA is not available` on a

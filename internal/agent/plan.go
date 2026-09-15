@@ -548,6 +548,30 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 				"extra_args %q contains whitespace, which the unit's EnvironmentFile cannot carry", a)
 		}
 	}
+	// **Where to listen is nodary's to say, not the deployment's.** The unit
+	// runs this container on an isolated bridge and publishes
+	// `-p 127.0.0.1:${NODARY_PORT}:${NODARY_CONTAINER_PORT}` (03 §6), so a
+	// server bound to the container's own loopback is not reachable through
+	// that — and SGLang and llama.cpp both default to 127.0.0.1. Measured: of
+	// the three backends this build ships, only vLLM defaults to 0.0.0.0, and
+	// it is the only one the MVP was ever proved with.
+	//
+	// The container port likewise: the publish is rendered from the
+	// descriptor's container_port, so a server listening anywhere else is
+	// published to nothing. Both matched by luck until now, because each
+	// backend's default port happens to equal the one its descriptor declares.
+	//
+	// Set after the deployment's own params so nodary wins. These are not
+	// settings an operator can hold an opinion about — every value but these
+	// two makes the deployment unreachable — and refusing them instead would
+	// be a refusal for a field nobody should have been offered.
+	if _, declared := desc.Backend.Args["host"]; declared {
+		params["host"] = "0.0.0.0"
+	}
+	if _, declared := desc.Backend.Args["port"]; declared {
+		params["port"] = desc.Backend.ContainerPort
+	}
+
 	args, dropped, err := desc.Args(inContainer, params, extra)
 	if err != nil {
 		return Unit{}, err
@@ -566,6 +590,15 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		// operator believes are in force.
 		return Unit{}, fmt.Errorf("%s does not take %s; move them to extra_args",
 			d.Backend, strings.Join(dropped, ", "))
+	}
+
+	// The command the image needs, ahead of the arguments. Empty for an image
+	// that starts itself, which is vLLM and llama.cpp; `lmsysorg/sglang`
+	// declares no Cmd at all and its entrypoint ends in `exec "$@"`, so
+	// without this the container exits on its first line with
+	// `exec: --: invalid option`.
+	if cmd := strings.Fields(desc.Backend.Command); len(cmd) > 0 {
+		args = append(cmd, args...)
 	}
 
 	// What gets bind-mounted at mount_path. For a backend that builds, it is
