@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/nodarynet/nodary/internal/api"
 	"github.com/nodarynet/nodary/internal/audit"
@@ -73,80 +72,35 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 	defer s.Close()
 
 	ctx := context.Background()
-	d, err := config.BackendFor(ctx, s.db.Read(), name)
-	if err != nil {
-		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
-		return ExitFailure
-	}
-	if d.Backend.Derive == nil {
-		fmt.Fprintf(e.stderr, "nodary backend %s: %s is not a derived image; there is no recipe "+
-			"to build.\n  A derive declares [backend.derive] and inherits a built-in "+
-			"(dev/specs/04-backends.md §5).\n", verb, name)
-		return ExitFailure
-	}
 	// Refused before the build rather than after it: half an hour of work and
 	// then "you may not do that" is a refusal that arrives too late to be one.
+	// The permission is backend registration's. 07 §1 gives admin "the catalog
+	// and backend registration" as one area, and a `backend.build` permission
+	// mapped to the same role would be vocabulary with no decision inside it.
 	if err := identity.Authorize(s.who.Role, identity.PermBackendRegister); err != nil {
 		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
 		return ExitPolicy
 	}
-
-	// Checked here as well as at registration, because a profile can be
-	// tightened afterwards: a site that moved to `regulated` last week must not
-	// still be able to build the unpinned recipe it registered before.
 	active, _, err := policy.Active(ctx, s.db.Read())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
 		return ExitFailure
 	}
-	if !active.AllowDerivedImages {
-		fmt.Fprintf(e.stderr, "nodary backend %s: the %s profile does not allow derived images.\n",
-			verb, active.Name)
-		return ExitPolicy
-	}
-	if active.RequirePinnedDerives {
-		if err := d.Backend.Derive.Pinned(); err != nil {
-			fmt.Fprintf(e.stderr, "nodary backend %s: %v\n"+
-				"  The %s profile sets require_pinned_derives, so a build has to be "+
-				"reproducible\n  rather than merely recorded (dev/specs/04-backends.md §5).\n",
-				verb, err, active.Name)
-			return ExitPolicy
-		}
-	}
-
-	have, err := config.BuiltImage(ctx, s.db.Read(), name)
+	// Every refusal §5 owes an operator, made in one place both front ends
+	// call, so `backend build` and POST /backends/{name}/build cannot disagree
+	// about what may be built.
+	plan, err := config.PlanDerive(ctx, s.db.Read(), active, name, verb == "rebuild")
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary backend %s: %v\n", verb, err)
-		return ExitFailure
-	}
-	// §5: "a derived image is built once; rebuilding is explicit". A `build`
-	// that quietly rebuilt would be the silent change the audit chain exists to
-	// prevent, so the second one has to be asked for by a different name.
-	if verb == "build" && have != nil {
-		have.Staleness(d.Backend.Derive)
-		why := "it is already built"
-		if have.Stale {
-			why = have.Why
-		}
-		fmt.Fprintf(e.stderr, "nodary backend build: %s has an image already (%s): %s.\n"+
-			"  `nodary backend rebuild %s` replaces it; deployments already pinned to the\n"+
-			"  previous digest keep serving until they are re-registered.\n",
-			name, have.Digest, why, name)
-		return ExitFailure
+		return exitFor(err)
 	}
 
-	recipe := d.Backend.Derive.RecipeSHA256()
-	// A handle, not what anything pins: deployments pin the digest, so a
-	// rebuild of an unchanged recipe may reuse this tag without moving
-	// anything that is serving.
-	tag := fmt.Sprintf("nodary/%s:%s", name, recipe[:12])
-
-	fmt.Fprintf(e.stderr, "building %s from %s\n", name, d.Backend.Derive.From)
-	if u := strings.TrimSpace(d.Backend.Derive.IndexURL); u != "" {
+	fmt.Fprintf(e.stderr, "building %s from %s\n", name, plan.Descriptor.Backend.Derive.From)
+	if u := strings.TrimSpace(plan.Descriptor.Backend.Derive.IndexURL); u != "" {
 		fmt.Fprintf(e.stderr, "  the build may reach %s and nothing else\n", u)
 	}
 	built, err := buildDerive(ctx, derive.Options{
-		Descriptor: d, Tag: tag, Run: runNerdctl,
+		Descriptor: plan.Descriptor, Tag: plan.Tag, Run: runNerdctl,
 		Progress: func(what string) { fmt.Fprintf(e.stderr, "  %s\n", what) },
 	})
 	if err != nil {
@@ -185,18 +139,7 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 			if err != nil {
 				return nil, err
 			}
-			out := map[string]any{
-				"backend": name, "base": d.Backend.Derive.From,
-				"recipe_sha256": recipe, "image": built.Image, "digest": built.Digest,
-				"steps": built.Steps, "replaces": "",
-			}
-			if len(built.Reached) > 0 {
-				out["reached"] = strings.Join(built.Reached, ", ")
-			}
-			if prev != nil {
-				out["replaces"] = prev.Digest
-			}
-			return out, nil
+			return config.DerivePreview(plan, prev), nil
 		},
 		apply: func(m audit.Mutation, _ any) error {
 			if err := identity.Authorize(s.who.Role, identity.PermBackendRegister); err != nil {
@@ -205,28 +148,7 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 			if err := s.touch(m); err != nil {
 				return err
 			}
-			// §5's actual requirement: the inputs pinned, the output pinned,
-			// and the person who asked for it named. Actor and justification
-			// are already in the record; these are the rest.
-			m.Detail("recipe_sha256", recipe)
-			m.Detail("base_digest", d.Backend.Derive.From)
-			m.Detail("image", built.Image)
-			m.Detail("image_digest", built.Digest)
-			m.Detail("steps", built.Steps)
-			if len(built.Reached) > 0 {
-				m.Detail("reached", strings.Join(built.Reached, ", "))
-			}
-			now := s.now.UTC().Truncate(time.Millisecond).Format(audit.TimeFormat)
-			_, err := m.Tx().ExecContext(context.Background(), `INSERT INTO derived_image
-				(name, recipe_sha256, base_digest, image, digest, built_at, built_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT (name) DO UPDATE SET
-					recipe_sha256 = excluded.recipe_sha256, base_digest = excluded.base_digest,
-					image = excluded.image, digest = excluded.digest,
-					built_at = excluded.built_at, built_by = excluded.built_by`,
-				name, recipe, d.Backend.Derive.From, built.Image, built.Digest,
-				now, s.who.Actor.ID)
-			return err
+			return config.RecordDerive(context.Background(), m, s.now, s.who.Actor.ID, plan, built)
 		},
 	}, cer, *format)
 	if !applied {

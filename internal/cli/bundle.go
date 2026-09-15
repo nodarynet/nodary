@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 
 	"github.com/nodarynet/nodary/internal/backup"
 	"github.com/nodarynet/nodary/internal/bundle"
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/derive"
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
@@ -22,13 +22,7 @@ import (
 // is not pure file handling: an operator whose connected machine has no
 // containerd gets a clear failure from here rather than a confusing one from
 // inside an export.
-func runNerdctl(ctx context.Context, name string, args ...string) ([]byte, error) {
-	if _, err := exec.LookPath(name); err != nil {
-		return nil, fmt.Errorf("%s is not on PATH, and container images cannot be exported or "+
-			"loaded without it", name)
-	}
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
-}
+var runNerdctl = derive.Exec
 
 // cmdBundle is dev/specs/01-install.md §6, the offline install.
 //

@@ -101,6 +101,12 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET", "/audit/export", s.exportAudit)
 	h("GET", "/backends", s.listBackends)
 	h("GET", "/backends/{name}", s.showBackend)
+	// R2-27. Registering and removing a backend are declarative and go through
+	// config apply, which is one applier rather than a second set of writers —
+	// the same reason `model register` has no POST /models. A build is not
+	// declarative: it is an act with a result, so it has an endpoint.
+	h("POST", "/backends/{name}/build", s.buildBackend)
+	h("GET", "/backends/{name}/build", s.showBuild)
 	h("GET", "/policy", s.showPolicy)
 	h("GET", "/policy/diff", s.diffPolicy)
 	h("POST", "/policy/apply", s.applyPolicy)

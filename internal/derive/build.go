@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -52,6 +53,18 @@ var ErrNoRuntime = errors.New("no container runtime")
 // in a test, and so every shell-out in this package is one field rather than
 // scattered through it.
 type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+// Exec is the Runner that reaches a real container runtime. It lives beside
+// the type rather than in a front end because both of them build: `nodary
+// backend build` and POST /backends/{name}/build run the same recipe, and
+// internal/api cannot import internal/cli.
+func Exec(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if _, err := exec.LookPath(name); err != nil {
+		return nil, fmt.Errorf("%s is not on PATH, and container images cannot be exported or "+
+			"loaded without it", name)
+	}
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
 
 // Options is one build.
 type Options struct {
