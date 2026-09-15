@@ -2,11 +2,15 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>nodary</title>
+<link rel="icon" href="nodary-mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="app.css">
 </head><body>
 <div class="app">
  <aside class="side">
-  <div class="brand"><span class="mark"></span>nodary</div>
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="nodary-dark.svg">
+   <img class="brand" src="nodary.svg" alt="nodary" width="1588" height="353">
+  </picture>
   <nav class="tabs" id="tabs"></nav>
   <div class="side-foot">
    <div>profile <span id="profile" class="profile">…</span></div>

@@ -101,6 +101,11 @@ func contentType(name string) string {
 		return "text/css; charset=utf-8"
 	case ".js":
 		return "text/javascript; charset=utf-8"
+	case ".svg":
+		// Named rather than sniffed: the assets go out with `nosniff`, so an
+		// image served as application/octet-stream is an image the browser
+		// refuses to draw.
+		return "image/svg+xml"
 	}
 	return "application/octet-stream"
 }

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bytes"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -83,8 +84,16 @@ func TestTheConsoleIsServedFromTheBinaryBehindASession(t *testing.T) {
 	// setup.go's rule, which this follows: no stylesheet, no script, no
 	// external anything. A CDN reference is a request that fails on exactly
 	// the air-gapped host this product is for.
-	for _, path := range []string{"login.html", "index.html", "app.js", "app.css", "login.js"} {
+	for _, path := range []string{
+		"login.html", "index.html", "app.js", "app.css", "login.js",
+		"nodary.svg", "nodary-dark.svg", "nodary-mark.svg",
+	} {
 		asset := mustAsset(t, f, path)
+		// An xmlns is a namespace *name* that happens to be spelled as a URL.
+		// No browser ever resolves one, so it is dropped before the check —
+		// otherwise every SVG in the tree fails a test about network access.
+		// Anything else that spells out a host still has to answer for itself.
+		asset = regexp.MustCompile(`xmlns(:[a-z0-9]+)?="[^"]*"`).ReplaceAllString(asset, "")
 		for _, remote := range []string{"http://", "https://", "//cdn", "//unpkg", "//fonts."} {
 			if strings.Contains(asset, remote) {
 				t.Errorf("%s reaches outside the binary: %q", path, remote)
@@ -123,9 +132,18 @@ func TestTheConsoleIsServedToASessionWithItsProtections(t *testing.T) {
 		}
 	}
 
-	// And the script is served as a script, not as something a browser sniffs.
-	if got := f.get("/ui/app.js", cookie).Header.Get("Content-Type"); !strings.HasPrefix(got, "text/javascript") {
-		t.Errorf("app.js content-type = %q", got)
+	// And every asset is served as what it is, not as something a browser
+	// sniffs — these go out with `nosniff`, so a type this server does not
+	// name is an asset the browser declines to run or draw.
+	for path, want := range map[string]string{
+		"/ui/app.js":          "text/javascript",
+		"/ui/app.css":         "text/css",
+		"/ui/nodary.svg":      "image/svg+xml",
+		"/ui/nodary-mark.svg": "image/svg+xml",
+	} {
+		if got := f.get(path, cookie).Header.Get("Content-Type"); !strings.HasPrefix(got, want) {
+			t.Errorf("%s content-type = %q, want %s", path, got, want)
+		}
 	}
 	// A session on the login page is sent to the console rather than offered a
 	// form that would end the session it already has by succeeding.
@@ -405,5 +423,28 @@ func TestEveryConsoleViewRenders(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Errorf("a console view did not render: %v\n%s", err, out)
+	}
+}
+
+// The brand files exist twice, and the copies have to stay the same drawing.
+//
+// The binary embeds internal/api/ui (//go:embed reaches nothing above it) and
+// the published site serves docs/, so one file cannot do both jobs. Two copies
+// is the cheap answer; two copies that quietly diverge — the console wearing
+// last year's logo while the website wears this year's — is what makes it a
+// bad one, so they are pinned to each other here.
+func TestTheBrandFilesAreTheSameDrawingInBothPlaces(t *testing.T) {
+	for _, name := range []string{"nodary.svg", "nodary-dark.svg", "nodary-mark.svg"} {
+		embedded, err := os.ReadFile(filepath.Join("ui", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		published, err := os.ReadFile(filepath.Join("..", "..", "docs", "assets", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(embedded, published) {
+			t.Errorf("internal/api/ui/%s and docs/assets/%s have drifted apart", name, name)
+		}
 	}
 }
