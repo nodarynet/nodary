@@ -987,6 +987,13 @@ func checkCapabilities(ctx context.Context, q Querier, d Deployment) error {
 	if err != nil {
 		return nil
 	}
+	if v, ok := nodeVendor(ctx, q, d.NodeName); ok && !desc.RunsOn(v) {
+		return fmt.Errorf("%w: deployment %q puts %s on %s: node %q has %s GPUs and %s declares "+
+			"it runs on %s. Choose a backend that does, or register a descriptor "+
+			"(04 §9) naming an image you have for this silicon",
+			ErrInvalid, d.ID, d.Backend, v, d.NodeName, v, d.Backend,
+			strings.Join(desc.Backend.Silicon, ", "))
+	}
 	p := backend.Params{}
 	if d.Params != "" {
 		if err := json.Unmarshal([]byte(d.Params), &p); err != nil {
@@ -998,6 +1005,52 @@ func checkCapabilities(ctx context.Context, q Querier, d Deployment) error {
 		return fmt.Errorf("%w: deployment %q: %s", ErrInvalid, d.ID, unwrapMessage(err))
 	}
 	return nil
+}
+
+// nodeVendor is the GPU vendor of a node's cards, from the offer it made.
+//
+// **The offer, not gpus_json**, for nodeTarget's reason: the offer is what the
+// node advertised and an administrator approved, and it is what the image was
+// resolved against. Not ok when the node is unknown, has never reported, or
+// offered cards this build predates — the applier refuses an unknown node a
+// moment later with a better sentence than this could give, and a node with no
+// offer is one that has nothing to check against.
+//
+// A mixed-vendor host answers with whichever vendor sorts first and is
+// therefore not checked here; `model register` refuses to write such a
+// deployment and gpuFlag refuses to run one, which is where that case belongs.
+//
+// The offer is re-decoded into a local shape rather than agent.Offer:
+// internal/agent imports this package, so naming the type here is an import
+// cycle. Two fields, and the "absent means nvidia" default is agent's own.
+func nodeVendor(ctx context.Context, q Querier, name string) (string, bool) {
+	var body string
+	if err := q.QueryRowContext(ctx,
+		`SELECT offer_json FROM node WHERE name = ?`, name).Scan(&body); err != nil {
+		return "", false
+	}
+	var offer struct {
+		GPUs []struct {
+			Vendor string `json:"vendor"`
+		} `json:"gpus"`
+	}
+	if err := json.Unmarshal([]byte(body), &offer); err != nil || len(offer.GPUs) == 0 {
+		return "", false
+	}
+	vendors := map[string]bool{}
+	for _, g := range offer.GPUs {
+		if g.Vendor == "" {
+			g.Vendor = "nvidia"
+		}
+		vendors[g.Vendor] = true
+	}
+	if len(vendors) != 1 {
+		return "", false
+	}
+	for v := range vendors {
+		return v, true
+	}
+	return "", false
 }
 
 // unwrapMessage drops the sentinel's own prose, which is a category and not a

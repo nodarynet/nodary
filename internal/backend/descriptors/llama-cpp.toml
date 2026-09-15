@@ -27,6 +27,14 @@ weights_layout = "single-file"
 mount_path     = "/models"
 container_port = 8080
 image_default  = "ghcr.io/ggml-org/llama.cpp:server-cuda"
+# The cross-vendor backend, which is the reason it is worth having: Vulkan
+# reaches AMD and Intel cards through the same `/dev/dri` render node R6-14
+# hands the container, and components.json pins `server-vulkan` for `amd`
+# beside the CUDA image above. Intel is named here on the same mechanism and
+# no image is pinned for it yet -- so an Intel node is offered this backend and
+# then refused at the image, which is the honest order: the backend runs there,
+# this release has not pinned the bytes.
+silicon        = ["nvidia", "amd", "intel"]
 
 [backend.capabilities]
 # It has `--tensor-split`, which divides one model's layers across cards by

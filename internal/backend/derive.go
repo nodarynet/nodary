@@ -102,6 +102,11 @@ func (d Descriptor) validateDerive() error {
 		{"mount_path", b.MountPath != ""},
 		{"container_port", b.ContainerPort != 0},
 		{"image_default", b.ImageDefault != ""},
+		// A derive corrects an image; it does not move a backend onto silicon
+		// the backend cannot drive. A vLLM image with a CVE backported to it is
+		// still CUDA-only, and a site that genuinely has a ROCm build of
+		// something writes a whole descriptor (§9) rather than a derive.
+		{"silicon", len(b.Silicon) > 0},
 		{"args", len(b.Args) > 0},
 		{"extra", len(b.Extra) > 0},
 		{"env", len(b.Env) > 0},

@@ -6,6 +6,14 @@ weights_layout = "hf-cache"
 mount_path     = "/root/.cache/huggingface"
 container_port = 8000
 image_default  = "vllm/vllm-openai:v0.23.0"
+# NVIDIA only, and measured rather than assumed: `vllm/vllm-openai` publishes
+# no tag containing `rocm`, `xpu` or `intel` -- every one is a CUDA build.
+# vLLM on AMD exists, as `rocm/vllm`, and on Intel as `intel/vllm`, and
+# dev/plans/R6b-the-silicon-matrix.md §1 declines both: a third and fourth
+# publisher in the supply chain, images of 10-33 GB, and a tag per GPU
+# generation to pin and move. A site that owns that hardware registers its own
+# descriptor (dev/specs/04-backends.md §9) naming the image it trusts.
+silicon        = ["nvidia"]
 
 [backend.capabilities]
 tensor_parallel = true

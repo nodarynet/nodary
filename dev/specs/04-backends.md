@@ -180,6 +180,7 @@ weights_layout  = "hf-cache"      # hf-cache | single-file | engine-dir
 mount_path      = "/root/.cache/huggingface"
 container_port  = 8000
 image_default   = "vllm/vllm-openai:v0.23.0"
+silicon         = ["nvidia"]      # nvidia | amd | intel
 
 [backend.capabilities]
 tensor_parallel = true
@@ -206,6 +207,22 @@ ready_timeout_s = 1800
 path = "/metrics"
 ```
 
+**A descriptor does say which GPUs it runs on.** `silicon` is the vendors the
+backend has an image for, in the vocabulary a node's offer
+([03 §7](03-agent.md#7-gpu-assignment-health-restart-reboot)) uses for its
+cards: `nvidia`, `amd`, `intel`. A deployment placed on anything else is
+refused in the applier, naming the vendor — before a container starts on a card
+it cannot drive and exits with a message about CUDA.
+
+It is **required, and an empty list is not "runs anywhere"**: a descriptor
+written before the field existed would otherwise claim every vendor, which is
+precisely how a CUDA-only backend reaches a Radeon. It is also what makes
+[§9](#9-registering-a-backend) a real answer for hardware nodary does not pin —
+a site that has its own ROCm image registers a descriptor that says `amd`, and
+is offered it, which it could not be if the matrix lived in nodary's code. A
+derive ([§5](#5-derived-images)) may not set it and inherits its parent's: a
+corrected image is the same backend, on the same silicon.
+
 **A descriptor does not say how a GPU is reached.** Earlier drafts carried
 `[backend.gpu] mechanism`, and nothing ever read it. The mechanism is not a
 property of the backend: the same llama.cpp descriptor reaches a card by
@@ -222,6 +239,7 @@ is refused if a descriptor still declares it.
 [backend]
 name = "sglang"
 api  = "openai"
+silicon = ["nvidia"]
 weights_layout = "hf-cache"
 mount_path = "/root/.cache/huggingface"
 container_port = 30000
@@ -243,6 +261,7 @@ ready  = "/health_generate"
 [backend]
 name = "llama-cpp"
 api  = "openai"
+silicon = ["nvidia", "amd", "intel"]   # Vulkan reaches all three
 weights_layout = "single-file"     # GGUF
 mount_path = "/models"
 container_port = 8080
@@ -268,6 +287,7 @@ nothing built in declares one, and this is what an operator's own descriptor (§
 [backend]
 name = "an-engine-backend"
 api  = "openai"
+silicon = ["nvidia"]
 weights_layout = "engine-dir"
 
 [backend.prepare]
@@ -293,6 +313,7 @@ Capabilities are enforced at enable time, not discovered at crash time.
 | `quantization: awq` | not in `quantization` | Rejected with the supported list |
 | GGUF model | `weights_layout = "hf-cache"` | Rejected: model artifact and backend layout disagree |
 | 2 GPUs, `tensor_parallel: 4` | — | Rejected: parallelism exceeds assigned GPUs |
+| A node offering AMD cards | `silicon = ["nvidia"]` | Rejected, naming the vendor and what the backend does run on |
 
 The model catalog records each entry's artifact kind ([05](05-catalog.md)), so
 model × backend compatibility is checked before anything is staged or started.

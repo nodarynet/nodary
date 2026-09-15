@@ -483,6 +483,17 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	if err != nil {
 		return Unit{}, err
 	}
+	// The node's own check of the silicon, after gpuFlag has already refused a
+	// mixed assignment — so every assigned card is one vendor and the first one
+	// names it. The applier refuses this too and with the better message, in
+	// front of the operator who typed it; this is here because a hand-edited
+	// document reaches a node without passing through that verb, and because a
+	// backend placed on silicon it cannot drive otherwise fails as a container
+	// that starts, finds no device it understands and exits.
+	if v := present[d.GPUs[0]].VendorName(); !desc.RunsOn(v) {
+		return Unit{}, fmt.Errorf("backend %s does not run on %s GPUs; it declares %s",
+			d.Backend, v, strings.Join(desc.Backend.Silicon, ", "))
+	}
 	env, err := envFlags(desc.Backend, opt.WSL2, d.Env)
 	if err != nil {
 		return Unit{}, err

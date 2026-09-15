@@ -136,6 +136,7 @@ api = "openai"
 weights_layout = "hf-cache"
 mount_path = "/m"
 container_port = 8000
+silicon = ["nvidia"]
 [backend.args]
 model_path = "--model={v}"
 [backend.probe]
@@ -186,6 +187,7 @@ name           = "trt"
 api            = "openai"
 weights_layout = "engine-dir"
 container_port = 8000
+silicon = ["nvidia"]
 image_default  = "registry.example/engine-serve:1"
 
 [backend.args]
@@ -334,6 +336,7 @@ api = "openai"
 weights_layout = "hf-cache"
 mount_path = "/m"
 container_port = 8000
+silicon = ["nvidia"]
 [backend.args]
 model_path = "--model={v}"
 [backend.probe]

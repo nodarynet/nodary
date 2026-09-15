@@ -25,6 +25,7 @@ api            = "openai"
 weights_layout = "hf-cache"
 mount_path     = "/weights"
 container_port = 9000
+silicon = ["nvidia"]
 image_default  = "acme/serve:1"
 
 [backend.capabilities]

@@ -62,14 +62,32 @@ type Descriptor struct {
 }
 
 type Backend struct {
-	Name          string            `json:"name" toml:"name"`
-	API           string            `json:"api" toml:"api"`
-	WeightsLayout string            `json:"weights_layout" toml:"weights_layout"`
-	MountPath     string            `json:"mount_path" toml:"mount_path"`
-	ContainerPort int               `json:"container_port" toml:"container_port"`
-	ImageDefault  string            `json:"image_default" toml:"image_default"`
-	Capabilities  Capabilities      `json:"capabilities" toml:"capabilities"`
-	Args          map[string]string `json:"args" toml:"args"`
+	Name          string `json:"name" toml:"name"`
+	API           string `json:"api" toml:"api"`
+	WeightsLayout string `json:"weights_layout" toml:"weights_layout"`
+	MountPath     string `json:"mount_path" toml:"mount_path"`
+	ContainerPort int    `json:"container_port" toml:"container_port"`
+	ImageDefault  string `json:"image_default" toml:"image_default"`
+	// Silicon is the GPU vendors this backend runs on, in internal/preflight's
+	// vocabulary: nvidia, amd, intel.
+	//
+	// **In the descriptor rather than in a table in the CLI**, which is
+	// dev/specs/04-backends.md §1's argument applied to one more fact: which
+	// silicon a backend runs on varies between backends and is expressible as
+	// data, so it is data the backend declares. It is also what makes §9's
+	// "register your own descriptor" an answer rather than a brush-off — a site
+	// that pins its own SGLang-on-ROCm image can say the descriptor runs on
+	// `amd` and be offered it, which it could not if the matrix lived in a
+	// switch statement here.
+	//
+	// **Required, and an empty list is not "runs anywhere."** A descriptor
+	// written before this field existed would otherwise claim Vulkan, which is
+	// exactly how a CUDA-only backend gets placed on a Radeon — the refusal
+	// R6-13 already gives at the image, reintroduced one layer up where it is
+	// the operator's own descriptor saying it.
+	Silicon      []string          `json:"silicon" toml:"silicon"`
+	Capabilities Capabilities      `json:"capabilities" toml:"capabilities"`
+	Args         map[string]string `json:"args" toml:"args"`
 	// Extra is backend-specific options surfaced as named ones
 	// (dev/specs/04-backends.md §6): llama.cpp's `gpu_layers = "-ngl {v}"`
 	// has no equivalent anywhere else, and there is no canonical parameter for
@@ -245,6 +263,16 @@ func (p Prepare) Argv(src, out string, tensorParallel int) ([]string, error) {
 var (
 	apis    = []string{"openai", "triton", "custom"}
 	layouts = []string{"hf-cache", "single-file", "engine-dir"}
+	// silicon is internal/preflight's vendor vocabulary and nothing finer.
+	// dev/plans/R6b-the-silicon-matrix.md §2 is why three names are enough:
+	// the splits that would need more of them — ROCm or not, RDNA or CDNA —
+	// exist only inside images this release does not pin. Widening it is a
+	// decision with a plan behind it, not a word somebody adds here.
+	//
+	// Not imported from internal/preflight: that package probes a host, and a
+	// descriptor parser that cannot run on a machine with no GPU at all is
+	// worse than three strings written twice.
+	silicon = []string{"nvidia", "amd", "intel"}
 )
 
 // Parse reads one descriptor.
@@ -313,10 +341,25 @@ func (d Descriptor) Validate() error {
 	case b.Probe.ReadyTimeoutS <= 0:
 		return fmt.Errorf("%w: %s: probe.ready_timeout_s must be positive — 11 §2 marks a deployment failed at it",
 			ErrInvalid, b.Name)
+	case len(b.Silicon) == 0:
+		return fmt.Errorf("%w: %s: silicon is required — name the GPU vendors this backend "+
+			"runs on (%s); an omitted list would mean \"any card\", which is how a CUDA-only "+
+			"backend gets placed on a Radeon", ErrInvalid, b.Name, strings.Join(silicon, ", "))
 	case b.Args["model_path"] == "":
 		// Every other canonical parameter is optional; this one is how the
 		// server is told what to serve.
 		return fmt.Errorf("%w: %s: args.model_path is required", ErrInvalid, b.Name)
+	}
+	for i, v := range b.Silicon {
+		if !contains(silicon, v) {
+			return fmt.Errorf("%w: %s: silicon %q is not one of %s",
+				ErrInvalid, b.Name, v, strings.Join(silicon, ", "))
+		}
+		// A repeat is a descriptor somebody edited twice, and it reaches an
+		// operator as a duplicate in every list this is printed into.
+		if contains(b.Silicon[:i], v) {
+			return fmt.Errorf("%w: %s: silicon names %s twice", ErrInvalid, b.Name, v)
+		}
 	}
 	for canonical, tmpl := range b.Args {
 		if !strings.Contains(tmpl, "{v}") {
@@ -510,6 +553,18 @@ func (d Descriptor) Args(modelPath string, p Params, extra []string) ([]string, 
 
 // render substitutes {v}. A template may hold a space — llama.cpp's `-m {v}` —
 // so the result is split into separate argv elements rather than left as one.
+// RunsOn is whether this backend declares it runs on a vendor's silicon.
+//
+// The empty vendor is nvidia, which is agent.GPU.VendorName's default and the
+// manifest's base entry: every image nodary pins is a CUDA build, and a vendor
+// key names what differs from that rather than restating it.
+func (d Descriptor) RunsOn(vendor string) bool {
+	if vendor == "" {
+		vendor = "nvidia"
+	}
+	return contains(d.Backend.Silicon, vendor)
+}
+
 func render(tmpl, v string) string { return strings.ReplaceAll(tmpl, "{v}", v) }
 
 // scalar is how a canonical parameter becomes a command-line value.

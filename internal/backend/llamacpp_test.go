@@ -76,6 +76,7 @@ api = "openai"
 weights_layout = "single-file"
 mount_path = "/models"
 container_port = 8080
+silicon = ["nvidia"]
 [backend.args]
 model_path = "-m {v}"
 max_context = "-c {v}"

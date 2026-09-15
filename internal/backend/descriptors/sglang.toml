@@ -10,6 +10,11 @@ weights_layout = "hf-cache"
 mount_path     = "/root/.cache/huggingface"
 container_port = 30000
 image_default  = "lmsysorg/sglang:latest"
+# NVIDIA only. `lmsysorg/sglang` does publish ROCm tags -- and every one of
+# them is `mi30x`/`mi35x`, which is Instinct. There is no RDNA build at all, so
+# on the Radeon workstation a small site is likeliest to own, this backend has
+# no image. dev/plans/R6b-the-silicon-matrix.md §1.
+silicon        = ["nvidia"]
 
 [backend.capabilities]
 tensor_parallel = true

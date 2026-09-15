@@ -23,6 +23,7 @@ api            = "openai"
 weights_layout = "engine-dir"
 mount_path     = "/engine"
 container_port = 8000
+silicon = ["nvidia"]
 image_default  = "acme/trtllm-serve:1"
 
 [backend.args]

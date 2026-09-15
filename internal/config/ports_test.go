@@ -39,9 +39,21 @@ func applierFor(t *testing.T, models ...config.Model) func(...config.Deployment)
 	}
 	now := time.Now().UTC().Format(audit.TimeFormat)
 	if err := db.WriteTx(ctx, func(tx *sql.Tx) error {
-		for _, n := range []string{"gpu-01", "gpu-02"} {
+		// The offer is what R6-16 reads the node's silicon out of. gpu-01 and
+		// gpu-02 offer NVIDIA cards because that is what every deployment in
+		// these tests is placed on; gpu-amd is here so one test can place a
+		// backend on silicon it does not run on.
+		for n, offer := range map[string]string{
+			"gpu-01":  `{"gpus":[{"index":0},{"index":1}]}`,
+			"gpu-02":  `{"gpus":[{"index":0},{"index":1}]}`,
+			"gpu-amd": `{"gpus":[{"index":0,"vendor":"amd"}]}`,
+			// Enrolled, approved, and has never reported. Its silicon is not
+			// yet a fact about anything.
+			"gpu-new": ``,
+		} {
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO node (name, state, created_at) VALUES (?, 'approved', ?)`, n, now); err != nil {
+				`INSERT INTO node (name, state, offer_json, created_at) VALUES (?, 'approved', ?, ?)`,
+				n, offer, now); err != nil {
 				return err
 			}
 		}
