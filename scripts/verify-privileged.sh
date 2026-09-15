@@ -428,6 +428,14 @@ fi
 # And the verb that re-renders it as routes appear. A fresh control plane has
 # none, so this asserts the idempotent path: it reports no change and does not
 # restart a unit for nothing.
+# The timer is what makes membership follow readiness without anybody running a
+# command (R3-14). Without it a deployment reaches ready and never joins its
+# route, which looks exactly like a data plane that is working.
+if systemctl is-active --quiet nodary-gateway-sync.timer 2>/dev/null; then
+  ok "nodary-gateway-sync.timer is active, so membership follows readiness"
+else
+  bad "nodary-gateway-sync.timer is not active; a ready deployment would never join its route"
+fi
 if "$BIN" gateway sync --dry-run >/dev/null 2>&1; then
   ok "gateway sync reads the routes and agrees with what is on disk"
 else
@@ -573,14 +581,39 @@ for x in d.get("deployments") or []:
     if [ -z "$KEY" ]; then
       bad "could not mint a service key"
     else
-      BODY=$(curl -fsS --max-time 120 "http://127.0.0.1:$GWPORT/v1/chat/completions" \
-               -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-               -d "{\"model\":\"$ROUTE\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":16}" 2>&1)
-      if printf '%s' "$BODY" | grep -q '"content"'; then
-        ok "the gateway served a completion: $(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"][:60])' 2>/dev/null)"
+      # **A deployment joins its route on a timer, not the instant it reports
+      # ready.** nodary-gateway-sync.timer re-renders the data plane once a
+      # minute, and internal/install/units.go argues for that latency rather
+      # than apologising for it: a model takes minutes to load, so sixty seconds
+      # constrains nothing, and polling faster pays in data-plane restarts that
+      # drop live requests.
+      #
+      # So this retries, and the elapsed time it prints is that claim measured.
+      # Firing once and reporting the 502 — which is what this did first — tests
+      # the author's patience rather than the product.
+      START=$(date +%s); CODE=""; BODY=""
+      while [ $(( $(date +%s) - START )) -lt 150 ]; do
+        BODY=$(curl -sS --max-time 120 -w '\n%{http_code}' \
+                 "http://127.0.0.1:$GWPORT/v1/chat/completions" \
+                 -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+                 -d "{\"model\":\"$ROUTE\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":16}" 2>&1)
+        CODE=$(printf '%s' "$BODY" | tail -1)
+        [ "$CODE" = "200" ] && break
+        sleep 10
+      done
+      if [ "$CODE" = "200" ]; then
+        ok "the gateway served a completion after $(( $(date +%s) - START ))s: $(printf '%s' "$BODY" |
+             sed '$d' | python3 -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"][:60])' 2>/dev/null)"
       else
-        bad "the gateway did not serve a completion"
-        printf '%s\n' "$BODY" | tail -4 | sed 's/^/    /'
+        bad "the gateway did not serve a completion (HTTP ${CODE:-none})"
+        printf '%s\n' "$BODY" | sed 's/^/    /'
+        # Where the hop failed: the route as LiteLLM has it, and the container
+        # answering directly. One of the two is always the answer.
+        echo "    --- /etc/nodary/litellm.yaml model_list ---"
+        sed -n '/model_list/,/^[a-z]/p' /etc/nodary/litellm.yaml 2>/dev/null | sed 's/^/    /'
+        echo "    --- the deployment itself ---"
+        curl -sS --max-time 10 http://127.0.0.1:8001/v1/models 2>&1 | head -c 300 | sed 's/^/    /'
+        journalctl -u nodary-gateway.service -n 15 --no-pager 2>/dev/null | sed 's/^/    /'
       fi
       # Metered, and with no prompt text anywhere in it.
       if "$BIN" usage show --format json 2>/dev/null | grep -q '"requests"'; then
