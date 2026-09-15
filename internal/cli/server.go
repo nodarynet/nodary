@@ -834,7 +834,7 @@ func writeLiteLLM(e env, dir, master string) int {
 	if !ok {
 		return ExitFailure
 	}
-	image, err := imageFor(m, "litellm", resolvePlatform("host"))
+	image, err := imageFor(m, "litellm", resolvePlatform("host"), "")
 	if err != nil {
 		// Not fatal: everything else is installed and correct, and the unit
 		// will refuse to start with a message naming the missing value rather
@@ -921,12 +921,19 @@ func writeLiteLLMImage(dir, image string) (install.Step, error) {
 		Changed: !bytes.Equal(prior, body), Detail: image}, nil
 }
 
-// imageFor resolves a component's pinned image reference for a platform.
+// imageFor resolves a component's pinned image reference for a platform and a
+// GPU vendor.
 //
 // By digest, which is what the manifest holds: a tag is a name somebody can
 // move, and the whole point of pinning is that the bytes are the same ones the
 // manifest was written against.
-func imageFor(m *components.Manifest, name, platform string) (string, error) {
+//
+// **NVIDIA is the base entry, not a vendor key.** Every image in the manifest
+// is a CUDA build, so a `vendors` map names what differs from that rather than
+// restating it (docs/plans/R6a-a-second-gpu-vendor.md §3). A component with no
+// entry for the vendor asked for is refused here: vLLM, SGLang and TensorRT-LLM
+// genuinely have no Vulkan build, and saying so is the answer.
+func imageFor(m *components.Manifest, name, platform, vendor string) (string, error) {
 	for _, c := range m.Components {
 		if c.Name != name {
 			continue
@@ -934,6 +941,14 @@ func imageFor(m *components.Manifest, name, platform string) (string, error) {
 		art, ok := c.Platforms[platform]
 		if !ok {
 			return "", fmt.Errorf("the manifest pins no %s for %s", name, platform)
+		}
+		if vendor == preflight.VendorNVIDIA {
+			vendor = ""
+		}
+		art, ok = art.ForVendor(vendor)
+		if !ok {
+			return "", fmt.Errorf("the manifest pins no %s image for %s GPUs; %s is NVIDIA-only in this release",
+				name, vendor, name)
 		}
 		if art.Image == "" {
 			return "", fmt.Errorf("the manifest's %s entry for %s names no image", name, platform)

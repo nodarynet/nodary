@@ -111,7 +111,7 @@ func TestTheLiteLLMImageIsPinnedByDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := imageFor(m, "litellm", "linux/amd64")
+	want, err := imageFor(m, "litellm", "linux/amd64", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestTheLiteLLMImageIsPinnedByDigest(t *testing.T) {
 
 	// A component the manifest does not carry is an error, not an empty string
 	// that would render a unit running whatever `nerdctl` resolves.
-	if _, err := imageFor(m, "nosuchthing", "linux/amd64"); err == nil {
+	if _, err := imageFor(m, "nosuchthing", "linux/amd64", ""); err == nil {
 		t.Error("an unknown component resolved to an image")
 	}
 }

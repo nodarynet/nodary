@@ -9,13 +9,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/backend"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/config"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/preflight"
 	"github.com/nodarynet/nodary/internal/store"
 )
@@ -237,7 +240,7 @@ func cmdModelRegister(e env, args []string) int {
 
 	pinned := *image
 	if pinned == "" {
-		if pinned, ok = pinnedImage(e, rem, *dbPath, *backendName); !ok {
+		if pinned, ok = pinnedImage(e, rem, *dbPath, *backendName, *node, indices); !ok {
 			return ExitFailure
 		}
 	}
@@ -390,12 +393,20 @@ func readRemoteManifest(e env, path string) (sum, body string, ok bool) {
 	return hex.EncodeToString(digest[:]), string(raw), true
 }
 
-// pinnedImage is the digest this build pins for a backend on this platform.
+// pinnedImage is the digest this build pins for a backend on the node it is
+// being placed on.
 //
 // Pinned rather than left to the descriptor's default, which is a *tag*: the
 // manifest's entry is the version this release was tested against, and on a new
 // GPU generation the difference between them is the whole run.
-func pinnedImage(e env, rem *remote, dbPath, backend string) (string, bool) {
+//
+// **On the node's platform and GPU vendor, not this machine's.** Until a fleet
+// could hold two vendors every node's answer was the control plane's, so
+// buildinfo.Platform() was right by accident; it resolves the image for
+// whichever box the operator typed the command on. That was already wrong for
+// an arm64 node placed from an amd64 control plane — quietly, as an image that
+// will not run — and a vendor axis makes it wrong in a second direction.
+func pinnedImage(e env, rem *remote, dbPath, backend, node string, gpus []int) (string, bool) {
 	// **A derive's image is whatever its build produced**, so it is not in the
 	// component manifest and never will be — the manifest pins what a release
 	// ships, and this was made on this site. Read through the report so the
@@ -416,13 +427,110 @@ func pinnedImage(e env, rem *remote, dbPath, backend string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	img, err := imageFor(m, backend, buildinfo.Platform())
+	plat, vendor, ok := nodeTarget(e, rem, dbPath, node, gpus)
+	if !ok {
+		return "", false
+	}
+	img, err := imageFor(m, backend, plat, vendor)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary model register: %v\n", err)
 		fmt.Fprintf(e.stderr, "  pass --image to name one yourself\n")
 		return "", false
 	}
 	return img, true
+}
+
+// nodeTarget is the platform and GPU vendor an image has to run on.
+//
+// The offer is the authority on the vendor, and it is deliberately not in
+// config.Snapshot — readNodes selects four columns and not offer_json, which is
+// why adding a vendor to it invalidated no revision chain
+// (docs/plans/R6a-a-second-gpu-vendor.md §4). So this reads fleet.Node, which
+// carries the offer and is already served both ways by `node list`.
+//
+// **An unknown node falls back to this machine's platform**, which is what
+// every release before this one did for every node. Registering onto a node the
+// control plane has never heard of is refused by the applier a moment later,
+// with a better message than anything this function could give; failing here
+// instead would turn `--out`, which applies nothing, into a verb that needs a
+// fleet.
+func nodeTarget(e env, rem *remote, dbPath, node string, gpus []int) (string, string, bool) {
+	n, ok := fleetNode(e, rem, dbPath, node)
+	if !ok {
+		return buildinfo.Platform(), "", true
+	}
+	plat := buildinfo.Platform()
+	// A node that enrolled but has never reported leaves both empty, and
+	// "linux/" is not a manifest key. Half an answer is not one.
+	if n.OS != "" && n.Arch != "" {
+		plat = n.OS + "/" + n.Arch
+	}
+
+	var offer agent.Offer
+	_ = json.Unmarshal(n.Offer, &offer)
+	want := map[int]bool{}
+	for _, idx := range gpus {
+		want[idx] = true
+	}
+	vendors := map[string]bool{}
+	for _, g := range offer.GPUs {
+		if want[g.Index] {
+			vendors[g.VendorName()] = true
+		}
+	}
+	// **A mixed host is refused rather than resolved.** Two vendors among the
+	// assigned cards means two images, and there is one image per deployment —
+	// so picking either one pins a container that cannot drive half the GPUs it
+	// was given. docs/plans/R6a-a-second-gpu-vendor.md §9 leaves the general
+	// case open; this is the one path that has to answer it today.
+	if len(vendors) > 1 {
+		names := make([]string, 0, len(vendors))
+		for v := range vendors {
+			names = append(names, v)
+		}
+		sort.Strings(names)
+		idx := make([]string, len(gpus))
+		for i, n := range gpus {
+			idx[i] = strconv.Itoa(n)
+		}
+		fmt.Fprintf(e.stderr, "nodary model register: GPUs %s on %s are %s cards, and one "+
+			"deployment runs one image.\n  Register separately per vendor, or pass --image.\n",
+			strings.Join(idx, ","), node, strings.Join(names, " and "))
+		return "", "", false
+	}
+	for v := range vendors {
+		return plat, v, true
+	}
+	// No assigned GPU is in the offer. unitFor refuses that on the node with
+	// the index it names, which is the message worth getting; the base entry is
+	// what every release pinned before there was a vendor axis at all.
+	return plat, "", true
+}
+
+// fleetNode reads one node from whichever fleet this invocation is acting
+// against, the same two ways `node list` does.
+func fleetNode(e env, rem *remote, dbPath, name string) (fleet.Node, bool) {
+	var nodes []fleet.Node
+	var err error
+	if rem != nil {
+		nodes, err = remoteList[fleet.Node](rem, "/nodes", "nodes", nil)
+	} else {
+		path, _ := resolveDBIn(e, dbPath)
+		var db *store.DB
+		if db, err = store.OpenReadOnly(context.Background(), path); err == nil {
+			defer db.Close()
+			nodes, err = fleet.Nodes(context.Background(), db.Read(), time.Now())
+		}
+	}
+	if err != nil {
+		return fleet.Node{}, false
+	}
+	for _, n := range nodes {
+		if n.Name == name {
+			return n, true
+		}
+	}
+	return fleet.Node{}, false
 }
 
 func parseGPUList(e env, spec string) ([]int, bool) {

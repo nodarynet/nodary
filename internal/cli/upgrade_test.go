@@ -127,7 +127,7 @@ func TestUpgradeCheckIsSilentWhenNothingMoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := imageFor(m, "litellm", resolvePlatform("host"))
+	image, err := imageFor(m, "litellm", resolvePlatform("host"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestUpgradeRepinsLiteLLMAndLeavesItsRoutesAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := imageFor(m, "litellm", resolvePlatform("host"))
+	want, err := imageFor(m, "litellm", resolvePlatform("host"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

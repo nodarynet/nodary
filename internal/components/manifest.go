@@ -69,6 +69,40 @@ type Artifact struct {
 	URL    string `json:"url,omitempty"`
 	SHA256 string `json:"sha256,omitempty"`
 	Image  string `json:"image,omitempty"`
+	// Vendors is what differs on a host whose GPUs are not NVIDIA, keyed by
+	// the vendor internal/preflight detects. Absent everywhere today.
+	//
+	// **A platform key cannot carry this.** A Vulkan build and a CUDA build
+	// are both linux/amd64; they differ by what silicon they drive. The
+	// obvious shortcut — `linux/amd64+vulkan` — needs no schema change and
+	// smuggles a second dimension into a string that resolvePlatform,
+	// ForPlatform and ArtifactName all split on `/`
+	// (docs/plans/R6a-a-second-gpu-vendor.md §3).
+	//
+	// An Artifact rather than a narrower type so an override says everything
+	// a base entry can — a vendor may differ by url and sha256, not only by
+	// image. Its own Vendors map is refused by Validate: nothing reads one.
+	Vendors map[string]Artifact `json:"vendors,omitempty"`
+}
+
+// ForVendor is the artifact to use on a host with this GPU vendor.
+//
+// **An empty vendor is the base entry, and the base entry is
+// NVIDIA-or-nothing.** That is every component in the manifest today and
+// stays true without editing one of them. The vendor vocabulary itself lives
+// in internal/preflight, where a machine is detected; this package only
+// answers whether the manifest pins something for the name it is handed.
+//
+// A missing override is a refusal rather than a fall back to the base. Falling
+// back would pin a CUDA image onto an AMD node, which surfaces at first token
+// as a model server that cannot find CUDA — naming neither the vendor nor the
+// image, on a machine the operator may have no shell on.
+func (a Artifact) ForVendor(vendor string) (Artifact, bool) {
+	if vendor == "" {
+		return a, true
+	}
+	v, ok := a.Vendors[vendor]
+	return v, ok
 }
 
 // Component is one third-party dependency across all platforms it supports.
@@ -320,31 +354,59 @@ func (m *Manifest) Validate() []error {
 			if !strings.Contains(plat, "/") {
 				errs = append(errs, fmt.Errorf("%s: malformed platform key", at))
 			}
-			if c.Kind == KindImage {
-				if a.Image == "" {
-					errs = append(errs, fmt.Errorf("%s: image kind with no image reference", at))
-				} else if !digestRe.MatchString(a.Image) {
-					errs = append(errs, fmt.Errorf("%s: image reference is not digest-pinned: %s", at, a.Image))
+			errs = append(errs, validateArtifact(c.Kind, at, a)...)
+
+			// A vendor override is held to everything a base entry is: it is
+			// the thing that actually gets pulled on that hardware, so an
+			// unpinned one defeats the pinning for exactly the hosts nobody
+			// has tested on yet.
+			vendors := make([]string, 0, len(a.Vendors))
+			for v := range a.Vendors {
+				vendors = append(vendors, v)
+			}
+			sort.Strings(vendors)
+			for _, v := range vendors {
+				vat := fmt.Sprintf("%s [%s %s]", where, plat, v)
+				if v == "" {
+					errs = append(errs, fmt.Errorf("%s: vendor override with empty name", at))
 				}
-				if a.URL != "" || a.SHA256 != "" {
-					errs = append(errs, fmt.Errorf("%s: image kind must not carry url or sha256", at))
+				if len(a.Vendors[v].Vendors) > 0 {
+					errs = append(errs, fmt.Errorf("%s: a vendor override carries its own vendors map, which nothing reads", vat))
 				}
-				continue
-			}
-			if a.Image != "" {
-				errs = append(errs, fmt.Errorf("%s: %s kind must not carry an image reference", at, c.Kind))
-			}
-			if a.URL == "" {
-				errs = append(errs, fmt.Errorf("%s: missing url", at))
-			} else if !strings.HasPrefix(a.URL, "https://") {
-				errs = append(errs, fmt.Errorf("%s: url is not https", at))
-			}
-			if a.SHA256 == "" {
-				errs = append(errs, fmt.Errorf("%s: missing sha256", at))
-			} else if !sha256Re.MatchString(a.SHA256) {
-				errs = append(errs, fmt.Errorf("%s: malformed sha256 %q", at, a.SHA256))
+				errs = append(errs, validateArtifact(c.Kind, vat, a.Vendors[v])...)
 			}
 		}
+	}
+	return errs
+}
+
+// validateArtifact is the per-artifact half of Validate, shared by a platform's
+// base entry and by each of its vendor overrides so the two cannot drift.
+func validateArtifact(kind Kind, at string, a Artifact) []error {
+	var errs []error
+	if kind == KindImage {
+		if a.Image == "" {
+			errs = append(errs, fmt.Errorf("%s: image kind with no image reference", at))
+		} else if !digestRe.MatchString(a.Image) {
+			errs = append(errs, fmt.Errorf("%s: image reference is not digest-pinned: %s", at, a.Image))
+		}
+		if a.URL != "" || a.SHA256 != "" {
+			errs = append(errs, fmt.Errorf("%s: image kind must not carry url or sha256", at))
+		}
+		return errs
+	}
+	if a.Image != "" {
+		errs = append(errs, fmt.Errorf("%s: %s kind must not carry an image reference", at, kind))
+	}
+	if a.URL == "" {
+		errs = append(errs, fmt.Errorf("%s: missing url", at))
+	} else if !strings.HasPrefix(a.URL, "https://") {
+		errs = append(errs, fmt.Errorf("%s: url is not https", at))
+	}
+	if a.SHA256 == "" {
+		errs = append(errs, fmt.Errorf("%s: missing sha256", at))
+	} else if !sha256Re.MatchString(a.SHA256) {
+		errs = append(errs, fmt.Errorf("%s: malformed sha256 %q", at, a.SHA256))
 	}
 	return errs
 }

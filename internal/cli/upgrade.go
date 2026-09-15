@@ -236,7 +236,7 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 		buildinfo.Version, strings.ReplaceAll(plat, "/", "-"))})
 
 	// The data plane's pin. The whole reason this verb exists.
-	if image, err := imageFor(m, "litellm", plat); err == nil {
+	if image, err := imageFor(m, "litellm", plat, ""); err == nil {
 		step, err := writeLiteLLMImage(confDir, image)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary upgrade: %v\n", err)
@@ -322,7 +322,7 @@ func plannedMoves(m *components.Manifest, confDir, optDir, plat string) ([]move,
 	if was := installedRelease(optDir); was != buildinfo.Version {
 		out = append(out, move{"nodary", orElse(was, "not installed"), buildinfo.Version})
 	}
-	if image, err := imageFor(m, "litellm", plat); err == nil {
+	if image, err := imageFor(m, "litellm", plat, ""); err == nil {
 		// A read that failed for any reason other than absence is not a pin
 		// that moved. Swallowing it would report an upgrade as available, or a
 		// host as current, on the strength of a file nobody could open —

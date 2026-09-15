@@ -14,6 +14,13 @@ import (
 // enrolling — which is exactly why this is SQL and not a fixture verb.
 func (a *appliance) enrolled(name string) {
 	a.t.Helper()
+	a.enrolledAs(name, "linux", "amd64", `{"gpus":[0],"max_deployments":1}`)
+}
+
+// enrolledAs is enrolled with the three things a placement resolves against:
+// the node's own platform and the vendor of the cards it offered.
+func (a *appliance) enrolledAs(name, os, arch, offer string) {
+	a.t.Helper()
 	db, err := store.Open(context.Background(), a.db)
 	if err != nil {
 		a.t.Fatal(err)
@@ -26,9 +33,8 @@ func (a *appliance) enrolled(name string) {
 		_, err := tx.ExecContext(context.Background(), `INSERT INTO node
 			(name, state, arch, os, gpus_json, topology_json, offer_json, constraints_json,
 			 reboot_policy, protocol, created_at)
-			VALUES (?, 'pending', 'amd64', 'linux', '[]', '{}',
-			        '{"gpus":[0],"max_deployments":1}', '{}', 'manual-console', 1,
-			        '2026-09-08T00:00:00.000000000Z')`, name)
+			VALUES (?, 'pending', ?, ?, '[]', '{}', ?, '{}', 'manual-console', 1,
+			        '2026-09-08T00:00:00.000000000Z')`, name, arch, os, offer)
 		return err
 	}); err != nil {
 		a.t.Fatal(err)
