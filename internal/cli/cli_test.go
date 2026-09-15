@@ -162,6 +162,16 @@ func TestComponentsListText(t *testing.T) {
 }
 
 func TestComponentsListJSON(t *testing.T) {
+	// **An empty config directory, because this asserts on stderr.** A host
+	// that has run the installer has /etc/nodary/components.json — the
+	// *ownership* record — and components.Effective reads that path expecting a
+	// signed manifest revision, so it warns that the revision carries no
+	// signature. Nothing to do with this test, and it made it fail on any box
+	// with nodary installed. The collision itself is R5-32.
+	previous := configDir
+	configDir = t.TempDir()
+	t.Cleanup(func() { configDir = previous })
+
 	code, stdout, stderr := run(t, "components", "list", "--platform", "all", "--format", "json")
 	if code != ExitOK {
 		t.Fatalf("exit = %d: %s", code, stderr)

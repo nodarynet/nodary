@@ -49,13 +49,38 @@ func TransitionPreview(ctx context.Context, q config.Querier, name, to string) (
 		`SELECT state, offer_json, constraints_json FROM node WHERE name = ?`, name).
 		Scan(&from, &offer, &constraints)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("%w: no node named %q; a node joins by enrolling", identity.ErrBadName, name)
+		return nil, fmt.Errorf("%w: no node named %q%s; a node joins by enrolling",
+			identity.ErrNotFound, name, nearestNode(ctx, q, name))
 	}
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"node": name, "from": from, "to": to,
 		"offer": decoded(offer), "constraints": decoded(constraints)}, nil
+}
+
+// nearestNode names a node whose name differs from this one only in case, or
+// "" when there is no such node.
+//
+// **This is the miss an operator will actually make.** Enrollment lowercases a
+// node's name on purpose (internal/agent/agent.go): the name becomes a
+// certificate common name, a systemd instance after %i, a container name and a
+// directory, and none of those agree about case. So a host that answers
+// `Fractal` to `hostname -s` enrolls as `fractal`, and `node approve Fractal`
+// is the next thing somebody types — the same host, spelled the way the host
+// spells it. Naming the node that does exist costs one query and turns a dead
+// end into an answer.
+//
+// A failed lookup here is not an error: this is a better message, not a
+// control, and refusing to report the original miss because the hint could not
+// be computed would be worse than the message it replaces.
+func nearestNode(ctx context.Context, q config.Querier, name string) string {
+	var near string
+	if err := q.QueryRowContext(ctx,
+		`SELECT name FROM node WHERE lower(name) = lower(?) LIMIT 1`, name).Scan(&near); err != nil {
+		return ""
+	}
+	return fmt.Sprintf(`; did you mean %q? a node name is lowercased when it enrolls`, near)
 }
 
 // Transition moves a node's administrative state inside a mutation.
