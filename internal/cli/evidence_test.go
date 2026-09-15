@@ -204,9 +204,16 @@ func TestVerifyTxtReportsTheChainAndHowToCheckItIndependently(t *testing.T) {
 	}
 }
 
-// R9-10 and R9-13: a member with no claims says so, in its own schema, rather
-// than being absent or — worse — guessing.
-func TestUnmappedAndPendingMembersSayWhatTheyAre(t *testing.T) {
+// R9-10, R9-19 and R9-13: what the index claims, and what it refuses to.
+//
+// **It shipped `unmapped` on purpose and this is where that ended.** The
+// structure was built before the identifiers, because dev/plans/pivot-cmmc.md §5
+// makes this the one artifact where approximately right is worse than absent —
+// a customer pastes it into a System Security Plan. The identifiers are
+// transcribed now, and what this test pins is the line that has to survive
+// them: an entry says it is *evidence for* a requirement and never that the
+// requirement is *satisfied*.
+func TestTheControlIndexClaimsEvidenceAndNeverCompliance(t *testing.T) {
 	a := newAppliance(t)
 	a.addUser("alice", "admin")
 	a.licensed(time.Now().AddDate(1, 0, 0), license.FeatureEvidence)
@@ -218,27 +225,49 @@ func TestUnmappedAndPendingMembersSayWhatTheyAre(t *testing.T) {
 	members := extractBundle(t, out, t.TempDir())
 
 	var controls struct {
-		Status  string `json:"status"`
-		Entries []struct {
-			Practice string `json:"practice"`
-			Status   string `json:"status"`
+		Status     string   `json:"status"`
+		Source     string   `json:"source"`
+		NotCovered []string `json:"families_not_covered"`
+		Entries    []struct {
+			Practice    string `json:"practice"`
+			Family      string `json:"family"`
+			Requirement string `json:"requirement"`
+			Status      string `json:"status"`
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal([]byte(members["controls.json"]), &controls); err != nil {
 		t.Fatalf("controls.json is not JSON: %v", err)
 	}
-	if controls.Status != "unmapped" {
+	// `evidence`, never `satisfied`. The word is the claim.
+	if controls.Status != "evidence" {
 		t.Errorf("controls.json claims status %q", controls.Status)
 	}
+	if !strings.Contains(controls.Source, "800-171") || !strings.Contains(controls.Source, "Rev. 2") {
+		t.Errorf("the index does not name the publication it was transcribed from: %q", controls.Source)
+	}
+	if len(controls.Entries) == 0 {
+		t.Fatal("the index carries no entries")
+	}
 	for _, e := range controls.Entries {
-		if e.Practice != "" {
-			t.Errorf("an entry claims practice %q before the mapping was transcribed", e.Practice)
+		if e.Practice == "" || e.Requirement == "" || e.Family == "" {
+			t.Errorf("an entry is incomplete: %+v", e)
+		}
+		if e.Status != "evidence" {
+			t.Errorf("entry %s claims status %q, and only \"evidence\" is a claim nodary can make",
+				e.Practice, e.Status)
 		}
 	}
-	// The markdown a human reads has to carry the same warning, because that is
-	// the one that gets pasted somewhere.
-	if !strings.Contains(members["controls.md"], "worse than one that is absent") {
-		t.Errorf("controls.md does not warn against using it:\n%s", members["controls.md"])
+	// An index listing only what it covers reads as though it covers
+	// everything, which is how the families nobody looked at end up in a plan.
+	if len(controls.NotCovered) == 0 {
+		t.Error("the index does not say which families it is not evidence for")
+	}
+	// And the markdown a human reads — the one that gets pasted somewhere —
+	// has to carry the same limit.
+	for _, want := range []string{"EVIDENCE FOR", "does not assert", "not evidence for"} {
+		if !strings.Contains(members["controls.md"], want) {
+			t.Errorf("controls.md does not carry %q:\n%s", want, members["controls.md"])
+		}
 	}
 
 	// This appliance applied no configuration, enrolled no node and checked no
@@ -362,7 +391,13 @@ func extractBundle(t *testing.T, path, into string) map[string]string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(into, h.Name), body, 0o600); err != nil {
+		// The bundle holds a directory now — R9-11's narratives — so the
+		// extraction has to make one, the same as `tar -x` would.
+		dest := filepath.Join(into, filepath.FromSlash(h.Name))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		out[h.Name] = string(body)

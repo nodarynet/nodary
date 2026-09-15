@@ -61,9 +61,13 @@ row for what was missing and why it mattered.
 - [x] **R9-10** `controls.json` and `controls.md` — the practice → evidence index, pointing at record sequences
   - *done:* until R9-19 lands, every entry carries its structure and `"status": "unmapped"`; a plausible guess here is worse than an absent member, because a customer pastes it into an SSP · [MVP §5.2](../plans/mvp.md#52-the-control-mapping-ships-as-a-stub-with-no-claims)
   - *deps:* R9-05
-- [ ] **R9-11** `narratives/` — parameterized SSP text per practice, filled with this install's values
+- [x] **R9-11** `narratives/` — parameterized SSP text per practice, filled with this install's values
   - *done:* the parameters resolve from the install's real configuration, so a narrative naming a value nodary does not hold fails to render rather than emitting a placeholder into a deliverable
   - *deps:* R9-05, R9-19
+  - *done:* one file per mapped requirement under `narratives/`, rendered with `missingkey=error` — a field the template names and the facts do not hold **stops the export**. `<no value>` in a paragraph somebody signs is indistinguishable from a number they forgot to fill in, which is worse than no paragraph, and the failure is injected to prove it
+  - the facts are the active profile's own settings and the period the bundle covers, so a paragraph cannot describe a configuration nobody has: retention days, session lifetime, the justification minimum, the advisory clock, the egress default and the approved node count
+  - **two settings change what a paragraph says and not only which number is in it.** Under a profile that does not require a second factor, 3.5.3 says so and names the profile that does, rather than claiming multifactor; under an `allow` egress default, 3.13.6 does not claim deny-by-default. A narrative that overclaimed on a loosened profile would be the same failure as a half-built control, arriving in the deliverable instead of the product
+  - each paragraph quotes the requirement it answers and leaves the organizational half — who reviews it, how often, under whose authority — to the reader, because that half is not nodary's to assert
 - [x] **R9-12** `revisions.jsonl`, `nodes.json` and `identity.jsonl` — configuration history, approval records with the inventory offered at approval, and user and token lifecycle
   - *deps:* R2-11, R9-05
   - **it shipped as one member of three and was marked done in the commit that wrote the other two as placeholders** (`01f5a9b`). They emitted `{"status":"pending"}` unconditionally, whatever the database held, and a test pinned them that way. Found while building R9-17, which fills the third member beside them — a bundle saying "pending" for configuration history on an install with two years of revisions understates the customer's own evidence, in a deliverable an assessor consumes
@@ -116,13 +120,19 @@ row for what was missing and why it mattered.
 
 ## The mapping
 
-- [~] **R9-19** Rewrite [07 §5](../specs/07-identity-audit.md#5-control-mapping) against 800-171 practice identifiers, transcribed from the publication
+- [x] **R9-19** Rewrite [07 §5](../specs/07-identity-audit.md#5-control-mapping) against 800-171 practice identifiers, transcribed from the publication
   - *done:* transcribed from the publication itself, not from memory and not from a model, and the section's opening — "most deployments will never need this section" — is reframed for the audience the pivot chose · [pivot §5](../plans/pivot-cmmc.md#the-mapping-is-owed-a-verification-pass)
-  - **the reframe is done; the transcription is not, and deliberately so.** The table still carries 800-53 control families, and the section now says so in a block quote rather than letting the left column look like something to paste into a plan. A practice identifier recalled rather than transcribed is the one error in this document a customer would carry into an assessment — the same reason `controls.json` ships every entry as `"status": "unmapped"` rather than guessing
-  - *blocked on:* the publication in hand. This row does not close from memory
+  - *done:* **transcribed from NIST's own published requirements list** for Rev 2 (`sp800-171r2-security-reqs.csv`, from the publication's page at csrc.nist.gov) — not from memory, not from a model, and not from a secondary source summarizing it. Every identifier and every quoted requirement in the crosswalk came out of that file
+  - **the table is in one place and three artifacts read it**, which is the part worth keeping: [`ee/evidence/crosswalk.go`](../../ee/evidence/crosswalk.go) drives `controls.json`, `controls.md`, the `narratives/` paragraphs and the published page. A control mapping duplicated across three artifacts is one where two are quietly wrong, and the wrong one is the one somebody pasted. Tests assert the page and the bundle agree on both identifier and quoted text; both drifts are injected
+  - `controls.json` moved from `"status": "unmapped"` to `"status": "evidence"` — **never `satisfied`**. The word is the claim, and it is pinned by a test
+  - **what it is not evidence for is published beside it.** Awareness and training, incident response, maintenance, media protection, personnel security, physical protection and risk assessment are named as the organization's. An index listing only what it covers reads as though it covers everything, which is how a family nobody looked at ends up marked handled in a plan
+  - *(historical)* **the reframe was done first; the transcription deliberately was not.** The table still carries 800-53 control families, and the section now says so in a block quote rather than letting the left column look like something to paste into a plan. A practice identifier recalled rather than transcribed is the one error in this document a customer would carry into an assessment — the same reason `controls.json` ships every entry as `"status": "unmapped"` rather than guessing
+  - *was blocked on:* the publication in hand. It closed the moment that was possible rather than by lowering the standard
   - *deps:* R9-20
-- [ ] **R9-20** Settle which revision the narratives target
-  - *done:* CMMC 2.0 Level 2 is understood to assess against 800-171 Rev 2 while Rev 3 exists and renumbers. Confirmed against the current rule rather than assumed, and recorded with the migration it implies
+- [x] **R9-20** Settle which revision the narratives target
+  - *done:* **Revision 2**, and it is a *withdrawn* publication — NIST withdrew it on 14 May 2024, superseded by Rev 3. CMMC assesses Level 2 against Rev 2 regardless: 32 CFR part 170 is written against those 110 requirements, and the rulemaking that would move CMMC to Rev 3 is in progress rather than in force
+  - checked against the position as it stands rather than assumed from the pivot's own reading a year earlier. The migration it implies is a renumbering, not a rewrite: the mechanisms do not move, the identifiers do, which is why the crosswalk keeps the identifier and the quoted requirement together in one record
+  - *found while confirming:* CMMC Phase II requirements were suspended in July 2026 while Phase I and the Level 2 self-assessment remain. It changes nothing here — the requirements a plan cites are the same — and it is recorded because the next person to read this row will wonder whether it was accounted for
 
 ## Open
 

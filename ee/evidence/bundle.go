@@ -16,6 +16,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/advisory"
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/minisign"
 	"github.com/nodarynet/nodary/internal/policy"
@@ -115,6 +116,20 @@ func Build(ctx context.Context, m audit.Mutation, db *store.DB, k *secret.Key,
 		return nil, err
 	}
 	b.add(MemberNodes, nodes)
+
+	// R9-11. After the fleet read, because a narrative names how many nodes
+	// were approved and a paragraph that says so has to say the real number.
+	approved, err := fleet.Nodes(ctx, db.Read(), now)
+	if err != nil {
+		return nil, err
+	}
+	files, err := narrativeFiles(active, opt, len(approved))
+	if err != nil {
+		return nil, err
+	}
+	for name, body := range sortedFiles(files) {
+		b.add(name, body)
+	}
 
 	remediation, err := remediationSegment(ctx, db, now)
 	if err != nil {

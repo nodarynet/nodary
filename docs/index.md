@@ -26,6 +26,7 @@ edition rather than the target audience.
 
 [Get started :material-arrow-right:](getting-started.md){ .md-button .md-button--primary }
 [Administering a fleet](administering.md){ .md-button }
+[Evidence and NIST SP 800-171](compliance.md){ .md-button }
 [View on GitHub](https://github.com/nodarynet/nodary){ .md-button }
 
 ## What it does

@@ -230,34 +230,39 @@ This section is for the primary audience: a small site under NIST SP 800-171 or 
 that has to show an assessor where its evidence lives ([00 §1](00-overview.md#1-scope)). A
 homelab can skip it.
 
-**It shows where evidence lives. It does not discharge a control.** Every practice still has an
-owner inside the operating organization, and the accuracy of the System Security Plan is
-theirs — nodary's part is to make a claim in that plan something they can show. A row here
-means "when the `regulated` profile is active, the mechanism named on the right is what an
-assessor would be shown", and nothing more.
+**It shows where evidence lives. It does not discharge a requirement.** Every requirement still
+has an owner inside the operating organization, and the accuracy of the System Security Plan is
+theirs — nodary's part is to make a claim in that plan something they can show. A row means
+"when the `regulated` profile is active, the mechanism named is what an assessor would be
+shown", and nothing more.
 
-The mapping assumes the `regulated` profile is active.
+**The table itself is not here, and that is deliberate.** It lives in one place,
+[`ee/evidence/crosswalk.go`](../../ee/evidence/crosswalk.go), because three things have to
+agree about it: the `controls.json` and `controls.md` members of every evidence bundle, the
+`narratives/` paragraphs written to be pasted into a plan, and the published page at
+[`docs/compliance.md`](../../docs/compliance.md) that a buyer reads before they install
+anything. A control mapping duplicated across three artifacts is one where two of them are
+quietly wrong, and the one that is wrong is the one somebody pasted. Tests assert they agree.
 
-> **These are 800-53 control families, and an SSP cites 800-171 practice identifiers.** The two
-> are related and are not interchangeable, and the transcription is owed rather than done:
-> [R9-19](../tasks/R9-evidence-remediation.md) rewrites this table against the practice
-> identifiers **transcribed from the publication itself**. Until that lands, treat the left
-> column as an orientation and not as something to paste into a plan. A practice identifier
-> recalled rather than transcribed is the one error in this document that a customer would
-> carry into an assessment, which is why it is left visible rather than guessed at — the same
-> reason `controls.json` ships every entry as `"status": "unmapped"`.
+**800-171 Revision 2, transcribed rather than recalled.** Every identifier and every quoted
+requirement comes from NIST's own published requirements list for Rev 2. The section used to
+carry 800-53 *control families* with a block quote saying they were an orientation and not
+something to paste into a plan; that is what [R9-19](../tasks/R9-evidence-remediation.md)
+replaced. NIST withdrew Rev 2 on 14 May 2024 in favour of Rev 3, and CMMC assesses Level 2
+against Rev 2 anyway — 32 CFR part 170 is written against those 110 requirements and the
+rulemaking that would move it is in progress rather than in force ([R9-20](../tasks/R9-evidence-remediation.md)).
+The identifiers renumber when that lands.
 
-| Control family (800-53) | Satisfied by |
-| :--- | :--- |
-| AU-2, AU-3, AU-12 | Audit chain — who, what, when, where, outcome |
-| AU-9 | Hash chain, append-only mirror, store separate from what it audits |
-| AU-11 | Retention windows; usage and audit separated (§3, [06](06-gateway.md#3-metering)) |
-| AC-2 | User and **node** account lifecycle, including approval ([02](02-enrollment.md)) |
-| AC-3, AC-6 | Roles, per-user model allowlists, least privilege by default |
-| IA-2, IA-5 | Password plus TOTP, mTLS for agents, scoped tokens, single-display secrets |
-| CM-3, CM-5 | Config revisions, attestation, `intent_hash` binding |
-| SI-7 | Signed release artifacts, digest-pinned components, weights manifests, `audit verify` |
-| SC-7 | Egress isolation with continuous assertion ([03](03-agent.md#5-egress-isolation)) |
+The requirements the crosswalk holds evidence for, by family: access control (3.1.1, 3.1.2,
+3.1.5, 3.1.7, 3.1.8, 3.1.11, 3.1.13), audit and accountability (3.3.1, 3.3.2, 3.3.8, 3.3.9),
+configuration management (3.4.1, 3.4.2, 3.4.3, 3.4.5), identification and authentication
+(3.5.1, 3.5.2, 3.5.3, 3.5.10), security assessment (3.12.2, 3.12.3, 3.12.4) and system and
+communications protection (3.13.1, 3.13.6, 3.13.8, 3.13.11).
 
-This is a mapping, not a certification, and not an assessment. It shows where the evidence
-lives.
+**What it is not evidence for is published beside it**, in the bundle and on the page: an index
+listing only what it covers reads as though it covers everything, which is how a family nobody
+looked at ends up marked as handled. Awareness and training, incident response, maintenance,
+media protection, personnel security, physical protection and risk assessment are the
+organization's, and the crosswalk says so by name.
+
+This is a mapping, not a certification, and not an assessment.
