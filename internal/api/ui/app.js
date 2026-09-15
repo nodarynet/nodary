@@ -115,6 +115,131 @@ header()
   .then(route)
   .catch((err) => { if (err.message !== "unauthenticated") problem(err); });
 
+// --- the overview: what an operator wants before they know what to ask -----
+//
+// **It reads only what /nodes, /models, /usage and /audit/verify already
+// answer.** A landing screen that fanned out to every node's detail — which is
+// what the attention screen does, and must — would make opening the console an
+// O(fleet) burst of requests on every page load. So the deployment-level
+// problems are *counted* here and *investigated* there, and this screen links
+// to it rather than reproducing it.
+
+/** stat is one figure, with what it is measured against underneath it. */
+function stat(label, value, foot, kind) {
+  return el("div", { class: "stat " + (kind || "") },
+    el("div", { class: "label" }, label),
+    el("div", { class: "value" }, value),
+    el("div", { class: "foot" }, foot || ""));
+}
+
+/** of renders "3 of 4" with the denominator subdued: the numerator is the
+ *  answer and the denominator is the context for it. */
+function of(count, total) {
+  return [String(count), el("small", {}, " of " + total)];
+}
+
+/** bar is one row of a proportional chart.
+ *
+ * The width is set through CSSOM rather than as a `style` attribute because
+ * the console is served under `style-src 'self'` (internal/api/ui.go), which
+ * blocks the attribute — a bar written the obvious way would render at zero
+ * width on the real server and full width in a file opened from disk.
+ */
+function bar(name, value, max, label, kind) {
+  const fill = el("span", { class: "fill " + (kind || "") });
+  fill.style.width = (max > 0 ? Math.max((value / max) * 100, value > 0 ? 2 : 0) : 0) + "%";
+  return el("div", { class: "barrow" },
+    el("span", { class: "name" }, name),
+    el("span", { class: "track" }, fill),
+    el("span", { class: "count" }, label));
+}
+
+views.push({
+  route: "overview",
+  title: "Overview",
+  async render() {
+    // group_by is concatenated rather than written into the literal so that
+    // this and the usage screen name one endpoint between them, which is what
+    // internal/api/ui_test.go checks every fetch against.
+    const group = "model";
+    const [fleet, models, usage, chain] = await Promise.all([
+      api("/nodes"),
+      api("/models"),
+      api("/usage?group_by=" + group),
+      api("/audit/verify"),
+    ]);
+
+    const nodes = fleet.nodes || [];
+    const live = nodes.filter((n) => n.state !== "departed");
+    const count = (list, f) => list.reduce((total, n) => total + f(n), 0);
+    const cards = (n) => (n.gpus || []).length;
+    const offered = (n) => ((n.offer && n.offer.gpus) || []).length;
+
+    const ready = live.filter((n) => n.state === "ready" && !n.stale && !n.incompatible);
+    const served = count(live, (n) => n.ready_count || 0);
+    const placed = count(live, (n) => n.deployment_count || 0);
+
+    const rows = usage.usage || [];
+    const requests = count(rows, (r) => r.requests || 0);
+    const tokens = count(rows, (r) => (r.prompt_tokens || 0) + (r.completion_tokens || 0));
+
+    // Each of these is a fleet-level fact /nodes already carries, so counting
+    // them costs nothing beyond the request the stats needed anyway.
+    const concerns = [
+      [live.filter((n) => n.state === "pending"), "awaiting approval", "warn", "#fleet"],
+      [live.filter((n) => n.stale), "not reporting", "bad", "#fleet"],
+      [live.filter((n) => n.incompatible), "speaking a protocol this control plane does not accept", "bad", "#fleet"],
+      [live.filter((n) => n.upgrade_error), "failed to upgrade themselves", "bad", "#fleet"],
+    ].filter(([list]) => list.length);
+
+    show(
+      el("h2", {}, "Overview"),
+      el("div", { class: "stats" },
+        stat("Nodes", of(ready.length, live.length), ready.length === live.length && live.length
+          ? "all reporting" : "ready and reporting",
+          live.length && ready.length < live.length ? "warn" : ""),
+        stat("GPUs", of(count(live, offered), count(live, cards)), "offered to the control plane"),
+        stat("Deployments", of(served, placed), "serving"),
+        stat("Requests", requests.toLocaleString(), tokens.toLocaleString() + " tokens"),
+        stat("Models", String((models.models || []).length), "registered"),
+        chain.ok
+          ? stat("Audit chain", "verified", chain.records.toLocaleString() + " records", "ok")
+          : stat("Audit chain", "broken", chain.break || "a record does not follow the one before it", "bad")),
+
+      concerns.length
+        ? el("div", {},
+            el("h2", {}, "Wants a decision"),
+            el("div", { class: "bars" }, concerns.map(([list, what, kind, href]) =>
+              el("div", { class: "barrow concern" },
+                el("span", {}, pill(String(list.length), kind), " ", what),
+                el("span", { class: "name dim" }, list.map((n) => n.name).join(", ")),
+                el("span", {}, el("a", { href: href }, "open"))))))
+        : null,
+
+      // Named "not shown here" rather than left out: an operator who sees a
+      // clean overview should know which questions it did not ask.
+      el("p", { class: "note" },
+        "Deployment-level problems — a failed start, a refusal, an egress assertion that did "
+        + "not come back compliant — are on ", el("a", { href: "#attention" }, "Needs attention"),
+        ", which asks every node directly rather than summarising what the fleet listing carries."),
+
+      el("h2", {}, "Busiest models"),
+      rows.length
+        ? el("div", { class: "bars" }, rows.slice(0, 8).map((r) =>
+            bar(r.subject || "—", r.requests, rows[0].requests, r.requests.toLocaleString())))
+        : el("p", { class: "empty" }, "Nothing has been served yet."),
+
+      el("h2", {}, "Capacity"),
+      live.length
+        ? el("div", { class: "bars" }, live.map((n) =>
+            bar(el("a", { href: "#node/" + encodeURIComponent(n.name) }, n.name),
+              offered(n), Math.max(...live.map(cards), 1),
+              cards(n) ? `${offered(n)} of ${cards(n)}` : "no card",
+              offered(n) < cards(n) ? "warn" : "")))
+        : el("p", { class: "empty" }, "No node has enrolled yet. `nodary node install` on a GPU host starts one."));
+  },
+});
+
 // --- R7-02: the fleet -----------------------------------------------------
 
 /** since is a timestamp rendered as an age, which is the question being asked. */

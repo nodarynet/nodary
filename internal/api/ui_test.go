@@ -265,6 +265,7 @@ func TestTheConsoleDeclaresEveryScreenR7Owes(t *testing.T) {
 		declared[m[1]] = true
 	}
 	for _, want := range []struct{ route, owes string }{
+		{"overview", "the landing screen: fleet health, capacity, usage and the chain"},
 		{"fleet", "R7-02: nodes, their state, offer, reboot policy and last seen"},
 		{"node", "R7-03: a node's deployments, their health, and the GPU topology"},
 		{"catalog", "R7-04: the catalog and staging progress"},
