@@ -45,6 +45,26 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
+/** nodeTag is a machine's name, wherever a screen mentions one.
+ *
+ * It was a link on the fleet and overview screens, plain text in four tables
+ * and a dim span in the catalog, so one host read as three different things
+ * depending on where you met it. One treatment, always clickable, and the
+ * colour comes from the name — nothing stores one, and a fleet that grows does
+ * not renumber the hosts that were already there.
+ */
+function nodeTag(name) {
+  if (!name) return el("span", { class: "dim" }, "—");
+  let hash = 0;
+  for (const ch of String(name)) hash = (hash * 31 + ch.codePointAt(0)) % 4096;
+  return el("a", { class: "tag c" + (hash % 8), href: "#node/" + encodeURIComponent(name) }, name);
+}
+
+/** nodeTags is a set of them, for a row that names several machines. */
+function nodeTags(names) {
+  return el("span", { class: "tags" }, names.map(nodeTag));
+}
+
 /** pill is a state word, coloured by what it means rather than by its spelling. */
 function pill(word, kind) {
   return el("span", { class: "pill " + (kind || "") }, word || "—");
@@ -216,12 +236,12 @@ views.push({
 
       concerns.length
         ? el("div", {},
-            el("h2", {}, "Wants a decision"),
+            el("h2", {}, "Pending decision"),
             el("div", { class: "bars" }, concerns.map(([list, what, kind, href]) =>
               el("div", { class: "barrow concern" },
-                el("span", {}, pill(String(list.length), kind), " ", what),
-                el("span", { class: "name dim" }, list.map((n) => n.name).join(", ")),
-                el("span", {}, el("a", { href: href }, "open"))))))
+                el("span", {}, pill(String(list.length), kind), " ",
+                  el("a", { href: href }, what)),
+                nodeTags(list.map((n) => n.name))))))
         : null,
 
       el("h2", {}, "Busiest models"),
@@ -233,7 +253,7 @@ views.push({
       el("h2", {}, "Capacity"),
       live.length
         ? el("div", { class: "bars" }, live.map((n) =>
-            bar(el("a", { href: "#node/" + encodeURIComponent(n.name) }, n.name),
+            bar(nodeTag(n.name),
               offered(n), Math.max(...live.map(cards), 1),
               cards(n) ? `${offered(n)} of ${cards(n)}` : "no card",
               offered(n) < cards(n) ? "warn" : "")))
@@ -309,7 +329,7 @@ views.push({
     const doc = await api("/nodes");
     const nodes = doc.nodes || [];
     const rows = nodes.map((node) => el("tr", {},
-      el("td", {}, el("a", { href: "#node/" + encodeURIComponent(node.name) }, node.name)),
+      el("td", {}, nodeTag(node.name)),
       el("td", {}, nodeState(node)),
       el("td", { class: "num" }, gpus(node)),
       el("td", { class: "num" }, `${node.ready_count}/${node.deployment_count}`),
@@ -481,8 +501,7 @@ views.push({
         el("td", { class: "dim" }, m.source),
         el("td", { class: "num" }, bytes(m.total_bytes)),
         el("td", {}, where.length
-          ? where.map((s) => el("div", {}, staged(s), " ",
-              el("span", { class: "dim" }, s.node),
+          ? where.map((s) => el("div", {}, staged(s), " ", nodeTag(s.node),
               s.error ? el("div", { class: "note" }, s.error) : null))
           : el("span", { class: "dim" }, "nowhere")),
         el("td", {}, modelActions(m, where)));
@@ -621,14 +640,14 @@ views.push({
         el("h2", {}, "Deployments that are not isolated"),
         table(["Node", "Deployment", "Egress", "Why"],
           leaking.map((d) => el("tr", {},
-            el("td", {}, d.node), el("td", {}, d.id), el("td", {}, egress(d)),
+            el("td", {}, nodeTag(d.node)), el("td", {}, d.id), el("td", {}, egress(d)),
             el("td", {}, d.egress_reason || el("span", { class: "dim" }, "—")))), "")) : null,
 
       refusals.length ? el("div", {},
         el("h2", {}, "Refused by a node"),
         table(["Node", "Deployment", "Kind", "Reason", "Since"],
           refusals.map((r) => el("tr", {},
-            el("td", {}, r.node), el("td", {}, r.deployment_id),
+            el("td", {}, nodeTag(r.node)), el("td", {}, r.deployment_id),
             el("td", {}, r.kind === "out_of_policy" ? pill("out of policy", "warn") : pill("refused", "bad")),
             el("td", {}, r.reason), el("td", { class: "dim" }, since(r.updated_at)))), "")) : null,
 
@@ -636,14 +655,14 @@ views.push({
         el("h2", {}, "Failed deployments"),
         table(["Node", "Deployment", "Model", "Since"],
           failed.map((d) => el("tr", {},
-            el("td", {}, d.node),
+            el("td", {}, nodeTag(d.node)),
             el("td", {}, el("a", { href: "#logs/" + encodeURIComponent(d.id) }, d.id)),
             el("td", {}, d.model_id), el("td", { class: "dim" }, since(d.updated_at)))), "")) : null,
 
       pending.length ? el("div", {},
         el("h2", {}, "Nodes awaiting approval"),
         table(["Node", "Seen"], pending.map((n) => el("tr", {},
-          el("td", {}, el("a", { href: "#node/" + encodeURIComponent(n.name) }, n.name)),
+          el("td", {}, nodeTag(n.name)),
           el("td", { class: "dim" }, since(n.last_seen)))), "")) : null);
   },
 });
@@ -659,8 +678,8 @@ views.push({
     const doc = await api("/deployments/" + encodeURIComponent(id) + "/logs");
     show(
       el("h1", {}, doc.deployment),
-      el("p", { class: "note" },
-        `on ${doc.node} · ${doc.state} · captured ${since(doc.captured_at)}`),
+      el("p", { class: "note" }, "on ", nodeTag(doc.node),
+        ` · ${doc.state} · captured ${since(doc.captured_at)}`),
       doc.lines
         ? el("pre", {}, doc.lines)
         : el("p", { class: "empty" }, "Nothing was captured: this deployment has not failed."));

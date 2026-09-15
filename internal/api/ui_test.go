@@ -331,7 +331,7 @@ func TestTheConsoleStylesheetDefinesEveryTokenItUses(t *testing.T) {
 
 	defines := func(in string) map[string]bool {
 		found := map[string]bool{}
-		for _, m := range regexp.MustCompile(`(--[a-z-]+)\s*:`).FindAllStringSubmatch(in, -1) {
+		for _, m := range regexp.MustCompile(`(--[a-z0-9-]+)\s*:`).FindAllStringSubmatch(in, -1) {
 			found[m[1]] = true
 		}
 		return found
@@ -340,7 +340,7 @@ func TestTheConsoleStylesheetDefinesEveryTokenItUses(t *testing.T) {
 	if len(light) == 0 {
 		t.Fatal("no custom properties were found; app.css is a token system and this found none")
 	}
-	for _, m := range regexp.MustCompile(`var\((--[a-z-]+)`).FindAllStringSubmatch(sheet, -1) {
+	for _, m := range regexp.MustCompile(`var\((--[a-z0-9-]+)`).FindAllStringSubmatch(sheet, -1) {
 		if !all[m[1]] {
 			t.Errorf("app.css reads %s and no block defines it", m[1])
 			continue

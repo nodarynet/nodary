@@ -45,6 +45,15 @@
 
   --focus: #2f5fe0;
 
+  /* A machine's name is a tag, and the same host keeps its colour on every
+     screen. Hue comes from the name, so nothing has to store one and a fleet
+     that grows never renumbers what was already there. Saturation and
+     lightness are shared, and the dark palette redefines only those four. */
+  --tag-0: 212; --tag-1: 265; --tag-2: 330; --tag-3: 12;
+  --tag-4: 34;  --tag-5: 150; --tag-6: 188; --tag-7: 96;
+  --tag-s: 58%; --tag-l: 32%;
+  --tag-bg-s: 70%; --tag-bg-l: 94%;
+
   --radius: 7px;
   --radius-sm: 5px;
   --gap: 1.25rem;
@@ -83,6 +92,9 @@
 
     --focus: #7ea2ff;
     --lift: none;
+
+    --tag-s: 72%; --tag-l: 76%;
+    --tag-bg-s: 38%; --tag-bg-l: 19%;
   }
 }
 
@@ -249,10 +261,32 @@ main { padding: 1.6rem 1.75rem 4rem; min-width: 0; }
 /* A concern is the same row rhythm as a bar without a bar: the count, who it
    is about, and the screen that can act on it. */
 .bars .barrow.concern {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   padding: .5rem .7rem; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--surface);
 }
+
+/* --- a machine's name, wherever it appears --------------------------------
+ *
+ * One treatment everywhere: it was a link on two screens, plain text in four
+ * tables and a dim span in the catalog, so the same host read as three
+ * different things depending on where you met it.
+ */
+.tag {
+  display: inline-block; padding: .05rem .45rem; border-radius: var(--radius-sm);
+  font-size: .8125rem; font-weight: 550; white-space: nowrap;
+  text-decoration: none; border: 1px solid transparent;
+}
+.tag:hover { border-color: currentColor; text-decoration: none; }
+.tag.c0 { color: hsl(var(--tag-0) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-0) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c1 { color: hsl(var(--tag-1) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-1) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c2 { color: hsl(var(--tag-2) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-2) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c3 { color: hsl(var(--tag-3) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-3) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c4 { color: hsl(var(--tag-4) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-4) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c5 { color: hsl(var(--tag-5) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-5) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c6 { color: hsl(var(--tag-6) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-6) var(--tag-bg-s) var(--tag-bg-l)); }
+.tag.c7 { color: hsl(var(--tag-7) var(--tag-s) var(--tag-l)); background: hsl(var(--tag-7) var(--tag-bg-s) var(--tag-bg-l)); }
+.tags { display: inline-flex; flex-wrap: wrap; gap: .3rem; }
 
 /* --- tables --------------------------------------------------------------
  *
