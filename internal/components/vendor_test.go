@@ -83,3 +83,52 @@ const (
 	zeros = "0000000000000000000000000000000000000000000000000000000000000000"
 	ones  = "1111111111111111111111111111111111111111111111111111111111111111"
 )
+
+// TestTheEmbeddedManifestPinsTheVulkanBuild is the pin itself, on the real
+// document rather than a fixture.
+//
+// Everything else about the vendor axis is exercised against manifests a test
+// wrote, which cannot tell anyone whether this release actually ships a
+// non-NVIDIA image. Until one is pinned, the whole seam resolves nothing:
+// `model register --node <an AMD node>` refuses every backend, correctly and
+// uselessly.
+func TestTheEmbeddedManifestPinsTheVulkanBuild(t *testing.T) {
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var llama *Component
+	for i := range m.Components {
+		if m.Components[i].Name == "llama-cpp" {
+			llama = &m.Components[i]
+		}
+	}
+	if llama == nil {
+		t.Fatal("the manifest pins no llama-cpp")
+	}
+	base, ok := llama.Platforms["linux/amd64"]
+	if !ok {
+		t.Fatal("llama-cpp pins nothing for linux/amd64")
+	}
+	// Spelled, not imported: the vendor vocabulary lives in internal/preflight
+	// where a machine is detected, and this package deliberately does not carry it.
+	amd, ok := base.ForVendor("amd")
+	if !ok {
+		t.Fatal("llama-cpp pins no amd image; the Vulkan build is what makes a " +
+			"non-NVIDIA node able to serve anything at all")
+	}
+	// Two *different* digests. A vendors map that repeats the base entry is
+	// the failure that looks exactly like success: every check passes, the
+	// manifest validates, and an AMD node pulls the CUDA image.
+	if amd.Image == base.Image {
+		t.Errorf("the amd override is the same image as the base: %s", amd.Image)
+	}
+	// The version names neither variant, because the two builds are one
+	// llama.cpp revision and the mirror's filenames are built from this.
+	if strings.Contains(llama.Version, "cuda") || strings.Contains(llama.Version, "vulkan") {
+		t.Errorf("version %q names one of the two images this component pins", llama.Version)
+	}
+	if errs := m.Validate(); len(errs) > 0 {
+		t.Errorf("the embedded manifest does not validate: %v", errs)
+	}
+}

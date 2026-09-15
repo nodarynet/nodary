@@ -99,7 +99,7 @@
     },
     {
       "name": "llama-cpp",
-      "version": "server-cuda-b4738",
+      "version": "b4738",
       "kind": "image",
       "roles": [
         "node"
@@ -107,7 +107,12 @@
       "group": "backend",
       "platforms": {
         "linux/amd64": {
-          "image": "ghcr.io/ggml-org/llama.cpp@sha256:634aca75c060474d467b34c15053e68740334294ca7a428349db5614ef4ecb6c"
+          "image": "ghcr.io/ggml-org/llama.cpp@sha256:634aca75c060474d467b34c15053e68740334294ca7a428349db5614ef4ecb6c",
+          "vendors": {
+            "amd": {
+              "image": "ghcr.io/ggml-org/llama.cpp@sha256:54dd3355edf5be30f761a729e8e65a5c94ff68804169d413d1a154c481e5348b"
+            }
+          }
         }
       },
       "notes": "backend descriptor: llama-cpp"

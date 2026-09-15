@@ -225,6 +225,24 @@ IMAGES = [
      "backend descriptor: tensorrt-llm"),
 ]
 
+# Variants of an image for a GPU vendor other than NVIDIA, keyed by the vendor
+# internal/preflight detects.
+#
+# The entry in IMAGES is always the NVIDIA build. A component absent from here
+# is NVIDIA-or-nothing, which is what an artifact with no `vendors` map means to
+# internal/components.Artifact.ForVendor — and which every other component is.
+VENDOR_IMAGES = {
+    "llama-cpp": {"amd": "ghcr.io/ggml-org/llama.cpp:server-vulkan-b4738"},
+}
+
+# The version a tag stands for, where the tag is not one.
+#
+# llama.cpp publishes `server-cuda-b4738` and `server-vulkan-b4738` for one
+# revision built twice. The variant belongs in the image reference; leaving it
+# in `version` would have that field name one of the two images the component
+# pins, and it is what the mirror's filenames are built from.
+VERSIONS = {"llama-cpp": "b4738"}
+
 
 def images() -> list[dict]:
     out = []
@@ -234,11 +252,31 @@ def images() -> list[dict]:
         except Exception as e:  # noqa: BLE001 - report and continue
             print(f"  ! {name}: could not resolve digest ({e})", file=sys.stderr)
             continue
-        tag = ref.rpartition(":")[2]
+        tag = VERSIONS.get(name) or ref.rpartition(":")[2]
+        platforms = {p: {"image": pinned} for p in plats}
+        for vendor, vref in sorted(VENDOR_IMAGES.get(name, {}).items()):
+            # The build numbers have to match, or `version` names neither image.
+            # This is the drift a refresh produces: somebody bumps the IMAGES
+            # line and not this one, and the component pins two revisions.
+            if name in VERSIONS and not vref.endswith(VERSIONS[name]):
+                print(f"  ! {name}: {vendor} image {vref} is not version "
+                      f"{VERSIONS[name]}", file=sys.stderr)
+                return []
+            vpinned, vplats = image_digest(vref)
+            for p in vplats:
+                if p in platforms:
+                    platforms[p].setdefault("vendors", {})[vendor] = {"image": vpinned}
+            # Silently dropping it would leave a vendor pinned nowhere, which
+            # reads downstream as "this backend has no build for you".
+            for p in vplats:
+                if p not in platforms:
+                    print(f"  ! {name}: {vendor} publishes {p} and the base image "
+                          f"does not; not pinned", file=sys.stderr)
+            print(f"  ✔ {name:16} {vendor:11} {vpinned}", file=sys.stderr)
         entry = {
             "name": name, "version": tag, "kind": "image",
             "roles": roles, "group": group,
-            "platforms": {p: {"image": pinned} for p in plats},
+            "platforms": platforms,
         }
         if notes:
             entry["notes"] = notes

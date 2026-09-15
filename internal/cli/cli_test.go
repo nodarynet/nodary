@@ -170,12 +170,20 @@ func TestComponentsListJSON(t *testing.T) {
 		t.Errorf("--format json must leave stderr empty, got %q", stderr)
 	}
 
+	type artifact struct {
+		Image   string `json:"image"`
+		SHA256  string `json:"sha256"`
+		Vendors map[string]struct {
+			Image  string `json:"image"`
+			SHA256 string `json:"sha256"`
+		} `json:"vendors"`
+	}
 	var got struct {
 		NodaryVersion string `json:"nodary_version"`
 		Components    []struct {
-			Name      string                       `json:"name"`
-			Kind      string                       `json:"kind"`
-			Platforms map[string]map[string]string `json:"platforms"`
+			Name      string              `json:"name"`
+			Kind      string              `json:"kind"`
+			Platforms map[string]artifact `json:"platforms"`
 		} `json:"components"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
@@ -186,17 +194,27 @@ func TestComponentsListJSON(t *testing.T) {
 	}
 
 	// The listing is the operator's view of what will be fetched, so every
-	// entry must actually carry a pin.
+	// entry must actually carry a pin — including a per-vendor override, which
+	// is the entry a non-NVIDIA node actually pulls and the one nobody reading
+	// the table at the top of the column would notice was unpinned.
 	for _, c := range got.Components {
 		for plat, a := range c.Platforms {
-			if c.Kind == "image" {
-				if !strings.Contains(a["image"], "@sha256:") {
-					t.Errorf("%s [%s]: image is not digest-pinned", c.Name, plat)
-				}
-				continue
+			pins := map[string]struct{ image, sha string }{
+				plat: {a.Image, a.SHA256},
 			}
-			if len(a["sha256"]) != 64 {
-				t.Errorf("%s [%s]: missing or malformed sha256", c.Name, plat)
+			for vendor, v := range a.Vendors {
+				pins[plat+" "+vendor] = struct{ image, sha string }{v.Image, v.SHA256}
+			}
+			for where, pin := range pins {
+				if c.Kind == "image" {
+					if !strings.Contains(pin.image, "@sha256:") {
+						t.Errorf("%s [%s]: image is not digest-pinned", c.Name, where)
+					}
+					continue
+				}
+				if len(pin.sha) != 64 {
+					t.Errorf("%s [%s]: missing or malformed sha256", c.Name, where)
+				}
 			}
 		}
 	}
