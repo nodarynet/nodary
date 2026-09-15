@@ -31,6 +31,14 @@ import (
 // So the checksums are pinned here. Adding a migration adds a line, which is a
 // deliberate and reviewable act. Editing one that already exists fails, which is
 // the point: the fix is a new migration, never a changed one.
+//
+// **It has since caught a second sweep, and that one it stopped.** Moving the
+// engineering documents from docs/ to dev/ rewrote every `docs/specs/…` citation
+// in the tree, migrations included, and this test refused the result. The
+// citations in those 25 files were reverted and still name `docs/`, which is a
+// directory that no longer exists — a stale comment is the cheaper of the two
+// costs, and the only alternative on offer was re-pinning the checksums, which
+// is the one move that would leave the guard passing and meaningless.
 func TestAnAppliedMigrationNeverChanges(t *testing.T) {
 	pinned := map[string]string{}
 	body, err := os.ReadFile("testdata/migrations.sha256")

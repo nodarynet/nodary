@@ -71,7 +71,7 @@ func StageResetPreview(ctx context.Context, q config.Querier, verb, model, node 
 					"replace the bad file(s) under the node's models directory and the next poll reports it",
 				identity.ErrBadTransition, model)
 		}
-		// docs/specs/05-catalog.md §3 makes `corrupt` the state an explicit
+		// dev/specs/05-catalog.md §3 makes `corrupt` the state an explicit
 		// restage is for. A general redownload button could yank weights out
 		// from under a healthy deployment.
 		var state string
@@ -83,7 +83,7 @@ func StageResetPreview(ctx context.Context, q config.Querier, verb, model, node 
 		if state != "corrupt" {
 			return nil, fmt.Errorf(
 				"%w: %s on %s is not corrupt; restage is for the stuck state "+
-					"(docs/specs/05-catalog.md §3), not a general redownload",
+					"(dev/specs/05-catalog.md §3), not a general redownload",
 				identity.ErrBadTransition, model, node)
 		}
 	default:
@@ -97,7 +97,7 @@ func StageResetPreview(ctx context.Context, q config.Querier, verb, model, node 
 // Its own table rather than a column on anything: nothing here writes to
 // config.Snapshot, so nothing here records a revision. It is a one-shot
 // request, which the protocol's "no imperative commands" rule
-// (docs/specs/03-agent.md §2) has no other way to express.
+// (dev/specs/03-agent.md §2) has no other way to express.
 func RequestStageReset(ctx context.Context, m audit.Mutation, now time.Time, model, node string) error {
 	_, err := m.Tx().ExecContext(ctx,
 		`INSERT INTO stage_reset (node_name, model_id, requested_at) VALUES (?, ?, ?)

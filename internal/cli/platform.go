@@ -30,6 +30,6 @@ func requiresLinux(e env, verb string) bool {
 	fmt.Fprintf(e.stderr,
 		"nodary %s: requires Linux with systemd; this host is %s.\n"+
 			"macOS builds provide the operator CLI only — run `nodary node list --server URL`\n"+
-			"against a control plane instead (docs/specs/01-install.md §8).\n", verb, goos)
+			"against a control plane instead (dev/specs/01-install.md §8).\n", verb, goos)
 	return false
 }

@@ -15,7 +15,7 @@ import (
 // ErrSchemaBehind is returned when a read-only open finds migrations this
 // binary has and the database does not.
 //
-// docs/specs/08-data-model.md §5: a read-only open refuses when the schema is
+// dev/specs/08-data-model.md §5: a read-only open refuses when the schema is
 // behind rather than changing it underneath a reader. The alternative — migrate
 // on the way to answering a query — means `nodary audit verify` alters the file
 // it was asked to inspect, which is the one thing an evidence tool must not do.

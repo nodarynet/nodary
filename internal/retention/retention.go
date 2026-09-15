@@ -1,4 +1,4 @@
-// Package retention removes what docs/specs/08-data-model.md §3 says is no
+// Package retention removes what dev/specs/08-data-model.md §3 says is no
 // longer kept.
 //
 // It takes a transaction rather than a database, because the one thing this
@@ -19,12 +19,12 @@ import (
 )
 
 // joinTokenGrace is how long a join token outlives its own expiry before it is
-// purged. docs/specs/08-data-model.md §3 names 24h. An expired token grants
+// purged. dev/specs/08-data-model.md §3 names 24h. An expired token grants
 // nothing, so this is about being able to see one that was used or missed in
 // the hours afterwards, not about the token still working.
 const joinTokenGrace = 24 * time.Hour
 
-// idempotencyWindow is docs/specs/09-api.md §2's replay window. Past it a key
+// idempotencyWindow is dev/specs/09-api.md §2's replay window. Past it a key
 // means nothing, so the row — which holds a sealed copy of a response, and for
 // `POST /tokens` that response holds a credential — has no reason to exist.
 const idempotencyWindow = 24 * time.Hour
@@ -71,7 +71,7 @@ func (r Removed) Any() bool {
 	return r.AuditThrough > 0 || r.UsageRows > 0 || r.JoinTokens > 0 || r.IdempotencyKeys > 0
 }
 
-// Prune applies every retention rule in docs/specs/08-data-model.md §3's table.
+// Prune applies every retention rule in dev/specs/08-data-model.md §3's table.
 //
 // revision and usage_daily are absent because that table gives them no window:
 // both are indefinite, and usage_daily is the thing usage is rolled *into*.

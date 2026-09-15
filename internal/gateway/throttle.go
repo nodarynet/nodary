@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/observed"
 )
 
-// docs/specs/06-gateway.md §4. Four limits, each with its own unit, applied per
+// dev/specs/06-gateway.md §4. Four limits, each with its own unit, applied per
 // user, per role and globally.
 //
 // **Every applicable limit binds, and the most restrictive wins.** A user with

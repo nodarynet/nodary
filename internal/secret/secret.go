@@ -2,7 +2,7 @@
 // that everything encrypted at rest goes through.
 //
 // TOTP seeds, the LiteLLM master key and the agent CA private key are all
-// sealed under this key (docs/specs/08-data-model.md §4). A backup of the
+// sealed under this key (dev/specs/08-data-model.md §4). A backup of the
 // database without this file is useless, and the inverse is the real risk: an
 // operator who backs up only the database discovers at restore time that every
 // agent must re-enroll and every TOTP enrollment must be redone.
@@ -130,7 +130,7 @@ func Load(path string, retired ...string) (*Key, error) {
 		}
 		// Overwriting silently would evict the primary from the lookup and make
 		// everything sealed under the live key undecryptable — the outcome
-		// docs/specs/11-failure-modes.md §5 calls unrecoverable. Four bytes is
+		// dev/specs/11-failure-modes.md §5 calls unrecoverable. Four bytes is
 		// grindable, so this is a refusal rather than an assumption.
 		if _, clash := k.byID[r.id]; clash {
 			return nil, fmt.Errorf("%w: %s and %s both have id %s",
@@ -145,7 +145,7 @@ func Load(path string, retired ...string) (*Key, error) {
 //
 // Creation is a write-then-link rather than an exclusive create. A bare O_EXCL
 // create leaves a window in which a crash produces an empty file that O_EXCL
-// then refuses to replace forever — and per docs/specs/11-failure-modes.md §5
+// then refuses to replace forever — and per dev/specs/11-failure-modes.md §5
 // that is unrecoverable for encrypted material. Writing a temporary file first
 // and linking it into place means the key is either absent or complete, and
 // link(2) still fails if the target exists, so it keeps the race protection
@@ -423,7 +423,7 @@ func additionalData(header []byte, kind, id string) []byte {
 // A's encrypted TOTP seed into user B's row and it decrypts cleanly.
 //
 // Any id used here must never be reused. SQLite reuses the rowid of a deleted
-// row under a plain INTEGER PRIMARY KEY, and docs/specs/07-identity-audit.md §1
+// row under a plain INTEGER PRIMARY KEY, and dev/specs/07-identity-audit.md §1
 // has a deleted user state — so an id must come from an AUTOINCREMENT column or
 // be an opaque string.
 func (k *Key) Seal(kind, id string, plaintext []byte) ([]byte, error) {

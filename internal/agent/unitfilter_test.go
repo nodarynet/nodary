@@ -16,7 +16,7 @@ import (
 // reparented — which is the whole meaning of defense in depth. Delete the
 // comment instead, and a later reader finds a directive that looks like the
 // egress control, reviews clean, and stops looking for the mechanism that
-// actually enforces docs/specs/03-agent.md §5. The second is worse: §5 opens by
+// actually enforces dev/specs/03-agent.md §5. The second is worse: §5 opens by
 // saying this exact approach "looks correct, reviews clean, and enforces
 // nothing".
 //
@@ -64,7 +64,7 @@ func TestTheUnitFilterIsKeptAndDisclaimedWhereItIsWritten(t *testing.T) {
 		if !strings.Contains(attached, want) {
 			t.Errorf("the comment attached to IPAddressDeny= does not say %q.\n"+
 				"Without it the directive reads as the egress control, which is the "+
-				"mistake docs/specs/03-agent.md §5 exists to prevent.\nAttached comment:\n%s",
+				"mistake dev/specs/03-agent.md §5 exists to prevent.\nAttached comment:\n%s",
 				want, strings.Join(block, "\n"))
 		}
 	}

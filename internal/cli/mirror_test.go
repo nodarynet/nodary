@@ -15,7 +15,7 @@ import (
 // TestTheMirrorHoldsWhatANodeNeeds is the one assertion that stops a silent,
 // remote failure.
 //
-// docs/specs/01-install.md §3: only the control-plane host ever contacts an
+// dev/specs/01-install.md §3: only the control-plane host ever contacts an
 // upstream source, and every GPU host bootstraps from this cache over mTLS. So
 // the mirror must hold the **node** set. Filling it with the server's own
 // components instead leaves the control plane looking perfectly healthy and

@@ -1,12 +1,12 @@
 // Package release is the trust anchor for a nodary binary.
 //
 // **A node cannot reach a release, and must not take one on trust.**
-// docs/specs/03-agent.md §1 gives GPU hosts no egress, so a node that upgrades
+// dev/specs/03-agent.md §1 gives GPU hosts no egress, so a node that upgrades
 // itself is handed a binary by its control plane (R5-16). Every other artifact
 // a node receives is checked against something the node already holds — a
 // component against its own embedded manifest, a certificate against its pinned
 // CA — which is what "neither side trusts the other's word" means in
-// docs/plans/R5a-components-and-units.md §1.
+// dev/plans/R5a-components-and-units.md §1.
 //
 // The binary is the artifact where that property matters most and is hardest to
 // keep, because the binary is what performs every other check. A compromised

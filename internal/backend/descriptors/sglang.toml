@@ -1,4 +1,4 @@
-# SGLang: the same shape, a different vocabulary. docs/specs/04-backends.md §6.
+# SGLang: the same shape, a different vocabulary. dev/specs/04-backends.md §6.
 #
 # It is embedded alongside vLLM rather than after it because one descriptor
 # cannot show that the translation is data-driven -- a single vocabulary is

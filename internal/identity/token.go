@@ -15,7 +15,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 )
 
-// Kind is a token's purpose: docs/specs/02-enrollment.md §4.
+// Kind is a token's purpose: dev/specs/02-enrollment.md §4.
 type Kind string
 
 const (
@@ -72,7 +72,7 @@ var (
 // secretBytes is the random part of a token: 256 bits.
 //
 // Stored as SHA-256 rather than under a slow hash, which
-// docs/specs/02-enrollment.md §4 asks for and which is right. A password needs
+// dev/specs/02-enrollment.md §4 asks for and which is right. A password needs
 // a KDF because it is low-entropy and an offline attacker runs a dictionary;
 // there is no dictionary for a uniform 256-bit value, and an attacker who can
 // invert SHA-256 on one has already won everywhere. A KDF here would only put
@@ -98,7 +98,7 @@ type Token struct {
 	RevokedAt  time.Time
 	LastUsedAt time.Time
 	CreatedAt  time.Time
-	// Unattended is the grant of docs/specs/07-identity-audit.md §2: this
+	// Unattended is the grant of dev/specs/07-identity-audit.md §2: this
 	// credential may mutate without a person present to re-authenticate. It is
 	// refused at mint under a profile that forbids it, so a token that carries
 	// it was granted deliberately and the grant is in the chain.
@@ -146,7 +146,7 @@ func displayPrefix(plaintext string, k Kind) string {
 // MintToken issues a personal token or a service key for a user.
 //
 // The plaintext is returned and never stored. It is the only moment it exists
-// outside the holder's hands, which is what docs/specs/10-cli.md §4 means by
+// outside the holder's hands, which is what dev/specs/10-cli.md §4 means by
 // printed exactly once.
 func MintToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
 	userName string, kind Kind, name string, expires time.Time, unattended bool) (Token, string, error) {
@@ -432,7 +432,7 @@ func nullableTime(t time.Time) any {
 }
 
 // JoinToken enrolls a node. It belongs to no user and carries a use count
-// instead of a subject, which is why docs/specs/08-data-model.md §1 gives it a
+// instead of a subject, which is why dev/specs/08-data-model.md §1 gives it a
 // table of its own.
 type JoinToken struct {
 	ID        string
@@ -446,7 +446,7 @@ type JoinToken struct {
 // MintJoinToken issues a join token.
 //
 // Redeeming one is node enrollment, which is R2 and R4. Minting is here
-// because the machinery is the same and docs/specs/02-enrollment.md §4 names
+// because the machinery is the same and dev/specs/02-enrollment.md §4 names
 // all three prefixes together — a kind that arrives later is a kind that
 // arrives with its own second implementation.
 func MintJoinToken(ctx context.Context, m audit.Mutation, by Role, now time.Time,
@@ -543,8 +543,8 @@ func ListJoinTokens(ctx context.Context, q Querier) ([]JoinToken, error) {
 // because store.WriteTx serializes writers, but it would be safe by accident —
 // it reads correct and depends on something in another package staying true.
 //
-// docs/specs/02-enrollment.md §1: the token is burned on success and is never
-// reusable. docs/specs/11-failure-modes.md §3: a replayed token is rejected.
+// dev/specs/02-enrollment.md §1: the token is burned on success and is never
+// reusable. dev/specs/11-failure-modes.md §3: a replayed token is rejected.
 func RedeemJoinToken(ctx context.Context, m audit.Mutation, now time.Time, plaintext string) (JoinToken, error) {
 	if !strings.HasPrefix(plaintext, KindJoin.Prefix()) {
 		return JoinToken{}, fmt.Errorf("%w: a join token starts %s", ErrBadToken, KindJoin.Prefix())

@@ -23,7 +23,7 @@ import (
 //
 // The interface is what makes a network sink — Elastic, Splunk HEC, a plain
 // NDJSON endpoint — additive rather than surgery on the write path
-// (docs/tasks/R2-control-plane.md R2-41).
+// (dev/tasks/R2-control-plane.md R2-41).
 type Sink interface {
 	// Emit delivers one record. line is canonical JSON with no trailing
 	// newline; a sink that needs one adds it.
@@ -163,7 +163,7 @@ type Delivery struct {
 }
 
 // NewDelivery builds a Delivery. warn is where a degraded-delivery message
-// goes; nil means os.Stderr, per docs/specs/10-cli.md §4, which reserves stdout
+// goes; nil means os.Stderr, per dev/specs/10-cli.md §4, which reserves stdout
 // for a command's own output.
 func NewDelivery(sinks []Sink, posture Posture, warn io.Writer) *Delivery {
 	if warn == nil {
@@ -281,7 +281,7 @@ func (d *Delivery) Blocked() error {
 
 // Sinks reports the configured sinks, so a caller can refuse a combination its
 // own output discipline forbids — a command that writes a document to stdout
-// cannot also emit records there (docs/specs/10-cli.md §4).
+// cannot also emit records there (dev/specs/10-cli.md §4).
 func (d *Delivery) Sinks() []Sink { return d.sinks }
 
 // Close closes every sink.
@@ -310,8 +310,8 @@ func (c *consoleSink) Emit(_ context.Context, _ int64, line []byte) error {
 	return err
 }
 
-// FileSink is the append-only JSONL mirror of docs/specs/07-identity-audit.md
-// §3, and the artefact docs/specs/11-failure-modes.md §5 relies on when the
+// FileSink is the append-only JSONL mirror of dev/specs/07-identity-audit.md
+// §3, and the artefact dev/specs/11-failure-modes.md §5 relies on when the
 // database is lost.
 type FileSink struct {
 	path string

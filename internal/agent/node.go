@@ -14,14 +14,14 @@ import (
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
-// NodeConfig is /etc/nodary/node.toml: docs/specs/12-node-guardrails.md §2.
+// NodeConfig is /etc/nodary/node.toml: dev/specs/12-node-guardrails.md §2.
 //
 // These are not a consent boundary — you own both ends. They are safety rails
 // against your own mistakes and against a control plane being operated by
 // someone who has forgotten what else that machine does.
 //
 // **This slice parses the file and reports it, and enforces none of it.**
-// Enforcement is R4-14 – R4-17, which docs/plans/mvp.md §6 lists as a gap with
+// Enforcement is R4-14 – R4-17, which dev/plans/mvp.md §6 lists as a gap with
 // those task numbers. Reporting is not deferrable for the reason §4 gives: the
 // limits are recorded in the node's approval, so an operator who offered three
 // of four GPUs and was approved for four was shown terms they did not set.
@@ -155,7 +155,7 @@ func checkMaintenance(w string) error {
 
 // MaintenanceOpen reports whether now falls inside the declared window.
 //
-// docs/specs/12-node-guardrails.md §3: a deployment a node.toml edit
+// dev/specs/12-node-guardrails.md §3: a deployment a node.toml edit
 // invalidated keeps serving and waits "for the control plane to withdraw it,
 // **or for the next maintenance window**". This is that clock, and it is the
 // whole of what the window does -- it never suppresses an action an operator
@@ -209,7 +209,7 @@ func minuteOf(hh, mm string) int {
 }
 
 // Offer is what this node advertises to the control plane:
-// docs/specs/12-node-guardrails.md §4.
+// dev/specs/12-node-guardrails.md §4.
 //
 // A node reports what it is offering, not everything it has. A four-GPU host
 // offering three appears as a three-GPU node, and the control plane will not
@@ -266,7 +266,7 @@ func (c NodeConfig) Advertise(present []GPU, backends []string) (Offer, Constrai
 		o.MaxDeployments = *n
 	}
 
-	// The defaults are docs/specs/12-node-guardrails.md §2's example read the
+	// The defaults are dev/specs/12-node-guardrails.md §2's example read the
 	// other way round: an absent setting is permissive, because an absent
 	// [allow] section offers the whole machine.
 	k := Constraints{PrepareJobs: true, PackageInstall: true, Reboot: true,
@@ -292,7 +292,7 @@ func (c NodeConfig) Advertise(present []GPU, backends []string) (Offer, Constrai
 // RenderNodeConfig writes the file `nodary node install` places.
 func RenderNodeConfig(c NodeConfig) []byte {
 	var b strings.Builder
-	b.WriteString(`# nodary node guardrails: docs/specs/12-node-guardrails.md
+	b.WriteString(`# nodary node guardrails: dev/specs/12-node-guardrails.md
 #
 # Every field is optional. This file with no [limits] section offers the whole
 # machine, which is the right default for a dedicated GPU host.

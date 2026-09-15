@@ -90,7 +90,7 @@ ExecStart=/usr/bin/env sleep ${NODARY_ARGS}
 // argument list must split, an image reference must not — and this asserts each
 // against real systemd rather than against the documentation.
 //
-// It is here because assuming it was wrong. docs/specs/03-agent.md §6 had
+// It is here because assuming it was wrong. dev/specs/03-agent.md §6 had
 // `${NODARY_ARGS}`, which hands a model server its entire argv as one string;
 // it exits on an unrecognized argument, and the failure surfaces on a GPU host
 // as a container that will not start. This test is what found it, and it is
@@ -161,7 +161,7 @@ func TestSystemdSplitsBareVariablesAndNotBracedOnes(t *testing.T) {
 		}
 		if len(made) == 3 {
 			t.Error("braced ${NODARY_ARGS} split into arguments; the template no longer needs " +
-				"the unbraced form, and docs/specs/03-agent.md §6 should be revisited")
+				"the unbraced form, and dev/specs/03-agent.md §6 should be revisited")
 		}
 	}
 }
@@ -171,7 +171,7 @@ func TestSystemdSplitsBareVariablesAndNotBracedOnes(t *testing.T) {
 // What a user manager cannot show, said plainly rather than left implied: it is
 // delegated cpu, memory and pids and has no network controller, so
 // IPAddressDeny= is inert there — which is exactly the spike's finding and the
-// reason docs/specs/03-agent.md §5 does not treat it as the egress control.
+// reason dev/specs/03-agent.md §5 does not treat it as the egress control.
 // Nothing under test here depends on it.
 func needSystemd(t *testing.T) string {
 	t.Helper()

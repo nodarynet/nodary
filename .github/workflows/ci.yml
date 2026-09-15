@@ -22,13 +22,13 @@ jobs:
   # R5-25. Does the tree build and pass under Go's FIPS 140-3 module, and does
   # TOTP's HMAC-SHA-1 survive it?
   #
-  # docs/spike-fips-and-manifest.md answered that once, by hand: it builds, it
+  # dev/spike-fips-and-manifest.md answered that once, by hand: it builds, it
   # stays static, `fips140=on` passes everything, and `fips140=only` breaks
   # three of eight packages — HMAC-SHA-1 does not merely fail, it *panics*
   # inside hmac.New. This job answers it continuously and for free.
   #
   # **Gating, as of R5-26.** It was non-gating while nothing shipped against
-  # the module: docs/plans/mvp.md §5.6 argued that blocking every pull request
+  # the module: dev/plans/mvp.md §5.6 argued that blocking every pull request
   # on an unmeasured dependency, for a claim the MVP does not make, was the
   # wrong trade — and said "gating is R5-26's problem, once there is an
   # artifact that has to hold". There is one now. The released binary is built

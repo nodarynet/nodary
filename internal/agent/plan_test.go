@@ -67,7 +67,7 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 		t.Errorf("service = %q", u.Service)
 	}
 	if !strings.HasSuffix(u.EnvPath, "/deployments/dep_one.env") {
-		t.Errorf("env path = %q, want docs/specs/03-agent.md §6's location", u.EnvPath)
+		t.Errorf("env path = %q, want dev/specs/03-agent.md §6's location", u.EnvPath)
 	}
 	if u.Probe.Health != "/health" || u.Probe.ReadyTimeoutS != 1800 {
 		t.Errorf("probe = %+v, want it filled from the descriptor", u.Probe)
@@ -113,7 +113,7 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 // deployment. Build must not render a Unit for it — no GPU/backend/staged
 // check either, since none of that matters for something that will not run —
 // while its model stays verified and staged, since disable leaves weights in
-// place (docs/specs/05-catalog.md §4).
+// place (dev/specs/05-catalog.md §4).
 func TestBuildSkipsAUnitForADisabledDeployment(t *testing.T) {
 	root, digest := stage(t, map[string]string{"config.json": "{}"})
 	dep := deployment()
@@ -196,7 +196,7 @@ func TestTheEnvFileRendersIdentically(t *testing.T) {
 }
 
 // Every reason a node declines work. A refusal is a normal outcome
-// (docs/specs/03-agent.md §2) — it is reported, and nothing is half-applied.
+// (dev/specs/03-agent.md §2) — it is reported, and nothing is half-applied.
 func TestWhatANodeRefusesAndWhy(t *testing.T) {
 	root, digest := stage(t, map[string]string{"config.json": "{}"})
 
@@ -260,7 +260,7 @@ func TestWhatANodeRefusesAndWhy(t *testing.T) {
 }
 
 // Corrupt weights refuse the deployment rather than starting a container that
-// will fail obscurely. docs/specs/11-failure-modes.md §2: it refuses to start,
+// will fail obscurely. dev/specs/11-failure-modes.md §2: it refuses to start,
 // and the state is terminal until an explicit restage.
 func TestCorruptWeightsRefuseTheDeployment(t *testing.T) {
 	root, _ := stage(t, map[string]string{"config.json": "{}"})
@@ -404,7 +404,7 @@ func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
 	two := map[int]GPU{0: {Index: 0, Vendor: VendorNVIDIA}, 1: {Index: 1, Vendor: VendorNVIDIA}}
 	// An offer written before the vendor existed, which every node enrolled
 	// before this release still holds: absent reads as nvidia or the fleet that
-	// shipped is stranded (docs/specs/02-enrollment.md §3).
+	// shipped is stranded (dev/specs/02-enrollment.md §3).
 	legacy := map[int]GPU{0: {Index: 0}}
 
 	for _, tc := range []struct {
@@ -535,7 +535,7 @@ func TestADeploymentCarriesItsEnvironment(t *testing.T) {
 //
 // "vLLM will not start on WSL2 without this variable" is a fact about vLLM, not
 // about nodary or about one operator's deployment, so it lives in the
-// descriptor — docs/specs/04-backends.md §1's argument for descriptors rather
+// descriptor — dev/specs/04-backends.md §1's argument for descriptors rather
 // than plugins. A fleet with both WSL2 and native nodes then works without
 // anybody remembering which is which, and a native host is not handed a
 // variable that means nothing there.
@@ -587,7 +587,7 @@ func plan(t *testing.T, deps ...api.DesiredDeployment) Plan {
 	return p
 }
 
-// R4-23, docs/specs/03-agent.md §7: "the control plane guarantees no two
+// R4-23, dev/specs/03-agent.md §7: "the control plane guarantees no two
 // deployments on a node claim the same index, and the agent double-checks
 // before starting."
 //
@@ -665,7 +665,7 @@ func planOn(t *testing.T, detected, offered []GPU, deps ...api.DesiredDeployment
 	return p
 }
 
-// R4-25, docs/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
+// R4-25, dev/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
 // reports; affected deployments marked `failed`; node flagged. **Never
 // auto-rebooted**."
 func TestADeploymentOnACardThatLeftTheBusIsFailed(t *testing.T) {

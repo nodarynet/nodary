@@ -28,7 +28,7 @@ import (
 // goes through and the principal performing it.
 //
 // The CLI and, in R2, the HTTP API produce the same identity.Principal and call
-// the same core functions, which is the constraint docs/specs/10-cli.md opens
+// the same core functions, which is the constraint dev/specs/10-cli.md opens
 // with. Nothing here holds business logic.
 type session struct {
 	db       *store.DB
@@ -41,7 +41,7 @@ type session struct {
 
 // keyFlag registers --secret-key, the counterpart to --db.
 //
-// Not in docs/specs/10-cli.md §2's table, for the same reason --db is not: a
+// Not in dev/specs/10-cli.md §2's table, for the same reason --db is not: a
 // spec describing an installed appliance names one location for each, and both
 // flags exist so the binary can be pointed at another one. Without it the only
 // way to exercise sealing is to write to /etc.
@@ -82,7 +82,7 @@ func credentialsFlag(fs *flag.FlagSet) *string {
 	return fs.String("credentials", "", "personal-token file (default ~/.nodary/credentials)")
 }
 
-// justifyFlag registers the --justify of docs/specs/10-cli.md §2.
+// justifyFlag registers the --justify of dev/specs/10-cli.md §2.
 //
 // R1c records it and does not enforce a minimum length: the minimum belongs to
 // a policy profile (R1-15), and there are no profiles until R1d. Recording it
@@ -102,7 +102,7 @@ func openSession(e env, verb, dbPath, keyPath, credsPath string) (*session, bool
 		fmt.Fprintf(e.stderr, "nodary %s: %v\n", verb, err)
 		return nil, false
 	}
-	// docs/specs/08-data-model.md §5: any process that opens the database for
+	// dev/specs/08-data-model.md §5: any process that opens the database for
 	// writing applies migrations, because on a first install an operator's
 	// first command reaches an unmigrated database.
 	if err := db.Migrate(ctx); err != nil {
@@ -204,7 +204,7 @@ func (s *session) key() (*secret.Key, error) {
 //
 // A personal token in the credentials file wins, and names a real account in
 // every record it produces. Without one the invocation is local, and local is
-// admin: docs/specs/07-identity-audit.md §1 requires that an appliance can
+// admin: dev/specs/07-identity-audit.md §1 requires that an appliance can
 // still authenticate its own administrator when the network is degraded, and
 // the authority is real rather than assumed — the database is mode 0600 and
 // opening it for writing has already proved the access that grants. Demanding
@@ -305,13 +305,13 @@ func (s *session) touch(m audit.Mutation) error {
 	return identity.Touch(context.Background(), m, s.now, s.who.Token.ID)
 }
 
-// exitFor maps an error to the code docs/specs/10-cli.md §5 assigns it.
+// exitFor maps an error to the code dev/specs/10-cli.md §5 assigns it.
 //
 // One function, because the codes are a contract a script depends on and three
 // verbs each deciding for themselves is how they stop agreeing.
 func exitFor(err error) int {
 	// A refusal the control plane stated, carrying the stable code of
-	// docs/specs/09-api.md §3. First, because it is already the answer: the
+	// dev/specs/09-api.md §3. First, because it is already the answer: the
 	// sentinel errors below are local values, and a refusal that crossed the
 	// network arrives as text and a code rather than as one of them.
 	var remote *remoteError
@@ -339,7 +339,7 @@ func exitFor(err error) int {
 		errors.Is(err, identity.ErrBadTransition),
 		// Last night's backup is not overwritten by a mistyped path.
 		errors.Is(err, backup.ErrExists),
-		// docs/specs/11-failure-modes.md §3: state moved between the preview
+		// dev/specs/11-failure-modes.md §3: state moved between the preview
 		// and the apply, so what would be applied is not what was approved.
 		errors.Is(err, attest.ErrIntentChanged):
 		return ExitPrecondition
@@ -368,7 +368,7 @@ func splitComma(s string) []string { return strings.Split(s, ",") }
 // that exists and will not parse is**, and it fails the command rather than
 // falling back to the JSONL file — an appliance configured to ship its chain to
 // a SIEM, quietly not doing so because of a typo, is the exact shape of failure
-// docs/plans/pilot.md §1 is about: a control that is believed to be in force.
+// dev/plans/pilot.md §1 is about: a control that is believed to be in force.
 // It is found beside the key the caller named rather than always at
 // /etc/nodary, so a command pointed at another tree — a test appliance, or a
 // restored backup being inspected — reads that tree's delivery configuration

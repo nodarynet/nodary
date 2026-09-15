@@ -1,7 +1,7 @@
 // Package backend is the model-server descriptor: what varies between vLLM,
 // SGLang and the rest, expressed as data.
 //
-// docs/specs/04-backends.md §1 rejects a plugin base class for two reasons, and
+// dev/specs/04-backends.md §1 rejects a plugin base class for two reasons, and
 // this package is the second one made real: model servers differ in their
 // argument vocabulary, their weight layout and their probe, and all three are
 // expressible declaratively. Nothing here executes anything a descriptor says —
@@ -44,14 +44,14 @@ var ErrUnsupported = errors.New("the backend does not support this")
 var ErrUnknown = errors.New("unknown backend")
 
 // The json tags are the same words as the toml ones, deliberately.
-// `--format json` is a schema a script reads (docs/specs/10-cli.md §4), and
+// `--format json` is a schema a script reads (dev/specs/10-cli.md §4), and
 // untagged fields come back as Go names — `TensorParallel` rather than
 // `tensor_parallel` — which an operator has no way to connect to the key they
 // write in a descriptor. Safe to add because a descriptor is not in a
 // revision's hash preimage: a deployment stores its backend's *name*, and a
 // registered descriptor is stored as the TOML bytes themselves.
 //
-// Descriptor is docs/specs/04-backends.md §6.
+// Descriptor is dev/specs/04-backends.md §6.
 //
 // `derive` is R6-08 and is now a feature rather than a refused key — the
 // promise `prepare` was kept to before R6-06, kept here too: it was refused
@@ -71,7 +71,7 @@ type Backend struct {
 	Capabilities  Capabilities      `json:"capabilities" toml:"capabilities"`
 	Args          map[string]string `json:"args" toml:"args"`
 	// Extra is backend-specific options surfaced as named ones
-	// (docs/specs/04-backends.md §6): llama.cpp's `gpu_layers = "-ngl {v}"`
+	// (dev/specs/04-backends.md §6): llama.cpp's `gpu_layers = "-ngl {v}"`
 	// has no equivalent anywhere else, and there is no canonical parameter for
 	// it because there is nothing to be canonical about.
 	//
@@ -92,7 +92,7 @@ type Backend struct {
 	// EnvWSL2 is applied only on a WSL2 host.
 	//
 	// Backend knowledge belongs in the descriptor, which is
-	// docs/specs/04-backends.md §1's whole argument for descriptors rather than
+	// dev/specs/04-backends.md §1's whole argument for descriptors rather than
 	// plugins — and "vLLM will not start on WSL2 without this variable" is
 	// exactly that: a fact about vLLM, not about nodary or about one operator's
 	// deployment. Putting it here means a fleet with both WSL2 and native nodes
@@ -107,7 +107,7 @@ type Backend struct {
 	// Prepare is nil for a backend that serves what was staged. R6-06.
 	Prepare *Prepare `json:"prepare,omitempty" toml:"prepare"`
 	// Inherits names the built-in this descriptor varies. Non-empty makes this
-	// a derive (R6-08, docs/specs/04-backends.md §5), which is validated
+	// a derive (R6-08, dev/specs/04-backends.md §5), which is validated
 	// instead of the ordinary form rather than in addition to it.
 	Inherits string `json:"inherits,omitempty" toml:"inherits"`
 	// Derive is the recipe. Present exactly when Inherits is.
@@ -132,7 +132,7 @@ type Metrics struct {
 	Path string `json:"path" toml:"path"`
 }
 
-// Prepare is docs/specs/04-backends.md §4: the lifecycle is stage → prepare →
+// Prepare is dev/specs/04-backends.md §4: the lifecycle is stage → prepare →
 // serve, not stage → serve.
 //
 // Absent for most backends. TensorRT-LLM is why it exists: it compiles a
@@ -263,7 +263,7 @@ func Parse(body []byte) (Descriptor, error) {
 		}
 		sort.Strings(keys)
 		// **Removed, not unknown.** `[backend.gpu] mechanism` was in this
-		// schema and in docs/specs/04-backends.md §6 with two legal values,
+		// schema and in dev/specs/04-backends.md §6 with two legal values,
 		// and R6-07 made writing a descriptor a road operators are meant to
 		// take — so somebody has copied it. "unknown keys" reads as a typo in
 		// a word they can see is spelled right, which sends them looking for
@@ -449,7 +449,7 @@ func Names(all map[string]Descriptor) []string {
 	return names
 }
 
-// Params are the canonical parameters of docs/specs/04-backends.md §3.
+// Params are the canonical parameters of dev/specs/04-backends.md §3.
 //
 // Held as decoded JSON rather than a struct because the desired-state document
 // carries them as one object and the set is the descriptor's business, not this
@@ -465,7 +465,7 @@ type Params map[string]any
 // would rewrite the file and restart a serving model for no reason.
 //
 // A parameter the descriptor does not name is **dropped, not passed through**.
-// docs/specs/04-backends.md §3 is explicit that anything outside the canonical
+// dev/specs/04-backends.md §3 is explicit that anything outside the canonical
 // set belongs in extra_args, and silently inventing `--max-context=…` for a
 // backend that spells it differently produces a container that fails at start
 // with an error nobody can trace back to here.

@@ -22,8 +22,8 @@ import (
 	"github.com/nodarynet/nodary/internal/buildinfo"
 )
 
-// Heartbeat and backoff bounds. docs/specs/03-agent.md §1 fixes the heartbeat
-// at 15s, and docs/specs/11-failure-modes.md §1 asks for exponential backoff
+// Heartbeat and backoff bounds. dev/specs/03-agent.md §1 fixes the heartbeat
+// at 15s, and dev/specs/11-failure-modes.md §1 asks for exponential backoff
 // with jitter when the control plane is down.
 const (
 	HeartbeatInterval = 15 * time.Second
@@ -31,7 +31,7 @@ const (
 	backoffMax        = 60 * time.Second
 )
 
-// Daemon is the reconcile loop of docs/specs/03-agent.md §3, running.
+// Daemon is the reconcile loop of dev/specs/03-agent.md §3, running.
 type Daemon struct {
 	Config Config
 	Node   NodeConfig
@@ -43,7 +43,7 @@ type Daemon struct {
 	// the rest are plain fields the poll goroutine owns outright.
 	client atomic.Pointer[http.Client]
 	// renewAt is two thirds through the current certificate's life
-	// (docs/specs/02-enrollment.md §3). Touched only from the poll goroutine.
+	// (dev/specs/02-enrollment.md §3). Touched only from the poll goroutine.
 	renewAt   time.Time
 	health    *Health
 	rev       int64
@@ -89,7 +89,7 @@ type Daemon struct {
 	lastRefused     []Refusal
 	lastOutOfPolicy []Refusal
 	// lastEgress is the most recent egress verdict reached for each deployment
-	// still in the plan (R4-29, docs/specs/03-agent.md §5). Sticky rather than
+	// still in the plan (R4-29, dev/specs/03-agent.md §5). Sticky rather than
 	// per-iteration: the probe runs on a start and while a verdict is
 	// inconclusive, not every cycle, so a converged node produces no new
 	// verdict and would otherwise report nothing about isolation it has
@@ -170,7 +170,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.reset()
 		d.renewIfDue(ctx)
 
-		// Reconcile forward, never replaying. docs/specs/11-failure-modes.md
+		// Reconcile forward, never replaying. dev/specs/11-failure-modes.md
 		// §1: the document is a complete end state, so there is nothing in a
 		// revision this node missed that converging on the current one would
 		// not already cover.
@@ -233,7 +233,7 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 		if u.Egress == nil {
 			continue
 		}
-		// docs/specs/11-failure-modes.md §3: a failing egress verification
+		// dev/specs/11-failure-modes.md §3: a failing egress verification
 		// marks the deployment non-compliant and raises a critical alert. It is
 		// not silently left serving, and it is not quietly logged either.
 		if u.Egress.State == Compliant {
@@ -248,12 +248,12 @@ func (d *Daemon) reconcile(ctx context.Context, doc api.Desired) {
 	}
 	for _, ref := range r.Refused {
 		// A refusal is a normal outcome and is reported rather than retried
-		// (docs/specs/12-node-guardrails.md §1), so it is logged every
+		// (dev/specs/12-node-guardrails.md §1), so it is logged every
 		// iteration at a level an operator sees.
 		d.Log.Warn("agent", "refused", ref.Deployment, "reason", ref.Reason)
 	}
 	for _, f := range p.Failed {
-		// Loud, and every cycle: docs/specs/11-failure-modes.md §2 says the
+		// Loud, and every cycle: dev/specs/11-failure-modes.md §2 says the
 		// agent reports and nothing auto-reboots, so this line is the whole
 		// alert and it has to keep saying so until somebody looks.
 		d.Log.Error("agent", "failed", f.Deployment, "reason", f.Reason)
@@ -308,7 +308,7 @@ func (d *Daemon) poll(ctx context.Context) (api.Desired, error) {
 
 // compatible checks this agent against the range the control plane advertises.
 //
-// **The range, not the number.** docs/specs/03-agent.md §4 has the server
+// **The range, not the number.** dev/specs/03-agent.md §4 has the server
 // advertise a supported range precisely so that a rollout can happen: comparing
 // against `doc.Protocol` alone would have every node in the fleet stop
 // reconciling the moment the control plane was upgraded to a version that still
@@ -355,7 +355,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context) {
 	}
 }
 
-// report sends the status of docs/specs/03-agent.md §1.
+// report sends the status of dev/specs/03-agent.md §1.
 func (d *Daemon) report(ctx context.Context, health []Status) error {
 	byID := map[string]Status{}
 	for _, s := range health {
@@ -402,7 +402,7 @@ func (d *Daemon) report(ctx context.Context, health []Status) error {
 			State:  state,
 			Health: orDefault(s.Health, "unknown"),
 			Error:  detail,
-			// docs/specs/11-failure-modes.md §3 makes a failing assertion a
+			// dev/specs/11-failure-modes.md §3 makes a failing assertion a
 			// critical alert; it was one on this node's journal alone, which
 			// is the machine the operator is not looking at.
 			Egress:       v.State,
@@ -601,18 +601,18 @@ func stagingStatus(st Stage) api.StatusStaging {
 }
 
 // observedState asks systemd rather than reporting what the last reconcile
-// intended. docs/specs/03-agent.md §3: the agent observes, it does not assume.
+// intended. dev/specs/03-agent.md §3: the agent observes, it does not assume.
 //
 // It returns the detail to report alongside: the health probe's own error
 // ordinarily, and for a failure the reason plus the tail of the unit's log,
-// which docs/specs/11-failure-modes.md §2 asks for and 0006_fleet.sql's
+// which dev/specs/11-failure-modes.md §2 asks for and 0006_fleet.sql's
 // CHECK (state <> 'failed' OR last_error IS NOT NULL) requires.
 func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, detail string) {
 	// **Before systemd is believed.** A deployment whose engine is still
 	// compiling has no unit started, so activeState reports `inactive` and the
 	// switch below reads that as `stopped` — true of the unit, false of the
 	// deployment, and it would tell an operator that a six-hour build had
-	// quietly given up. docs/specs/04-backends.md §4's own state is what this
+	// quietly given up. dev/specs/04-backends.md §4's own state is what this
 	// is: `preparing`, or `failed` carrying the builder's reason.
 	for _, b := range d.last.Prepare {
 		if b.Deployment != u.Deployment || b.State == StatePrepared {
@@ -635,7 +635,7 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 	default:
 		return "stopped", s.Error
 	}
-	// **Active is not ready.** docs/specs/03-agent.md §7 waits for `ready` and
+	// **Active is not ready.** dev/specs/03-agent.md §7 waits for `ready` and
 	// counts ready replicas before allowing a rolling restart to proceed, so
 	// `ready` has to mean *able to serve*. The unit is `Type=exec` and its
 	// ExecStart is `nerdctl run`, which systemd calls active the moment the
@@ -650,7 +650,7 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 	}
 
 	// R4-21, the other half: a deployment that never becomes ready is failed
-	// at the backend's own ready_timeout_s (docs/specs/11-failure-modes.md
+	// at the backend's own ready_timeout_s (dev/specs/11-failure-modes.md
 	// §2) rather than sitting in `starting` forever. Measured from the first
 	// probe that went unanswered and cleared by the first that is answered,
 	// so it means "has not served yet", not "is unwell now" — the latter is
@@ -664,7 +664,7 @@ func (d *Daemon) observedState(ctx context.Context, u Unit, s Status) (state, de
 
 // failureDetail is why it failed plus the tail of the unit's log.
 //
-// docs/specs/11-failure-modes.md §2 asks for the last 100 lines, and
+// dev/specs/11-failure-modes.md §2 asks for the last 100 lines, and
 // 0006_fleet.sql's CHECK (state <> 'failed' OR last_error IS NOT NULL) makes
 // a reason mandatory rather than merely nice: a `failed` reported with
 // nothing beside it would fail the heartbeat's whole transaction. So the
@@ -679,7 +679,7 @@ func (d *Daemon) failureDetail(ctx context.Context, u Unit, why string) string {
 	return why + "\n" + tail([]byte(logs))
 }
 
-// Backoff, with jitter. docs/specs/11-failure-modes.md §1 asks for both: the
+// Backoff, with jitter. dev/specs/11-failure-modes.md §1 asks for both: the
 // exponential part stops one node turning an outage into a second one, and the
 // jitter stops a fleet retrying in lockstep and arriving together the moment
 // the control plane comes back.
@@ -743,7 +743,7 @@ type reportedState struct {
 // seconds; what the chain has no way to show is the transition — a deployment
 // that failed at 04:12, recovered at 04:19 and failed again at 04:31 looks,
 // in a report of the current state, exactly like one that has been failed all
-// along. docs/specs/11-failure-modes.md §3 makes a failing egress assertion a
+// along. dev/specs/11-failure-modes.md §3 makes a failing egress assertion a
 // critical alert, and an alert that only exists while it is still true is one
 // nobody can review afterwards.
 //

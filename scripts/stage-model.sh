@@ -7,7 +7,7 @@
 # once a manifest exists to verify the download against, and only onto a node
 # that already has a `nodary`. Producing that first manifest, or placing
 # weights on a box before it ever runs an install, is the air-gapped path and
-# it is first-class by design — docs/specs/05-catalog.md §3 — not a fallback.
+# it is first-class by design — dev/specs/05-catalog.md §3 — not a fallback.
 # This script is the hand: it downloads files and hashes them, nothing more.
 #
 # Registering is `nodary model register`, which either digests these files
@@ -167,4 +167,4 @@ printf 'Either way this digests or reuses the files, pins the image this build w
 printf 'tested against, and applies a model, a deployment and a route.\n\n'
 printf 'Note: the weights are flat in that directory because the agent renders --model as\n'
 printf 'the directory itself. A real HuggingFace cache — blobs/, refs/, snapshots/ — would\n'
-printf 'not load, even though docs/specs/05-catalog.md §3 says this layout adopts one.\n'
+printf 'not load, even though dev/specs/05-catalog.md §3 says this layout adopts one.\n'

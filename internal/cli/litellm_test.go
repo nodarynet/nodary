@@ -64,7 +64,7 @@ func readKey(t *testing.T, dir string) string {
 
 // TestTheDataPlaneConfigurationPinsLoggingOff is the compliance surface.
 //
-// docs/plans/pivot-cmmc.md makes LiteLLM one: inside a CUI boundary a
+// dev/plans/pivot-cmmc.md makes LiteLLM one: inside a CUI boundary a
 // configuration that failed to pin request logging off is an incident, not a
 // nuisance, and one that reached the disk would be in force the moment systemd
 // started the unit. So the install asserts before it writes, using the same

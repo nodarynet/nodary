@@ -54,7 +54,7 @@ func TestTensorRTLLMTakesTensorParallelAtRuntime(t *testing.T) {
 	}
 }
 
-// The whole claim of docs/specs/04-backends.md §3 is that the argument
+// The whole claim of dev/specs/04-backends.md §3 is that the argument
 // vocabulary is data. Two backends, one set of canonical parameters, two
 // different command lines, and no branch anywhere that names a backend.
 func TestOneParameterSetTranslatesThroughEachDescriptor(t *testing.T) {
@@ -208,7 +208,7 @@ func containsString(all []string, want string) bool {
 	return false
 }
 
-// trtPrepare is the TensorRT-LLM table from docs/specs/04-backends.md §6,
+// trtPrepare is the TensorRT-LLM table from dev/specs/04-backends.md §6,
 // under a descriptor minimal in every other respect so a refusal can only be
 // about the phase.
 func withPrepare(body string) string {
@@ -348,7 +348,7 @@ func TestThePrepareCommandRendersAsAnArgv(t *testing.T) {
 
 // TestTheRemovedGPUTableSaysItWasRemoved is about the sentence, not the refusal.
 //
-// `[backend.gpu] mechanism` was in this schema and in docs/specs/04-backends.md
+// `[backend.gpu] mechanism` was in this schema and in dev/specs/04-backends.md
 // §6 with two documented values, and R6-07 made writing a descriptor a road
 // operators are meant to take — so somebody has copied it out of the spec. The
 // generic "unknown keys backend.gpu.mechanism" is true and useless: it reads as

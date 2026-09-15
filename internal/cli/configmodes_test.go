@@ -49,7 +49,7 @@ func stagedConfigDir(t *testing.T) string {
 	return dir
 }
 
-// docs/specs/08-data-model.md §4. The LiteLLM master key cannot be sealed the
+// dev/specs/08-data-model.md §4. The LiteLLM master key cannot be sealed the
 // way TOTP seeds and the agent CA are — LiteLLM reads a plain YAML file and has
 // no way to consume a sealed value — so the file mode is the whole control, and
 // a test is the only thing that keeps a mode from drifting back.

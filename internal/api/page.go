@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// docs/specs/09-api.md §2: "List endpoints take limit (default 50, max 500) and
+// dev/specs/09-api.md §2: "List endpoints take limit (default 50, max 500) and
 // cursor. Responses carry next_cursor when more remain."
 const (
 	DefaultLimit = 50

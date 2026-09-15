@@ -11,7 +11,7 @@ import (
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
-// The CLI's personal-token file: docs/specs/07-identity-audit.md §1's
+// The CLI's personal-token file: dev/specs/07-identity-audit.md §1's
 // ~/.nodary/credentials, mode 0600.
 //
 // It is per-operator rather than per-host, which is why it lives under a home
@@ -22,7 +22,7 @@ import (
 
 // LocalServer is the key R1 stores a credential under.
 //
-// The map is keyed by target because docs/specs/10-cli.md §2 has --server, and
+// The map is keyed by target because dev/specs/10-cli.md §2 has --server, and
 // an operator with a laptop credential for two appliances would otherwise need
 // two files. R1 has no server, so there is exactly one key; the shape is here
 // so R2 adds a key rather than a format.

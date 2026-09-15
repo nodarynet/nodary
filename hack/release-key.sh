@@ -10,7 +10,7 @@
 # The private key never belongs in this repository. Generate it once, store it
 # in the release signing secret store, and keep only the public half here.
 #
-# See docs/specs/01-install.md §2.
+# See dev/specs/01-install.md §2.
 
 set -eu
 

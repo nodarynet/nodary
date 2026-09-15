@@ -370,7 +370,7 @@ func TestAuditListJSONRecordsAreTheMirrorRecords(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §2 advertises --format text|json|yaml globally. This is
+// dev/specs/10-cli.md §2 advertises --format text|json|yaml globally. This is
 // the one verb where those are not the values, so the refusal has to name what
 // it does accept rather than leaving the operator to guess.
 func TestAuditExportRejectsTheGlobalFormatValues(t *testing.T) {
@@ -569,7 +569,7 @@ func TestAuditListJSONDoesNotEscapeTheCanonicalBytes(t *testing.T) {
 	}
 }
 
-// -h is a request, not a usage error: docs/specs/10-cli.md §4 puts human output
+// -h is a request, not a usage error: dev/specs/10-cli.md §4 puts human output
 // on stdout and §5's code 2 is "bad flags, missing arguments".
 func TestHelpGoesToStdoutAndSucceeds(t *testing.T) {
 	for _, verb := range [][]string{

@@ -66,7 +66,7 @@ func backupTree(t *testing.T) (a *appliance, configDir string) {
 	return a, configDir
 }
 
-// R2-37. docs/specs/08-data-model.md §4 said `nodary backup create` captures
+// R2-37. dev/specs/08-data-model.md §4 said `nodary backup create` captures
 // the database and the key that unseals it; until this landed that sentence
 // described nothing that runs, and the stated recovery story — "it is a single
 // file" — left an operator to discover at restore time that every node had to

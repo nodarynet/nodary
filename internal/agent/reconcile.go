@@ -17,7 +17,7 @@ import (
 // boundary: internal/agent/plan.go put every decidable part in Build, so what
 // is left is running a command and making one HTTP request. An interface with a
 // method per operation would be an abstraction over a surface that has two
-// functions in it (docs/plans/R4c-reconcile.md §1).
+// functions in it (dev/plans/R4c-reconcile.md §1).
 type Host struct {
 	// Run executes a command and returns its combined output.
 	Run func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -107,7 +107,7 @@ type Report struct {
 	Stage   []StagingOutcome `json:"stage"`
 	Refused []Refusal        `json:"refused"`
 	// OutOfPolicy is a deployment node.toml narrows out that is **running
-	// anyway**, left alone rather than stopped (docs/specs/12-node-guardrails.md
+	// anyway**, left alone rather than stopped (dev/specs/12-node-guardrails.md
 	// §3). One that is not running is not here: it is in Refused, because
 	// nothing was serving and nothing had to be protected.
 	OutOfPolicy []Refusal `json:"out_of_policy,omitempty"`
@@ -128,7 +128,7 @@ type UnitOutcome struct {
 	// which is the normal case for a converged node.
 	Action string `json:"action,omitempty"`
 	Error  string `json:"error,omitempty"`
-	// Egress is docs/specs/03-agent.md §5's verdict, filled when this iteration
+	// Egress is dev/specs/03-agent.md §5's verdict, filled when this iteration
 	// started the deployment. R4-29: it runs after every start.
 	Egress *EgressVerdict `json:"egress,omitempty"`
 }
@@ -141,7 +141,7 @@ type StagingOutcome struct {
 
 // Reconcile converges the host onto the plan and reports what it observed.
 //
-// docs/specs/03-agent.md §3: every iteration is idempotent and converges, and
+// dev/specs/03-agent.md §3: every iteration is idempotent and converges, and
 // the agent never assumes it caused the current state — it observes and
 // corrects. The fixed ordering holds: weights are staged before a unit starts
 // (Build refuses a deployment whose weights are corrupt, and this skips one
@@ -176,7 +176,7 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 	}
 	// The prepare phase, keyed by deployment rather than by model: two
 	// deployments of one model can need different engines
-	// (docs/specs/04-backends.md §4).
+	// (dev/specs/04-backends.md §4).
 	built := map[string]Prepared{}
 	for _, b := range p.Prepare {
 		built[b.Deployment] = b
@@ -197,7 +197,7 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 		}
 	}
 
-	// docs/specs/12-node-guardrails.md §3, and the reason Build could not
+	// dev/specs/12-node-guardrails.md §3, and the reason Build could not
 	// decide this itself: a guardrail narrowed under a serving deployment
 	// reports `out_of_policy` and does not kill it. **A guardrail nobody dares
 	// touch is not a guardrail** — if editing node.toml could terminate a model
@@ -234,7 +234,7 @@ func Reconcile(ctx context.Context, p Plan, h Host) Report {
 
 	// Stop what the plan no longer names. Scoped to nodary-model@* and nothing
 	// else: a node is rarely only a nodary node
-	// (docs/specs/12-node-guardrails.md), and an agent that stopped anything it
+	// (dev/specs/12-node-guardrails.md), and an agent that stopped anything it
 	// did not recognize on a machine somebody else also uses is the most
 	// destructive thing this codebase could do.
 	running, err := h.runningInstances(ctx)
@@ -263,7 +263,7 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string,
 	built map[string]Prepared, h Host, forced bool) (UnitOutcome, bool) {
 	out := UnitOutcome{Deployment: u.Deployment}
 
-	// Weights before the unit — docs/specs/03-agent.md §3's first ordering
+	// Weights before the unit — dev/specs/03-agent.md §3's first ordering
 	// rule. Build already refused a deployment whose weights are corrupt; this
 	// is the case where they are simply not there yet, which is not an error
 	// and must not start a container that would fail obscurely.
@@ -318,7 +318,7 @@ func reconcileUnit(ctx context.Context, u Unit, staged map[string]string,
 	// (unit.go) and given up. Reported and left alone — an agent that
 	// started it again every reconcile would be grinding against a failure
 	// on a sixty-second loop, which is what
-	// docs/specs/12-node-guardrails.md §1 rejects for refusals and is no
+	// dev/specs/12-node-guardrails.md §1 rejects for refusals and is no
 	// better here. `nodary model restart` is the explicit unstick, below.
 	case state == "failed" && !forced:
 		out.State = "failed"
@@ -416,7 +416,7 @@ func conclusive(state string) bool {
 // writeEnvFile writes the unit's environment file and reports whether it
 // differed from what was already there.
 //
-// Comparing before writing is the whole of docs/plans/R4c-reconcile.md §2: the
+// Comparing before writing is the whole of dev/plans/R4c-reconcile.md §2: the
 // failure mode of getting it wrong is not a wasted write, it is a model server
 // restarting every fifteen seconds forever and dropping in-flight requests each
 // time.
@@ -443,7 +443,7 @@ func writeEnvFile(u Unit) (changed bool, err error) {
 // `failed`, `inactive`, `activating`, and the rest of `systemctl is-active`'s
 // vocabulary.
 //
-// docs/specs/03-agent.md §3: the agent never assumes it caused the current
+// dev/specs/03-agent.md §3: the agent never assumes it caused the current
 // state. A unit that died between iterations, or that an operator stopped by
 // hand, has to be observed rather than inferred.
 //
@@ -484,7 +484,7 @@ func (h Host) runningInstances(ctx context.Context) ([]string, error) {
 }
 
 // LogTail is the last n lines of a unit's log, for a deployment that failed.
-// docs/specs/11-failure-modes.md §2 wants the last 100.
+// dev/specs/11-failure-modes.md §2 wants the last 100.
 func (h Host) LogTail(ctx context.Context, unit string, n int) string {
 	args := []string{"-u", unit, "-n", fmt.Sprint(n), "--no-pager", "--output=cat"}
 	if h.UserScope {

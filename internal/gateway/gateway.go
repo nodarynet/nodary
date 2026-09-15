@@ -1,7 +1,7 @@
-// Package gateway serves the OpenAI surface: docs/specs/06-gateway.md.
+// Package gateway serves the OpenAI surface: dev/specs/06-gateway.md.
 //
 // It is the first thing in this product that ever holds a prompt, and the only
-// thing that ever will. docs/adr/0006-cui-boundary-and-fips.md makes "nodary
+// thing that ever will. dev/adr/0006-cui-boundary-and-fips.md makes "nodary
 // records that a request happened, never what it said" structural, so the rule
 // this package is written under is narrow and absolute:
 //
@@ -39,7 +39,7 @@ type Server struct {
 	up   *url.URL
 	prox *httputil.ReverseProxy
 	// masterKey authenticates the gateway to LiteLLM. It never reaches a
-	// client: docs/specs/06-gateway.md §1 has LiteLLM stateless behind a single
+	// client: dev/specs/06-gateway.md §1 has LiteLLM stateless behind a single
 	// key, which is what lets it hold no database and no identities.
 	masterKey string
 	throttle  *throttle
@@ -80,7 +80,7 @@ func New(o Options) (*Server, error) {
 			r.Out.Header.Del("Cookie")
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			// 502 and no fallback. docs/specs/06-gateway.md §5: the gateway does
+			// 502 and no fallback. dev/specs/06-gateway.md §5: the gateway does
 			// not proxy directly to deployments, because that path would bypass
 			// routing and fallback logic — and the error carries no body,
 			// because the body is the thing this package must not surface.
@@ -96,7 +96,7 @@ func New(o Options) (*Server, error) {
 // ErrBadConfig is an unusable gateway configuration.
 var ErrBadConfig = errors.New("invalid gateway configuration")
 
-// Handler is the routed surface of docs/specs/06-gateway.md §1.
+// Handler is the routed surface of dev/specs/06-gateway.md §1.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// The OpenAI surface, and nothing else. A path not listed here is a 404
@@ -110,7 +110,7 @@ func (s *Server) Handler() http.Handler {
 	return withRequestID(mux)
 }
 
-// principal resolves the bearer token to a person: docs/specs/06-gateway.md §2.
+// principal resolves the bearer token to a person: dev/specs/06-gateway.md §2.
 func (s *Server) principal(r *http.Request) (identity.Principal, error) {
 	raw := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(raw, "Bearer ") {
@@ -132,9 +132,9 @@ func (s *Server) principal(r *http.Request) (identity.Principal, error) {
 		return identity.Principal{}, err
 	}
 	user, tok := p.User, p.Token
-	// The kind is checked, not just the credential. docs/specs/02-enrollment.md
+	// The kind is checked, not just the credential. dev/specs/02-enrollment.md
 	// §4 gives each prefix one purpose — `sk` is inference, `pt` is the CLI and
-	// the control-plane API — and docs/specs/06-gateway.md §2 says clients
+	// the control-plane API — and dev/specs/06-gateway.md §2 says clients
 	// present `nodary_sk_…`.
 	//
 	// Enforcing it keeps one leaked credential from doing both jobs. A personal
@@ -147,7 +147,7 @@ func (s *Server) principal(r *http.Request) (identity.Principal, error) {
 			identity.ErrBadToken, identity.KindService.Prefix(), tok.Kind)
 	}
 
-	// docs/specs/06-gateway.md §2, point 4. Logged rather than returned: a
+	// dev/specs/06-gateway.md §2, point 4. Logged rather than returned: a
 	// request that authenticated correctly must not fail because a timestamp
 	// could not be written.
 	if err := observed.TouchToken(r.Context(), s.db, tok.ID, s.now()); err != nil {
@@ -173,7 +173,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (identity.Pri
 // routesFor is the caller's model allowlist.
 //
 // A user with no grants may call nothing. 0010_grants.sql carries the
-// reasoning: docs/specs/07-identity-audit.md §5 maps this to AC-3 and AC-6 with
+// reasoning: dev/specs/07-identity-audit.md §5 maps this to AC-3 and AC-6 with
 // the words "least privilege by default", and an empty allowlist meaning every
 // route would make that sentence false.
 func (s *Server) routesFor(ctx context.Context, p identity.Principal) (map[string]bool, error) {
@@ -220,7 +220,7 @@ func (s *Server) servedBy(ctx context.Context, deploymentID string) (modelID, no
 
 // listModels returns only the routes the caller may use — not the fleet.
 //
-// docs/specs/06-gateway.md §1 is explicit about that, and the reason is
+// dev/specs/06-gateway.md §1 is explicit about that, and the reason is
 // consistency with the 403 below: a client that discovers a model here and is
 // then refused it has been told two different things by the same server.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +280,7 @@ func Serve(ctx context.Context, h http.Handler, bind string) error {
 	}
 }
 
-// errNoReadyMember is docs/specs/11-failure-modes.md §4's "no ready deployment
+// errNoReadyMember is dev/specs/11-failure-modes.md §4's "no ready deployment
 // on a route".
 var errNoReadyMember = errors.New("no ready deployment")
 

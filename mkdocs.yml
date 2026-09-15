@@ -43,7 +43,7 @@ markdown_extensions:
       permalink: true
 
 # This site is the front door: what nodary is and how to get a model serving.
-# The specifications (docs/specs/), decision records (docs/adr/) and the
-# implementation tracker (docs/tasks/) are the authoritative depth and stay in
+# The specifications (dev/specs/), decision records (dev/adr/) and the
+# implementation tracker (dev/tasks/) are the authoritative depth and stay in
 # the repository rather than being ported here — porting them would give this
 # site two copies of the truth to keep in sync. It links out to them instead.

@@ -179,7 +179,7 @@ func TestTheIdempotencyExemptionsAreDeliberate(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §4: a token is shown exactly once and is never readable
+// dev/specs/10-cli.md §4: a token is shown exactly once and is never readable
 // again. Keeping a replayable copy of the mint response would make that untrue
 // of the database file, so the stored copy is sealed under secret.key.
 func TestAStoredResponseDoesNotLeaveASecretInTheDatabase(t *testing.T) {

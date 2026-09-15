@@ -215,7 +215,7 @@ func cmdAuditVerify(e env, args []string) int {
 }
 
 // The report types are the --format json contract, so they are declared rather
-// than assembled ad hoc. docs/specs/10-cli.md §4 makes that output a stable
+// than assembled ad hoc. dev/specs/10-cli.md §4 makes that output a stable
 // schema, not a rendering of whatever the internals happen to hold.
 type verifyReport struct {
 	// comparable is audit's judgement, carried through for rendering only. It
@@ -504,7 +504,7 @@ func targetOf(r audit.Record) string {
 func cmdAuditExport(e env, args []string) int {
 	fs := newFlagSet(e, "audit export")
 	// Not formatFlag: on this verb the value is the export encoding, per
-	// docs/specs/09-api.md §1, not docs/specs/10-cli.md §2's rendering style.
+	// dev/specs/09-api.md §1, not dev/specs/10-cli.md §2's rendering style.
 	format := fs.String("format", audit.FormatJSONL,
 		"export encoding: jsonl is byte-identical to what a sink delivered; "+
 			"csv is for a spreadsheet and defuses formula cells with a leading apostrophe")

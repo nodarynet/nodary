@@ -14,7 +14,7 @@ import (
 // The assertion this whole slice exists for, against a real container rather
 // than a namespace made by `unshare`.
 //
-// The configuration under test is the one docs/specs/03-agent.md §5 describes:
+// The configuration under test is the one dev/specs/03-agent.md §5 describes:
 // a container on a host-local bridge with no default route. A route check calls
 // that isolated. The probe does not, because docker injects a resolver at
 // 127.0.0.11 on the container's own loopback — reachable without any route, and

@@ -15,7 +15,7 @@ import (
 // Usage is one inference request, and it is a closed record.
 //
 // **There is no field here for what the request said, and there is not going to
-// be one.** docs/adr/0006-cui-boundary-and-fips.md makes "nodary records that a
+// be one.** dev/adr/0006-cui-boundary-and-fips.md makes "nodary records that a
 // request happened, never what it said" a structural guarantee, and this struct
 // plus 0006_fleet.sql's `usage` table are where "structural" is cashed out: a
 // closed schema has nowhere to write it, so the guarantee does not depend on
@@ -29,7 +29,7 @@ import (
 // This lives in internal/observed for the reason the package comment gives: a
 // usage row is an observation, not a decision. It is written per request at a
 // volume the audit chain would choke on, and pruned on a schedule the audit
-// chain must never be pruned on (docs/specs/08-data-model.md §3).
+// chain must never be pruned on (dev/specs/08-data-model.md §3).
 type Usage struct {
 	TS               time.Time
 	UserID           string
@@ -45,7 +45,7 @@ type Usage struct {
 	Status           int
 	Streamed         bool
 	// Partial means accounting is incomplete — a stream that ended without its
-	// usage chunk. docs/specs/06-gateway.md §3: usage is never silently
+	// usage chunk. dev/specs/06-gateway.md §3: usage is never silently
 	// dropped, because if disconnecting erased it, metering would be trivially
 	// avoidable and the quota system decorative.
 	Partial bool

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CheckParams is docs/specs/04-backends.md §7: capabilities are enforced at
+// CheckParams is dev/specs/04-backends.md §7: capabilities are enforced at
 // enable time, not discovered at crash time.
 //
 // The whole value of this is *where* it runs. The agent already refuses a
@@ -74,7 +74,7 @@ func (d Descriptor) CheckParams(p Params, gpus int) error {
 // insteadTry names what this backend *does* have, out of the descriptor rather
 // than out of a table in this file.
 //
-// docs/specs/04-backends.md §1's argument for descriptors over plugins is that
+// dev/specs/04-backends.md §1's argument for descriptors over plugins is that
 // a backend's facts belong in its own data. A hint hard-coded here — "use
 // --tensor-split" — would be exactly the backend knowledge in nodary's code
 // that the format exists to hold instead, and it would go stale silently the

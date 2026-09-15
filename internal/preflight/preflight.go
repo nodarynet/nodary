@@ -1,5 +1,5 @@
-// Package preflight is the host checks of docs/specs/01-install.md §11 and the
-// diagnostic of docs/specs/10-cli.md §3.
+// Package preflight is the host checks of dev/specs/01-install.md §11 and the
+// diagnostic of dev/specs/10-cli.md §3.
 //
 // One mechanism seen at two times. Preflight runs what can be answered before
 // anything is installed; `doctor` runs those and the ones that need a running
@@ -18,7 +18,7 @@
 // unreachable — nvidia-smi absent, /proc unreadable — the result says so at its
 // own level and never `ok`. Most checks here establish a property by *not*
 // finding a problem, which is the shape that quietly stops meaning anything;
-// docs/plans/R4d-egress-isolation.md records what that cost when it was learned.
+// dev/plans/R4d-egress-isolation.md records what that cost when it was learned.
 package preflight
 
 import (
@@ -197,7 +197,7 @@ func levelRank(l Level) int {
 func checkPlatform() Check {
 	c := Check{Name: "platform"}
 	if runtime.GOOS != "linux" {
-		// docs/specs/01-install.md §8: the server and the agent require systemd
+		// dev/specs/01-install.md §8: the server and the agent require systemd
 		// and cgroup v2, so they are Linux-only. macOS builds exist for the
 		// operator CLI, which does not run this.
 		c.Level = LevelFail
@@ -279,7 +279,7 @@ func checkCgroupV2() Check {
 
 // checkDriver reads the driver version from nvidia-smi.
 //
-// From the driver, not from a device node: docs/spike-fips-and-manifest.md §5
+// From the driver, not from a device node: dev/spike-fips-and-manifest.md §5
 // measured that a WSL2 host has no /dev/nvidia* at all and nvidia-smi still
 // reports the card correctly, so a filesystem test fails wrongly there and
 // passes vacuously elsewhere.
@@ -527,7 +527,7 @@ func checkRAMPerGPU(ctx context.Context, o Options) Check {
 
 // checkEncryptedRoot reports how this host comes back from a restart.
 //
-// docs/specs/03-agent.md §7: a host whose root is encrypted with no automatic
+// dev/specs/03-agent.md §7: a host whose root is encrypted with no automatic
 // unlock path needs somebody physically present to come back up, and the agent
 // refuses to initiate one on it. This is where an operator finds out before
 // that matters rather than after — and it is the same RebootPolicy the node
@@ -615,7 +615,7 @@ func totalRAMMiB() (int, error) {
 // needs it fails on a host with a perfectly good GPU.
 //
 // That is not a corner case: the agent runs as root, `node install` runs under
-// sudo, and WSL2 is a platform docs/specs/01-install.md §8 supports. Found by
+// sudo, and WSL2 is a platform dev/specs/01-install.md §8 supports. Found by
 // running the privileged verification on a real WSL2 host with an RTX 5090
 // attached, where preflight reported no driver at all.
 var toolDirs = []string{
@@ -735,7 +735,7 @@ func checkNFT(o Options) Check {
 // as a model server that cannot find CUDA rather than as anything naming the
 // toolkit.
 //
-// **nodary does not install it**, which is the call docs/specs/01-install.md §8
+// **nodary does not install it**, which is the call dev/specs/01-install.md §8
 // already makes for the packet filter. Upstream publishes the toolkit only as
 // distribution packages — the release assets are a tarball *of `.deb`s and
 // `.rpm`s*, not the flat binary archive containerd, runc and nerdctl ship — and

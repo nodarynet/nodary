@@ -12,7 +12,7 @@ import (
 	"github.com/nodarynet/nodary/internal/derive"
 )
 
-// fipsDescriptor is docs/specs/04-backends.md §5's own example: the case
+// fipsDescriptor is dev/specs/04-backends.md §5's own example: the case
 // derived images exist for.
 const fipsDescriptor = `[backend]
 name     = "vllm-fips"

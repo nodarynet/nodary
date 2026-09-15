@@ -44,7 +44,7 @@ var notIdempotent = map[string]string{
 	"/auth/logout": "ends the credential a key would be scoped to",
 	// The agent protocol authenticates by client certificate and is already
 	// idempotent by construction: the desired state is a complete end state and
-	// a status post is an observation, not an act (docs/specs/03-agent.md §2).
+	// a status post is an observation, not an act (dev/specs/03-agent.md §2).
 	"/enroll":       "unauthenticated by design; a join token is single-use instead",
 	"/agent/status": "an observation, replayed harmlessly",
 	// A replayed batch is *not* harmless — it writes the chain twice — but the
@@ -67,7 +67,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	}
 
 	// The node protocol. Enrollment is the only unauthenticated endpoint in the
-	// product (docs/specs/03-agent.md §1); everything under /agent/ is mTLS.
+	// product (dev/specs/03-agent.md §1); everything under /agent/ is mTLS.
 	h("POST", "/enroll", s.enroll)
 	h("GET", "/agent/desired", s.agentDesired)
 	h("POST", "/agent/status", s.agentStatus)
@@ -594,7 +594,7 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// listBackends and showBackend are docs/specs/04-backends.md §9's reads.
+// listBackends and showBackend are dev/specs/04-backends.md §9's reads.
 //
 // PermStateRead, like the policy: a descriptor holds no secret, and an operator
 // deciding which backend to register a model against needs to see the argument
@@ -692,7 +692,7 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 		// this is computed from is on this machine — so without it the only
 		// way to learn what a policy change now denies is a second command
 		// against a different endpoint. Flagged, not stopped, on both routes
-		// (docs/specs/11-failure-modes.md).
+		// (dev/specs/11-failure-modes.md).
 		m, ok := out.Preview.(map[string]any)
 		if !ok || m["denies"] == nil {
 			return nil
@@ -704,7 +704,7 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 // createBackup writes an archive on this host and leaves it here.
 //
 // **The archive never crosses the wire, and that is the design rather than a
-// step that is missing.** docs/specs/08-data-model.md §4: it is as sensitive as
+// step that is missing.** dev/specs/08-data-model.md §4: it is as sensitive as
 // /etc/nodary/secret.key because it contains it, together with the agent CA
 // private key and the LiteLLM master key. Streaming it to whichever machine
 // made the request would move this control plane's entire secret material onto
@@ -855,7 +855,7 @@ const maxConfigDocument = 4 << 20
 // `nodary config apply -f FILE` sends over --server.
 //
 // **The body is the TOML, not a decoded snapshot**, and that is the decision
-// worth writing down. [08 §2](../../docs/specs/08-data-model.md) makes the
+// worth writing down. [08 §2](../../dev/specs/08-data-model.md) makes the
 // exported file and the applied file the same document, so the bytes an
 // operator edited are what crosses the wire — and config.DecodeTOML runs once,
 // on the machine that is about to apply them. A client that decoded first
@@ -992,7 +992,7 @@ func (s *Server) nodeTransition(verb, to string) http.HandlerFunc {
 			// The preview carries the node's advertised offer and constraints
 			// because it is what the administrator is agreeing to, and because
 			// core.Act hashes the preview into intent_hash and writes it into
-			// the record. That is docs/specs/02-enrollment.md §1's "neither side
+			// the record. That is dev/specs/02-enrollment.md §1's "neither side
 			// can later claim terms the other did not see" made structural: the
 			// terms are inside the hash the approver signed off, not in prose
 			// beside it.
@@ -1013,7 +1013,7 @@ func (s *Server) nodeTransition(verb, to string) http.HandlerFunc {
 				// has a hole in it, and — since the agent long-poll compares
 				// against that sequence — an approved node would not learn it
 				// had been approved until something unrelated moved the
-				// counter (docs/plans/R4a-agent-protocol.md §6).
+				// counter (dev/plans/R4a-agent-protocol.md §6).
 				_, err := config.Record(r.Context(), m, s.now(), p.Actor.ID, r.Header.Get(HeaderJustify))
 				return err
 			},
@@ -1155,7 +1155,7 @@ func (s *Server) showNode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// verifyEgress answers docs/specs/03-agent.md §5 for a whole node, from what
+// verifyEgress answers dev/specs/03-agent.md §5 for a whole node, from what
 // the node last reported.
 //
 // A **read of a stored verdict, not a probe.** The assertion runs inside a
@@ -1327,7 +1327,7 @@ func (s *Server) createJoinToken(w http.ResponseWriter, r *http.Request) {
 			p, _ := s.principalOf(r)
 			var err error
 			// A join token must expire: one that never does is a permanent way
-			// onto the fleet (docs/specs/02-enrollment.md §4).
+			// onto the fleet (dev/specs/02-enrollment.md §4).
 			_, plaintext, err = identity.MintJoinToken(r.Context(), m, p.Role, s.now(),
 				p.Actor.ID, body.Uses, s.now().Add(time.Hour))
 			return err
@@ -1349,7 +1349,7 @@ func NotIdempotentForTest() map[string]string { return notIdempotent }
 //
 // **Not applyOne**, which the route and limit PUTs use: those are declarative
 // writes under config.apply's authority, and these are their own actions with
-// their own permissions (docs/specs/07-identity-audit.md §1 names
+// their own permissions (dev/specs/07-identity-audit.md §1 names
 // model.enable and model.disable). Recording a disable as `config.apply` would
 // make the chain answer "who stopped this model" with the wrong verb.
 func (s *Server) modelToggle(disabled bool) http.HandlerFunc {
@@ -1528,7 +1528,7 @@ func (s *Server) modelRestart(w http.ResponseWriter, r *http.Request) {
 // here as it does on `audit list`.
 //
 // **Every authenticated caller can read it, and that is the permission table as
-// written rather than a choice made here.** docs/specs/07-identity-audit.md §1
+// written rather than a choice made here.** dev/specs/07-identity-audit.md §1
 // grants `usage.read.self` and `state.read` to the same role — RoleViewer, the
 // lowest — so there is no line in it separating "my usage" from "everyone's",
 // and nothing for this handler to enforce. Narrowing by role rank instead would

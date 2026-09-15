@@ -74,7 +74,7 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 	// The deployment states, read separately because they are deliberately not
 	// in the configuration snapshot: they are observations, and a heartbeat
 	// that moved one would otherwise read as a configuration change
-	// (docs/plans/R4a-agent-protocol.md §4).
+	// (dev/plans/R4a-agent-protocol.md §4).
 	ready, err := readyDeployments(ctx, db.Read())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
@@ -173,10 +173,10 @@ func digestOf(b []byte) string {
 // routeModels turns routes into what LiteLLM proxies to, and says what it left
 // out.
 //
-// **Only deployments on this host.** docs/specs/03-agent.md publishes a
+// **Only deployments on this host.** dev/specs/03-agent.md publishes a
 // deployment's port on `127.0.0.1` *"so the container is reachable by the
 // gateway"* — which holds when the gateway is on the same machine, and does not
-// when it is not. docs/specs/00-overview.md §2 also has traffic to nodes
+// when it is not. dev/specs/00-overview.md §2 also has traffic to nodes
 // **agent-initiated only**, so the control plane has no way to dial a node's
 // loopback and no specified way to reach a deployment on one.
 //
@@ -186,7 +186,7 @@ func digestOf(b []byte) string {
 // being handed a configuration pointing at an address that answers nothing.
 // readyDeployments is every deployment whose node reports it as serving.
 //
-// docs/specs/05-catalog.md §5 round-robins across **ready** members, and `ready`
+// dev/specs/05-catalog.md §5 round-robins across **ready** members, and `ready`
 // already folds in health: internal/agent's observedState calls a unit `ready`
 // only when it is active *and* its health probe answers, so a replica that goes
 // unhealthy drops back to `starting` and leaves its route here. That is what

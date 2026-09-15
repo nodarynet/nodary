@@ -154,7 +154,7 @@ func Get(ctx context.Context, q Querier, seq int64) (Revision, error) {
 
 // List returns revisions newest first.
 // before is an exclusive upper bound on the sequence, which is what a page of a
-// descending listing continues from (docs/specs/09-api.md §2). Zero means the
+// descending listing continues from (dev/specs/09-api.md §2). Zero means the
 // newest.
 func List(ctx context.Context, q Querier, limit int, before int64) ([]Revision, error) {
 	if limit <= 0 {
@@ -385,7 +385,7 @@ func keyLimits(s *Snapshot) map[string]string {
 // configuration nobody has changed yet.
 //
 // It is what the agent long-poll compares against
-// (docs/plans/R4a-agent-protocol.md §6): the revision chain already advances on
+// (dev/plans/R4a-agent-protocol.md §6): the revision chain already advances on
 // every configuration change, so a node needs no counter of its own.
 func LatestSeq(ctx context.Context, q Querier) (int64, error) {
 	var seq int64

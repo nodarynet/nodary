@@ -15,7 +15,7 @@ import (
 )
 
 // trtDescriptor is a backend that builds before it serves — the shape
-// docs/specs/04-backends.md §6 gives TensorRT-LLM, minimal in every other
+// dev/specs/04-backends.md §6 gives TensorRT-LLM, minimal in every other
 // respect so a test failure can only be about the phase.
 const trtDescriptor = `[backend]
 name           = "trt"

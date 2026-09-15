@@ -27,7 +27,7 @@ import (
 // csrFor generates a node keypair and its certificate request.
 //
 // The subject is deliberately wrong — it names a node the caller is not
-// enrolling as — because docs/plans/R4a-agent-protocol.md §2 says the server
+// enrolling as — because dev/plans/R4a-agent-protocol.md §2 says the server
 // must ignore it, and a CSR whose subject happened to be right could not tell
 // us whether it does.
 func csrFor(t *testing.T) (*ecdsa.PrivateKey, string) {
@@ -262,7 +262,7 @@ func TestEnrollmentRefusesAnUnpinnedControlPlane(t *testing.T) {
 	}
 }
 
-// docs/specs/01-install.md §3: only the control-plane host ever contacts an
+// dev/specs/01-install.md §3: only the control-plane host ever contacts an
 // upstream source, and GPU hosts bootstrap with no internet and no registry
 // access. This proves the mirror half — an enrolled node fetches a
 // digest-verified artifact from its control plane and reaches nothing else.

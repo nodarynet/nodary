@@ -12,7 +12,7 @@ import (
 //
 // It takes a personal token rather than a password, which is the identity
 // model the CLI already has rather than a new one: `nodary token create --save`
-// writes the same file for the local target, and docs/specs/01-install.md §4's
+// writes the same file for the local target, and dev/specs/01-install.md §4's
 // one-time setup link exists so that a password is never typed into a terminal
 // or left in a shell history. An administrator mints a token for a person with
 // `nodary token create --user`; that person runs this once per appliance.

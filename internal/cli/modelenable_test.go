@@ -48,7 +48,7 @@ func TestDisableThenEnableRoundTrips(t *testing.T) {
 	}
 }
 
-// --node is optional (docs/specs/05-catalog.md §4's own example brackets it),
+// --node is optional (dev/specs/05-catalog.md §4's own example brackets it),
 // but when given it must actually filter — not simply be ignored.
 func TestDisableAcceptsAnExplicitNode(t *testing.T) {
 	a := newAppliance(t)

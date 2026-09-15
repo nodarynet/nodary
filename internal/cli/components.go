@@ -286,7 +286,7 @@ func cmdComponentsVerify(e env, args []string) int {
 }
 
 // cmdComponentsFetch resolves components into the cache the control plane
-// serves to nodes: docs/specs/01-install.md §3 and §4's step 3.
+// serves to nodes: dev/specs/01-install.md §3 and §4's step 3.
 //
 // It is a verb of its own as well as a step of `server install`, because the
 // cache is the thing an operator most needs to be able to repair: a node that
@@ -343,7 +343,7 @@ func cmdComponentsFetch(e env, args []string) int {
 	opts := components.FetchOptions{Dir: cache, Platform: plat}
 	if *mirror {
 		// The mirror is behind the same mTLS as the rest of the agent protocol
-		// (docs/specs/01-install.md §3), so only an enrolled node can reach it
+		// (dev/specs/01-install.md §3), so only an enrolled node can reach it
 		// — which is the point: a host that has not joined has no business
 		// pulling a fleet's pinned runtime.
 		base, client, code := mirrorClient(e, orElse(*confPath, agent.ConfigPath()))
@@ -356,7 +356,7 @@ func cmdComponentsFetch(e env, args []string) int {
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary components fetch: %v\n", err)
 		// A digest mismatch is not a network problem and must not read like
-		// one: docs/specs/01-install.md §2 has no override flag for it.
+		// one: dev/specs/01-install.md §2 has no override flag for it.
 		if errors.Is(err, components.ErrDigestMismatch) {
 			fmt.Fprintf(e.stderr,
 				"  This is a hard stop. The bytes are not what this binary pins, and there is\n"+

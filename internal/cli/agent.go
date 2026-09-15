@@ -148,7 +148,7 @@ func renderPlan(e env, p agent.Plan) {
 	}
 
 	if len(p.Refused) > 0 {
-		// Refusals last and never hidden: docs/specs/12-node-guardrails.md §1
+		// Refusals last and never hidden: dev/specs/12-node-guardrails.md §1
 		// makes a refusal something an operator sees rather than something the
 		// system grinds against.
 		fmt.Fprintf(e.stdout, "\nrefused\n")
@@ -210,7 +210,7 @@ func desiredDocument(e env, conf agent.Config, from string) (api.Desired, error)
 	return doc, err
 }
 
-// cmdAgentRun is the reconcile loop of docs/specs/03-agent.md §3.
+// cmdAgentRun is the reconcile loop of dev/specs/03-agent.md §3.
 //
 // It runs in the foreground and logs to stderr, because systemd is what
 // supervises it: a daemon that forks, writes a pidfile and rotates its own logs
@@ -225,7 +225,7 @@ func cmdAgentRun(e env, args []string) int {
 	// developer does not. This is what makes the whole path — template,
 	// environment file, start, stop — exercisable without it. A user manager has
 	// no network cgroup controller, so IPAddressDeny= is inert there; it was
-	// never the egress control (docs/specs/03-agent.md §5), so nothing is lost
+	// never the egress control (dev/specs/03-agent.md §5), so nothing is lost
 	// that this scope was providing.
 	user := fs.Bool("user", false, "drive systemctl --user, for a host where this is not run as root")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -283,7 +283,7 @@ func cmdAgentRun(e env, args []string) int {
 // systemdUnitDir is where a system manager reads unit files.
 const systemdUnitDir = "/etc/systemd/system"
 
-// cmdAgentEgressProbe runs the three assertions of docs/specs/03-agent.md §5 in
+// cmdAgentEgressProbe runs the three assertions of dev/specs/03-agent.md §5 in
 // whatever network namespace it finds itself in, and prints the result.
 //
 // It is the thing `nodary node verify-egress` runs inside a deployment, via
@@ -330,7 +330,7 @@ func cmdAgentStage(e env, args []string) int {
 }
 
 // cmdAgentPrepare builds one deployment's artifact and exits — R6-06,
-// docs/specs/04-backends.md §4.
+// dev/specs/04-backends.md §4.
 //
 // The sibling of `agent stage`, and documented for the same reason: an
 // operator who runs `systemctl status` during a six-hour TensorRT-LLM compile

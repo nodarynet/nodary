@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The fleet schema's job is to refuse things (docs/plans/R2a-fleet-schema.md):
+// The fleet schema's job is to refuse things (dev/plans/R2a-fleet-schema.md):
 // the control plane is about to grow an HTTP surface and an agent protocol, and
 // a rule enforced in one handler is a rule the other one does not have. So each
 // case below is a write that must fail, and the ones that must succeed are here
@@ -112,7 +112,7 @@ func TestDeletingADeploymentReleasesItsGPUs(t *testing.T) {
 	}
 }
 
-// Every state machine in docs/specs/00-overview.md §3 is a CHECK, so a typo in
+// Every state machine in dev/specs/00-overview.md §3 is a CHECK, so a typo in
 // a handler cannot invent a state nothing else knows how to read.
 func TestStateMachinesRefuseUnknownStates(t *testing.T) {
 	db := fleetDB(t)
@@ -139,7 +139,7 @@ func TestStateMachinesRefuseUnknownStates(t *testing.T) {
 	}
 }
 
-// Half a record of an approval is worse than none: docs/specs/02-enrollment.md
+// Half a record of an approval is worse than none: dev/specs/02-enrollment.md
 // §3 makes approval the step a leaked token cannot skip, and a node approved by
 // nobody is exactly the gap it closes.
 func TestAnApprovalHasBothAnAuthorAndATimeOrNeither(t *testing.T) {
@@ -154,7 +154,7 @@ func TestAnApprovalHasBothAnAuthorAndATimeOrNeither(t *testing.T) {
 	}
 }
 
-// docs/specs/11-failure-modes.md §2: corrupt is terminal and needs an explicit
+// dev/specs/11-failure-modes.md §2: corrupt is terminal and needs an explicit
 // restage, so it always says what went wrong.
 func TestTerminalStatesCarryTheirReason(t *testing.T) {
 	db := fleetDB(t)
@@ -174,7 +174,7 @@ func TestTerminalStatesCarryTheirReason(t *testing.T) {
 	}
 }
 
-// docs/adr/0006-cui-boundary-and-fips.md makes "nodary records that a request
+// dev/adr/0006-cui-boundary-and-fips.md makes "nodary records that a request
 // happened, never what it said" structural. This is where structural is cashed
 // out: the schema is closed, so there is nowhere to write content even by
 // mistake.

@@ -52,7 +52,7 @@ func TestTheImageIsResolvedForTheNodeNotTheControlPlane(t *testing.T) {
 	a.enrolledAs("cuda-01", "linux", "amd64", offerOf("nvidia"))
 	a.enrolledAs("vulkan-01", "linux", "amd64", offerOf("amd"))
 	a.enrolledAs("jetson-01", "linux", "arm64", offerOf("nvidia"))
-	// docs/specs/02-enrollment.md §3 gates restating an offer behind
+	// dev/specs/02-enrollment.md §3 gates restating an offer behind
 	// certificate expiry, so a node that enrolled before the vendor existed
 	// keeps an offer with none in it forever. Absent has to read as nvidia or
 	// this release strands the fleet it shipped to.

@@ -11,7 +11,7 @@ import (
 	"github.com/nodarynet/nodary/internal/config"
 )
 
-// HeaderIfMatch and HeaderETag carry docs/specs/09-api.md §2's concurrency
+// HeaderIfMatch and HeaderETag carry dev/specs/09-api.md §2's concurrency
 // control: "Mutating endpoints on a versioned object accept If-Match with the
 // object's current revision; a mismatch returns 409."
 const (

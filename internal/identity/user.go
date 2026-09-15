@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 )
 
-// State is a user's lifecycle state: docs/specs/07-identity-audit.md §1's
+// State is a user's lifecycle state: dev/specs/07-identity-audit.md §1's
 // active → suspended → deleted.
 type State string
 
@@ -32,7 +32,7 @@ const (
 //
 // There is no way back from suspended, and that is the specification rather
 // than an omission: §1 draws the states as a one-way sequence and
-// docs/specs/10-cli.md §1 lists `user add|list|show|suspend|delete|passwd|totp`
+// dev/specs/10-cli.md §1 lists `user add|list|show|suspend|delete|passwd|totp`
 // with no verb that reactivates. Inventing one here would put a capability in
 // the binary that no spec asked for and no audit action names.
 var transitions = map[State][]State{

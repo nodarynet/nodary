@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// cmdBackend is docs/specs/04-backends.md §9.
+// cmdBackend is dev/specs/04-backends.md §9.
 //
 // `register` and `remove` write through config.Apply rather than to the
 // backend table, which is the whole reason they are four lines of flag
@@ -369,7 +369,7 @@ func registryDB(e env, verb, dbPath string) (*store.DB, bool) {
 // A row of `tensor_parallel=false lora=false cpu_offload=true` is four words of
 // noise around the one that matters. What a backend cannot do is answered by
 // its absence here and, at the moment it matters, by the refusal itself
-// (docs/specs/04-backends.md §7).
+// (dev/specs/04-backends.md §7).
 func capabilityLine(b backend.Report) string {
 	var has []string
 	for _, c := range []struct {

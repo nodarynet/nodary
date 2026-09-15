@@ -64,7 +64,7 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed[want.Model] {
-		// 403 and not 404: docs/specs/06-gateway.md §2 — the route's existence
+		// 403 and not 404: dev/specs/06-gateway.md §2 — the route's existence
 		// is not a secret, and a misleading error costs support time. The
 		// message names the fix rather than the fact.
 		s.fail(w, r, fmt.Errorf("%w: %s is not granted %q; an administrator grants a route with `nodary config apply`",
@@ -72,7 +72,7 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// docs/specs/11-failure-modes.md §4: a route with no ready deployment is a
+	// dev/specs/11-failure-modes.md §4: a route with no ready deployment is a
 	// 503 with a Retry-After and an alert, not whatever the data plane says
 	// about a model it has not been told about.
 	//
@@ -94,7 +94,7 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// docs/specs/06-gateway.md §4. After the allowlist, because being refused
+	// dev/specs/06-gateway.md §4. After the allowlist, because being refused
 	// a route is a permanent answer and being throttled is a temporary one:
 	// telling somebody to wait for access they will never have is worse than
 	// telling them no.
@@ -113,7 +113,7 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// docs/specs/06-gateway.md §3: OpenAI-compatible streams omit usage unless
+	// dev/specs/06-gateway.md §3: OpenAI-compatible streams omit usage unless
 	// stream_options.include_usage is set, so the gateway injects it. A client
 	// cannot opt out — opting out of usage reporting would be opting out of
 	// nodary's accounting, which makes metering advisory.

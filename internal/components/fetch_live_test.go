@@ -93,7 +93,7 @@ func TestTheRealRuntimeComponentsFetchAndContainWhatWeExpect(t *testing.T) {
 	}
 
 	// And the second run is free, which is what makes the install step
-	// idempotent in the sense docs/specs/01-install.md §4 means.
+	// idempotent in the sense dev/specs/01-install.md §4 means.
 	again, err := Fetch(ctx, comps, FetchOptions{Dir: dir, Platform: "linux/amd64"})
 	if err != nil {
 		t.Fatal(err)

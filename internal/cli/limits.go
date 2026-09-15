@@ -221,10 +221,10 @@ func cmdUsage(e env, args []string) int {
 	return cmdUsageShow(e, args)
 }
 
-// cmdUsageShow reports metered requests: docs/specs/10-cli.md §1.
+// cmdUsageShow reports metered requests: dev/specs/10-cli.md §1.
 //
 // It reports counts and never content — there is no content to report, which is
-// the whole of docs/adr/0006-cui-boundary-and-fips.md's guarantee and is
+// the whole of dev/adr/0006-cui-boundary-and-fips.md's guarantee and is
 // visible here as the absence of a `--show-prompts` flag that could not be
 // implemented.
 func cmdUsageShow(e env, args []string) int {

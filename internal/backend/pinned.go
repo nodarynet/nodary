@@ -42,7 +42,7 @@ var unpinnedFlags = map[string]string{
 }
 
 // Pinned reports whether a derive satisfies `require_pinned_derives`
-// (docs/specs/04-backends.md §5): an index named, and every install step naming
+// (dev/specs/04-backends.md §5): an index named, and every install step naming
 // an exact version.
 //
 // What `regulated` adds over `default` is that a build is **reproducible**

@@ -2,8 +2,8 @@
 // through which writes happen.
 //
 // The database is at /var/lib/nodary/nodary.db in WAL mode
-// (docs/specs/08-data-model.md), through modernc.org/sqlite so the binary stays
-// cgo-free and genuinely static (docs/adr/0002-go-with-package-manager-wrappers.md).
+// (dev/specs/08-data-model.md), through modernc.org/sqlite so the binary stays
+// cgo-free and genuinely static (dev/adr/0002-go-with-package-manager-wrappers.md).
 //
 // Two things here are load-bearing rather than incidental:
 //

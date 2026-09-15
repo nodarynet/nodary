@@ -11,7 +11,7 @@ var ErrOriginDenied = errors.New("model origin denied by policy")
 
 // DeniesOrigin reports why a profile refuses a model's provenance, or nil.
 //
-// docs/specs/05-catalog.md §2 checks both `origin_org` and `origin_country`
+// dev/specs/05-catalog.md §2 checks both `origin_org` and `origin_country`
 // against the same two lists, so an entry is whichever of the two an operator
 // wrote — "CN" and "google" both work, and neither list has a format.
 //
@@ -35,7 +35,7 @@ func (p Profile) DeniesOrigin(org, country string) error {
 		}
 	}
 	if len(p.ModelOriginAllowlist) == 0 {
-		return nil // docs/specs/07-identity-audit.md §4: empty means any origin
+		return nil // dev/specs/07-identity-audit.md §4: empty means any origin
 	}
 
 	if org == "" && country == "" {

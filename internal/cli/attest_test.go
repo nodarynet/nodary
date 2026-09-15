@@ -34,7 +34,7 @@ func TestDryRunAppliesNothingAndPrintsTheIntent(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §4: --format json emits a stable schema to stdout and
+// dev/specs/10-cli.md §4: --format json emits a stable schema to stdout and
 // nothing else, and a dry run is the case where the preview *is* the output.
 func TestDryRunJSONIsTheOnlyThingOnStdout(t *testing.T) {
 	a := newAppliance(t)
@@ -164,7 +164,7 @@ func TestLocalRootIsExemptFromTOTPAndTheRecordSaysSo(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §4: diagnostics go to stderr. A preview on stdout would
+// dev/specs/10-cli.md §4: diagnostics go to stderr. A preview on stdout would
 // corrupt every scripted caller.
 func TestThePreviewNeverReachesStdout(t *testing.T) {
 	a := newAppliance(t)
@@ -335,7 +335,7 @@ func (a *appliance) code(name string) string {
 	return identity.Code(seed, time.Now().Add(30*time.Second))
 }
 
-// The correct code is accepted, and it is spent: docs/specs/07-identity-audit.md
+// The correct code is accepted, and it is spent: dev/specs/07-identity-audit.md
 // §2's re-entry is per act, so the same code cannot authorize a second one.
 func TestACorrectCodeIsAcceptedAndThenSpent(t *testing.T) {
 	a := newAppliance(t)
@@ -361,7 +361,7 @@ func TestACorrectCodeIsAcceptedAndThenSpent(t *testing.T) {
 }
 
 // R1-29: the codes are a contract a script depends on, so they are asserted as
-// a table rather than one at a time. Every code docs/specs/10-cli.md §5 defines
+// a table rather than one at a time. Every code dev/specs/10-cli.md §5 defines
 // and R1 can produce appears here; 6 does not, because R1 has no control plane
 // to be unable to reach.
 func TestExitCodesAreDistinguishableWithoutParsingStderr(t *testing.T) {
@@ -394,7 +394,7 @@ func TestExitCodesAreDistinguishableWithoutParsingStderr(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §4: --format json emits a stable schema to stdout and
+// dev/specs/10-cli.md §4: --format json emits a stable schema to stdout and
 // nothing else, so it can be piped without filtering. Asserted across every R1
 // verb that offers it, because one verb getting this wrong breaks scripts that
 // only ever touch that verb.
@@ -423,7 +423,7 @@ func TestJSONOutputIsAlwaysASingleDocumentOnStdout(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §4: secrets are printed once at creation and never
+// dev/specs/10-cli.md §4: secrets are printed once at creation and never
 // appear in a listing, in any format.
 func TestNoListingEverCarriesASecret(t *testing.T) {
 	a := newAppliance(t)

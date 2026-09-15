@@ -212,7 +212,7 @@ IMAGES = [
      ["node"], "observability", "GPU telemetry"),
 
     # Model-server images. Pinned here so the control plane can mirror them and
-    # a node never needs registry access (docs/specs/01-install.md §3). They are
+    # a node never needs registry access (dev/specs/01-install.md §3). They are
     # selected by `--backends`, not `--components`: which one a site needs
     # depends on the models it enables, and each is several gigabytes.
     ("vllm", "vllm/vllm-openai:v0.28.0", ["node"], "backend",

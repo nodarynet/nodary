@@ -12,14 +12,14 @@ import (
 )
 
 // Events generated on this node, on their way into the control plane's audit
-// chain (docs/specs/03-agent.md §1, R4-10).
+// chain (dev/specs/03-agent.md §1, R4-10).
 //
 // **A heartbeat carries state and an event carries what happened**, and the
 // difference is what the chain is for. `nodary node show` can say a deployment
 // is failed; only an event says it failed at 04:12 because the image was not
 // pinned, recovered at 04:19, and failed again at 04:31. A node's egress
 // assertion going from compliant to breached and back leaves no trace at all in
-// a report of the current verdict — and docs/specs/11-failure-modes.md §3 calls
+// a report of the current verdict — and dev/specs/11-failure-modes.md §3 calls
 // that a critical alert.
 //
 // **Bounded, and the bound is visible.** 11 §1 makes the overflow a named

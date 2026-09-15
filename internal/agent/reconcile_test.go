@@ -154,7 +154,7 @@ func planFor(t *testing.T, h Host) Plan {
 	return p
 }
 
-// docs/specs/03-agent.md §3: every iteration is idempotent and converges. The
+// dev/specs/03-agent.md §3: every iteration is idempotent and converges. The
 // failure this guards is not a wasted write — it is a model server restarting
 // every fifteen seconds forever, dropping in-flight requests each time.
 func TestASecondReconcileOfTheSamePlanChangesNothing(t *testing.T) {
@@ -264,7 +264,7 @@ func TestOnlyNodaryUnitsAreStopped(t *testing.T) {
 	}
 }
 
-// Weights before the unit — docs/specs/03-agent.md §3's first ordering rule.
+// Weights before the unit — dev/specs/03-agent.md §3's first ordering rule.
 // Starting a container whose weights are not there yet produces a crash loop
 // that says nothing useful.
 func TestAUnitWaitsForItsWeights(t *testing.T) {
@@ -480,7 +480,7 @@ func TestEgressIsAssertedAfterAStartAndNotSilentlySkipped(t *testing.T) {
 // TestReadyMeansServingNotMerelyActive is what the first real deployment
 // reported wrongly.
 //
-// docs/specs/03-agent.md §7 waits for `ready` and counts ready replicas before
+// dev/specs/03-agent.md §7 waits for `ready` and counts ready replicas before
 // a rolling restart may proceed, so `ready` has to mean *able to serve*. The
 // unit is Type=exec running `nerdctl run`, which systemd calls active the
 // instant the binary is exec'd — while it is still pulling twenty gigabytes,
@@ -522,7 +522,7 @@ func TestReadyMeansServingNotMerelyActive(t *testing.T) {
 
 var errNotActive = errors.New("inactive")
 
-// R4-21, crash-loop half: docs/specs/11-failure-modes.md §2 wants a
+// R4-21, crash-loop half: dev/specs/11-failure-modes.md §2 wants a
 // crash-looping deployment "marked failed after N restarts in a window ...
 // last 100 log lines captured". systemd does the counting (unit.go's start
 // limit); this is the agent telling `failed` apart from `stopped`, which it
@@ -562,7 +562,7 @@ func TestAFailureAlwaysCarriesAReasonEvenWithNoLog(t *testing.T) {
 }
 
 // R4-21, never-ready half: "Marked failed at the backend's
-// ready_timeout_s" (docs/specs/11-failure-modes.md §2). The value reached
+// ready_timeout_s" (dev/specs/11-failure-modes.md §2). The value reached
 // Unit.Probe from the descriptor all along and nothing ever compared
 // anything to it.
 func TestADeploymentThatNeverBecomesReadyFailsAtItsTimeout(t *testing.T) {
@@ -597,7 +597,7 @@ func TestADeploymentThatNeverBecomesReadyFailsAtItsTimeout(t *testing.T) {
 
 // A failed unit is reported, not restarted. An agent that started it again
 // every reconcile would replay the crash-loop on a sixty-second timer, which
-// is the grinding docs/specs/12-node-guardrails.md §1 rejects for refusals
+// is the grinding dev/specs/12-node-guardrails.md §1 rejects for refusals
 // and is no better here.
 func TestReconcileLeavesAFailedUnitAloneAndRestartUnsticksIt(t *testing.T) {
 	h, f := newFakeHost(t)

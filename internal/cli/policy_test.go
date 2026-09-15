@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// docs/specs/07-identity-audit.md §4: `default` is what a fresh install runs.
+// dev/specs/07-identity-audit.md §4: `default` is what a fresh install runs.
 // There is no row until somebody applies one, so this also covers the absence.
 func TestPolicyShowOnAFreshInstallIsDefault(t *testing.T) {
 	a := newAppliance(t)

@@ -78,7 +78,7 @@ func TestTheHeartbeatIsObservedStateAndNotAudited(t *testing.T) {
 		t.Fatalf("status: %d %s", status, raw)
 	}
 	if after := f.auditRecords(t); after != before {
-		t.Errorf("the heartbeat wrote %d audit records; docs/plans/R4a-agent-protocol.md §4 says none",
+		t.Errorf("the heartbeat wrote %d audit records; dev/plans/R4a-agent-protocol.md §4 says none",
 			after-before)
 	}
 

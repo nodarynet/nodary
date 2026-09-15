@@ -21,7 +21,7 @@ import (
 )
 
 // The PKI has two unrelated halves, and conflating them is the mistake this
-// file exists to prevent (docs/specs/01-install.md §4):
+// file exists to prevent (dev/specs/01-install.md §4):
 //
 //   - the *server* certificate, which operators and agents see on the wire. It
 //     is self-signed at install unless a site brings its own (R2-39).
@@ -42,7 +42,7 @@ const (
 // EnsureServerCertificate generates a self-signed pair if none is configured.
 //
 // P-256 and SHA-256: both are FIPS-approved and pass under
-// GODEBUG=fips140=only, measured in docs/spike-fips-and-manifest.md. Ed25519
+// GODEBUG=fips140=only, measured in dev/spike-fips-and-manifest.md. Ed25519
 // would also pass and is not used here, because a TLS certificate has to be
 // accepted by whatever an operator points at it.
 func EnsureServerCertificate(dir string, now time.Time, hosts []string) (certPath, keyPath, fingerprint string, err error) {
@@ -199,7 +199,7 @@ func serial() *big.Int {
 // against, and the one EnsureAgentCA wrote.
 func AgentCAPath(dir string) string { return filepath.Join(dir, caCertName) }
 
-// agentCertificateLifetime is docs/specs/02-enrollment.md §1's 90-day default.
+// agentCertificateLifetime is dev/specs/02-enrollment.md §1's 90-day default.
 const agentCertificateLifetime = 90 * 24 * time.Hour
 
 // LoadAgentCA unseals the internal CA so it can sign.
@@ -240,7 +240,7 @@ func LoadAgentCA(dir string, k *secret.Key) (*x509.Certificate, *ecdsa.PrivateKe
 // SignAgentCertificate issues one node's client certificate, in PEM.
 //
 // The subject is built here and never taken from the CSR
-// (docs/plans/R4a-agent-protocol.md §2): the CSR arrives on the one
+// (dev/plans/R4a-agent-protocol.md §2): the CSR arrives on the one
 // unauthenticated endpoint in the product, and its subject would otherwise
 // become the identity mTLS then trusts. It contributes a public key and
 // nothing else.
@@ -273,7 +273,7 @@ func SignAgentCertificate(ca *x509.Certificate, caKey *ecdsa.PrivateKey,
 // curve or algorithm is a code path nothing in the product exercises, on the
 // endpoint where an unauthenticated caller chooses the input. P-256 is also
 // what EnsureServerCertificate and EnsureAgentCA already use, and it passes
-// under GODEBUG=fips140=only (docs/spike-fips-and-manifest.md).
+// under GODEBUG=fips140=only (dev/spike-fips-and-manifest.md).
 func PublicKeyFromCSR(csrPEM []byte) (any, error) {
 	block, _ := pem.Decode(csrPEM)
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {

@@ -28,7 +28,7 @@ type Config struct {
 // ConfigPath is where agent.toml lives, beside the rest of the configuration.
 func ConfigPath() string { return filepath.Join(paths.ConfigDir, "agent.toml") }
 
-// DefaultModelsDir is where weights are staged. docs/specs/05-catalog.md §3.
+// DefaultModelsDir is where weights are staged. dev/specs/05-catalog.md §3.
 func DefaultModelsDir() string { return filepath.Join(paths.DataDir, "models") }
 
 // LoadConfig reads and validates agent.toml.

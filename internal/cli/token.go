@@ -42,7 +42,7 @@ func cmdToken(e env, args []string) int {
 //
 // It takes no --format. The plaintext goes to stdout on a line of its own and
 // everything else to stderr, so `TOKEN=$(nodary token create --user alice)`
-// captures exactly the credential — which is what docs/specs/10-cli.md §4 means
+// captures exactly the credential — which is what dev/specs/10-cli.md §4 means
 // by printed once, with no surrounding decoration. A JSON document on the same
 // stream would either hide the secret from a script or put it in a shape that
 // gets logged.
@@ -159,7 +159,7 @@ func cmdTokenCreate(e env, args []string) int {
 		render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 			// The user's state is read, not echoed: minting against somebody
 			// who was suspended between preview and apply is exactly the move
-			// docs/specs/07-identity-audit.md §3 refuses.
+			// dev/specs/07-identity-audit.md §3 refuses.
 			u, err := identity.Get(ctx, tx, *userName)
 			if err != nil {
 				return nil, err
@@ -196,7 +196,7 @@ func cmdTokenCreate(e env, args []string) int {
 // reportMinted prints the credential and then everything about it that will
 // never be printable again.
 //
-// stdout carries the secret alone (docs/specs/10-cli.md §4) and stderr carries
+// stdout carries the secret alone (dev/specs/10-cli.md §4) and stderr carries
 // the description, so `nodary token create … > f` puts a usable credential in
 // the file and tells the operator what it is on their terminal.
 func reportMinted(e env, plain string, t identity.TokenReport, userName string, rec audit.Record) {
@@ -245,7 +245,7 @@ func saveCredential(e env, verb, credsPath, target, userName, plain string) int 
 
 // reportRouteAccess says what a service key may actually call.
 //
-// **docs/specs/06-gateway.md §2 is deny-by-default**: a user with no row in
+// **dev/specs/06-gateway.md §2 is deny-by-default**: a user with no row in
 // user_route may call nothing, which is what makes 07 §5's "least privilege by
 // default" true rather than decorative — and it is invisible at the moment a
 // credential is minted. The symptom otherwise is a 403 from a fleet where the
@@ -334,7 +334,7 @@ func cmdTokenJoin(e env, args []string) int {
 	// code under a profile that requires one. The API's POST /tokens/join has
 	// always gone through core.Act, so the two front ends disagreed about what
 	// this costs — which is precisely the divergence
-	// docs/plans/R2c-api-core.md exists to prevent, on the act where it matters
+	// dev/plans/R2c-api-core.md exists to prevent, on the act where it matters
 	// most.
 	rec, applied, code := s.attested(e, "token join", change{
 		action: "token.join",

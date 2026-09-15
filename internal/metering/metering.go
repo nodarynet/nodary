@@ -1,12 +1,12 @@
 // Package metering reads the closed usage record.
 //
 // It exists so `nodary usage show` and GET /usage answer the same question the
-// same way — docs/tasks/README.md's first cross-cutting constraint — and it is
+// same way — dev/tasks/README.md's first cross-cutting constraint — and it is
 // a package of its own rather than a function in internal/observed because that
 // package's charter is writes: "holds the database writes that are observations
 // rather than decisions". A read belongs beside it, not inside it.
 //
-// Counts only. docs/adr/0006-cui-boundary-and-fips.md makes "nodary records
+// Counts only. dev/adr/0006-cui-boundary-and-fips.md makes "nodary records
 // that a request happened, never what it said" structural, and there is no
 // column here to report content from even if something asked.
 package metering
@@ -105,7 +105,7 @@ func Query(ctx context.Context, q Querier, f Filter) ([]Row, error) {
 	}
 	defer rows.Close()
 	// Empty rather than nil. Both front ends render this straight into
-	// `--format json`, which docs/specs/10-cli.md §2 calls a stable schema, and
+	// `--format json`, which dev/specs/10-cli.md §2 calls a stable schema, and
 	// a nil slice marshals as `null` where a script reading "no usage yet"
 	// expects `[]`.
 	out := []Row{}

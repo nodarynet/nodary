@@ -1,5 +1,5 @@
 // Package replay stores what a request already answered, so a repeat returns it
-// rather than acting twice (docs/specs/09-api.md §2's Idempotency-Key).
+// rather than acting twice (dev/specs/09-api.md §2's Idempotency-Key).
 //
 // **It writes outside audit.Log.Act, which is the one thing this codebase does
 // not allow without saying why.** internal/observed holds the same exemption
@@ -27,7 +27,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// Window is docs/specs/09-api.md §2's 24h. Past it a key means nothing, and the
+// Window is dev/specs/09-api.md §2's 24h. Past it a key means nothing, and the
 // row — which holds a sealed copy of a response, and for a token mint that
 // response holds a credential — has no reason to exist.
 const Window = 24 * time.Hour

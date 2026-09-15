@@ -23,7 +23,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// Member names, in the order docs/specs/13-evidence.md §2 lists them. Every one
+// Member names, in the order dev/specs/13-evidence.md §2 lists them. Every one
 // is always written: a member with no producer yet is empty with its schema
 // rather than absent, because a missing file costs an assessor a question and
 // an empty one answers it.

@@ -7,7 +7,7 @@ conversation.
 !!! note "You'll need"
     A Linux host with an NVIDIA GPU and driver installed — or Windows with an NVIDIA GPU,
     which joins [inside
-    WSL2](https://github.com/nodarynet/nodary/blob/main/docs/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
+    WSL2](https://github.com/nodarynet/nodary/blob/main/dev/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)
     as an ordinary Linux node. Run the install through `sudo` rather than as root directly:
     it drops back to your own account to download weights, and it needs to know which
     account that is.
@@ -163,12 +163,12 @@ sh install.sh
 
 ## Next
 
-- [`nodary doctor`](https://github.com/nodarynet/nodary/blob/main/docs/specs/10-cli.md#3-nodary-doctor)
+- [`nodary doctor`](https://github.com/nodarynet/nodary/blob/main/dev/specs/10-cli.md#3-nodary-doctor)
   diagnoses a host in one pass — driver, GPU enumeration, certificate expiry, and a live
   re-run of the egress assertion.
 - [Administering a fleet](administering.md) — the verbs, one at a time.
-- The [CLI reference](https://github.com/nodarynet/nodary/blob/main/docs/specs/10-cli.md)
+- The [CLI reference](https://github.com/nodarynet/nodary/blob/main/dev/specs/10-cli.md)
   covers every verb.
-- The [specifications](https://github.com/nodarynet/nodary/tree/main/docs/specs) are what
-  every component is required to do; the [decision records](https://github.com/nodarynet/nodary/tree/main/docs/adr)
+- The [specifications](https://github.com/nodarynet/nodary/tree/main/dev/specs) are what
+  every component is required to do; the [decision records](https://github.com/nodarynet/nodary/tree/main/dev/adr)
   say why.

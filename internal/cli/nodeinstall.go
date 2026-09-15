@@ -13,7 +13,7 @@ import (
 	"github.com/nodarynet/nodary/internal/preflight"
 )
 
-// cmdNodeInstall is docs/specs/01-install.md §5's six steps.
+// cmdNodeInstall is dev/specs/01-install.md §5's six steps.
 //
 // Preflight, fetch from the mirror, place the runtime, create the isolated
 // network, enroll, write agent.toml, start the agent. Each is idempotent and

@@ -15,7 +15,7 @@ import (
 //
 // internal/gateway's canary test proves that today's code does not write a
 // prompt anywhere. This proves something the canary cannot: that there is
-// nowhere to write one. docs/adr/0006-cui-boundary-and-fips.md makes "nodary
+// nowhere to write one. dev/adr/0006-cui-boundary-and-fips.md makes "nodary
 // records that a request happened, never what it said" a *structural*
 // guarantee, and a guarantee that depends on every future author remembering it
 // is not structural.
@@ -41,7 +41,7 @@ func TestTheUsageRecordIsClosed(t *testing.T) {
 	if !reflect.DeepEqual(got, sorted) {
 		t.Errorf("the usage record's fields changed.\n got: %v\nwant: %v\n\n"+
 			"If a field was added to hold request or response content, that is the thing "+
-			"docs/adr/0006-cui-boundary-and-fips.md says cannot exist: nodary records that a "+
+			"dev/adr/0006-cui-boundary-and-fips.md says cannot exist: nodary records that a "+
 			"request happened, never what it said. If it is a new counter or identifier, add "+
 			"it to this list and to the column list below.", got, sorted)
 	}

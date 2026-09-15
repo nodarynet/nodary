@@ -120,7 +120,7 @@ func TestARestartNamesTheReplicasItSkipped(t *testing.T) {
 	}
 }
 
-// docs/specs/07-identity-audit.md §1 gives enable and disable to an operator.
+// dev/specs/07-identity-audit.md §1 gives enable and disable to an operator.
 // A viewer reads the fleet and changes nothing in it.
 func TestAViewerCannotDisableAModel(t *testing.T) {
 	f := newFixture(t)

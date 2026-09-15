@@ -28,7 +28,7 @@ func openNoFollow(path string) (*os.File, error) {
 // checkOwner refuses a key file owned by somebody other than the process
 // running as.
 //
-// docs/specs/08-data-model.md §4 says "0400, root", and in a real install that
+// dev/specs/08-data-model.md §4 says "0400, root", and in a real install that
 // is exactly what this enforces, because nodary runs as root. But *root* is not
 // the invariant — ownership by the reader is. A key owned by another account is
 // one that account can replace, so the check is against the effective uid,

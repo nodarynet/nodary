@@ -102,7 +102,7 @@ func TestUninstallingANodeLeavesStateAndWeights(t *testing.T) {
 			t.Errorf("%s survived the uninstall", filepath.Join(gone...))
 		}
 	}
-	// docs/specs/01-install.md §10: the default keeps state and weights.
+	// dev/specs/01-install.md §10: the default keeps state and weights.
 	for _, kept := range [][]string{
 		{root, "var", "lib", "nodary", "models", "hub", "weights"},
 		{root, "var", "log", "nodary", "audit.jsonl"},

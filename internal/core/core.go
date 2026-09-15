@@ -1,6 +1,6 @@
 // Package core performs an attested mutation.
 //
-// It is the answer to the cross-cutting constraint in docs/tasks/README.md:
+// It is the answer to the cross-cutting constraint in dev/tasks/README.md:
 // "the CLI and the HTTP API call the same core functions. Neither holds
 // business logic." Until R2 there was one front end, so the constraint could
 // not be violated and could not be tested; this package is what makes it hold
@@ -73,7 +73,7 @@ type Deps struct {
 	Now time.Time
 }
 
-// Act runs docs/specs/07-identity-audit.md §2 and then the change.
+// Act runs dev/specs/07-identity-audit.md §2 and then the change.
 //
 // Preview, hash, ceremony, confirmation-free apply, the re-render that binds
 // the approved preview to what is applied, and the TOTP that is spent inside

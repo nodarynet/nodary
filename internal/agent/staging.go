@@ -14,9 +14,9 @@ import (
 
 // ManifestName is the per-file digest list, carried beside the weights.
 //
-// docs/specs/05-catalog.md §1 makes `manifest_sha256` "per-file digests, used to
+// dev/specs/05-catalog.md §1 makes `manifest_sha256` "per-file digests, used to
 // verify staging", and the control plane holds only its digest. The list itself
-// travels with the weights, because docs/specs/05-catalog.md §3 calls
+// travels with the weights, because dev/specs/05-catalog.md §3 calls
 // `source: local` the air-gapped path: an operator carries hundreds of
 // gigabytes on removable media, and a few kilobytes of manifest belongs in the
 // same act of carrying.
@@ -26,10 +26,10 @@ import (
 // `model register`. The operator carries the bulk; the control plane carries
 // the one digest that makes the bulk checkable.
 //
-// docs/plans/R4b-backends-and-the-plan.md §2.
+// dev/plans/R4b-backends-and-the-plan.md §2.
 const ManifestName = "nodary-manifest.sha256"
 
-// Staging states are docs/specs/05-catalog.md §3's machine. `staging` and
+// Staging states are dev/specs/05-catalog.md §3's machine. `staging` and
 // `verifying` are transient, belonging to a run in progress — `VerifyStaged`
 // (source: local) never reports them, since reading local bytes is not slow
 // enough to need an intermediate state; `Downloader` (source: remote, R4-33)
@@ -56,7 +56,7 @@ type Verdict struct {
 
 // ModelDir is where a model's weights live under models_dir.
 //
-// docs/specs/05-catalog.md §3: for `hf-cache` this is the HuggingFace layout,
+// dev/specs/05-catalog.md §3: for `hf-cache` this is the HuggingFace layout,
 // `hub/models--<org>--<name>/`, so an existing cache is adopted without
 // restaging rather than copied into a layout of our own invention.
 func ModelDir(modelsDir, layout, modelID string) (string, error) {
@@ -115,7 +115,7 @@ func SingleFileName(modelsDir, modelID string) (string, error) {
 // VerifyStaged reads every byte the manifest names and reports what it found.
 //
 // There is no size-and-mtime fast path, deliberately.
-// docs/specs/11-failure-modes.md §2 makes `corrupt` terminal with an explicit
+// dev/specs/11-failure-modes.md §2 makes `corrupt` terminal with an explicit
 // restage, and the whole value of that is that `staged` means verified. Media
 // carried physically is exactly the media that develops quiet bit errors, and
 // a size check is blind to every one of them.
@@ -123,7 +123,7 @@ func SingleFileName(modelsDir, modelID string) (string, error) {
 // The cost is minutes of disk read for a large model. It runs when a model is
 // first staged and on an explicit restage — not on every reconcile, which is
 // why the verdict is recorded rather than recomputed
-// (docs/plans/R4b-backends-and-the-plan.md §3).
+// (dev/plans/R4b-backends-and-the-plan.md §3).
 func VerifyStaged(modelsDir, layout, modelID, manifestSHA256 string) Verdict {
 	dir, err := ModelDir(modelsDir, layout, modelID)
 	if err != nil {
@@ -289,7 +289,7 @@ func short(sum string) string {
 // corrupt after a re-register. The format so that a machine with no nodary on
 // it can still check the media it was handed.
 //
-// Only the top level. docs/specs/05-catalog.md §3's `hf-cache` layout is flat
+// Only the top level. dev/specs/05-catalog.md §3's `hf-cache` layout is flat
 // here for the reason internal/agent/plan.go renders `--model` as the directory
 // itself, and a manifest that walked subdirectories would describe a layout
 // that cannot load.

@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
-// Error is docs/specs/06-gateway.md §6's envelope, which is the same shape the
+// Error is dev/specs/06-gateway.md §6's envelope, which is the same shape the
 // control-plane API uses. `code` is stable and machine-readable; `message` is
 // for a human.
 type Error struct {
@@ -26,7 +26,7 @@ type Error struct {
 
 var errBadRequest = errors.New("malformed request")
 
-// errThrottled is docs/specs/06-gateway.md §4's 429. Its own value rather than
+// errThrottled is dev/specs/06-gateway.md §4's 429. Its own value rather than
 // a denial, because a 403 tells a client to stop and a 429 tells it to wait,
 // and a client that cannot tell them apart either gives up or hammers.
 var errThrottled = errors.New("a limit was reached")
@@ -51,7 +51,7 @@ func statusFor(err error) (int, string) {
 		return http.StatusBadRequest, "bad_request"
 	case errors.Is(err, errThrottled):
 		return http.StatusTooManyRequests, "rate_limited"
-	// docs/specs/11-failure-modes.md §4: a route with no ready deployment is a
+	// dev/specs/11-failure-modes.md §4: a route with no ready deployment is a
 	// 503 with a Retry-After, not a 404. The route exists, the caller is
 	// allowed it, and nothing about the request is wrong — what is missing is
 	// a replica, and a client that is told "no such model" gives up where a
@@ -117,7 +117,7 @@ const requestIDKey ctxKey = iota
 
 // withRequestID mints an id for every request and returns it in a header.
 //
-// docs/specs/06-gateway.md §6: it appears in the usage record and in the log,
+// dev/specs/06-gateway.md §6: it appears in the usage record and in the log,
 // so a user's report of one bad request resolves to one row without guesswork —
 // which is also the only way to investigate a request whose content nobody
 // kept.

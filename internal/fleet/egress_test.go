@@ -24,7 +24,7 @@ func TestTheFleetEgressVocabularyIsTheAgents(t *testing.T) {
 	}
 }
 
-// docs/specs/03-agent.md §5 is a property of a deployment; an operator asks it
+// dev/specs/03-agent.md §5 is a property of a deployment; an operator asks it
 // of a node. The rounding in between is where it goes wrong quietly, so each
 // direction is pinned.
 func TestANodeIsOnlyCompliantWhenEverythingOnItIs(t *testing.T) {

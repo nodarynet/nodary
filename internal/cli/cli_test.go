@@ -91,7 +91,7 @@ func TestPlannedVerbsFailAsUnimplementedNotUnknown(t *testing.T) {
 	// TestUnknownVerbIsUsageError holds the other half of the distinction
 	// either way, so an empty list costs no coverage of what a typo does.
 	if len(planned) == 0 {
-		t.Skip("every verb docs/specs/10-cli.md names is implemented")
+		t.Skip("every verb dev/specs/10-cli.md names is implemented")
 	}
 	for verb := range planned {
 		t.Run(verb, func(t *testing.T) {
@@ -306,7 +306,7 @@ func TestPermuteMovesPositionalsAfterFlags(t *testing.T) {
 	}
 }
 
-// docs/specs/10-cli.md §2 makes --justify, --dry-run and --yes *global* flags,
+// dev/specs/10-cli.md §2 makes --justify, --dry-run and --yes *global* flags,
 // and the profile can demand --totp for any mutation. A mutating verb that does
 // not take all four is a verb that skipped the attestation ceremony.
 //

@@ -24,7 +24,7 @@ does not certify, does not make anyone compliant, and makes no zero-trust claim.
 enforces particular mechanisms and records what happened, so the person writing your
 SSP is describing something they can **show** rather than something they believe —
 verifiable without trusting us, with `sha256sum` and `minisign`
-([13](docs/specs/13-evidence.md)).
+([13](dev/specs/13-evidence.md)).
 
 Running a homelab instead? Same binary, same install, nothing gated. You are the
 community edition rather than the target audience.
@@ -121,13 +121,13 @@ every mutating call passes through the audit layer.
 - **Keeps prompts and completions out of its own records.** The metering schema is
   closed: no free-text body field exists to write into, a test fails if content
   reaches the database or a log, and LiteLLM's request logging is pinned off with
-  the pinning asserted ([ADR 0006](docs/adr/0006-cui-boundary-and-fips.md)).
+  the pinning asserted ([ADR 0006](dev/adr/0006-cui-boundary-and-fips.md)).
 
 ## Install
 
 The one-liner above is the primary path. The same binary is a complete install in
 every channel rather than a convenience — `pip install nodary && nodary server
-install` reaches the same state ([ADR 0004](docs/adr/0004-release-artifacts-and-channels.md)).
+install` reaches the same state ([ADR 0004](dev/adr/0004-release-artifacts-and-channels.md)).
 
 | Channel | Command |
 | :--- | :--- |
@@ -137,7 +137,7 @@ install` reaches the same state ([ADR 0004](docs/adr/0004-release-artifacts-and-
 | Homebrew | macOS, via the [`nodarynet/homebrew-tap`](https://github.com/nodarynet/homebrew-tap) tap |
 
 Nodes run Linux. A Windows machine with an NVIDIA GPU joins **inside WSL2** as an
-ordinary Linux node ([01](docs/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)).
+ordinary Linux node ([01](dev/specs/01-install.md#windows-hosts-run-as-wsl2-nodes)).
 macOS builds are the operator CLI only.
 
 ## Editions
@@ -145,7 +145,7 @@ macOS builds are the operator CLI only.
 One binary. Everything that *runs* the fleet is Apache 2.0; the commercial edition
 sells what turns records into a deliverable a human assessor reads. An unlicensed
 install still carries every commercial verb and explains what it would produce,
-rather than hiding it ([ADR 0005](docs/adr/0005-editions-and-the-advisory-feed.md)).
+rather than hiding it ([ADR 0005](dev/adr/0005-editions-and-the-advisory-feed.md)).
 
 | | Apache 2.0 | Commercial |
 | :--- | :---: | :---: |
@@ -173,7 +173,7 @@ openssl   SHA256:ec401b74444511fa2ee060cfbb39e1411e77884dfab2223576509e139645790
 ```
 
 `install.sh` verifies the signature and digest before it will place anything, and
-has no override flag ([01](docs/specs/01-install.md#2-the-installsh-contract)).
+has no override flag ([01](dev/specs/01-install.md#2-the-installsh-contract)).
 
 ## Status
 
@@ -182,9 +182,9 @@ and a GPU node install end to end, a node enrolls and is approved, weights are
 staged and verified, and a model serves through the gateway, metered, with no
 prompt text anywhere in the database.
 
-**[Where the implementation stands →](docs/status.md)** is the whole picture: what
+**[Where the implementation stands →](dev/status.md)** is the whole picture: what
 is built, what is not built at all, what is built and not yet proved on hardware,
-and the per-milestone counts. The route itself is [docs/plans/mvp.md](docs/plans/mvp.md).
+and the per-milestone counts. The route itself is [dev/plans/mvp.md](dev/plans/mvp.md).
 
 ## Checks
 
@@ -200,9 +200,9 @@ make test-packages   # the built wheels and npm packages install and run
 | | |
 | :--- | :--- |
 | **[Documentation site](https://nodarynet.github.io/nodary/)** | Getting started — install to a served, metered model |
-| [docs/specs/](docs/specs/) | The specifications — what every component is required to do, numbered 00–13 |
-| [docs/adr/](docs/adr/) | Decision records — why it's built this way, and what was rejected |
-| [docs/tasks/](docs/tasks/) | The implementation tracker — what's done, what's next; the specs are authoritative and the tracker follows them |
+| [dev/specs/](dev/specs/) | The specifications — what every component is required to do, numbered 00–13 |
+| [dev/adr/](dev/adr/) | Decision records — why it's built this way, and what was rejected |
+| [dev/tasks/](dev/tasks/) | The implementation tracker — what's done, what's next; the specs are authoritative and the tracker follows them |
 
 ## License
 

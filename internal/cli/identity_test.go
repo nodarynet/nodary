@@ -183,7 +183,7 @@ func TestUserStateTransitions(t *testing.T) {
 		t.Fatalf("suspend: exit = %d: %s", code, stderr)
 	}
 	// A forbidden transition is a precondition failure, not a general one:
-	// docs/specs/10-cli.md §5 makes that distinguishable without reading text.
+	// dev/specs/10-cli.md §5 makes that distinguishable without reading text.
 	code, _, stderr := a.run("user", "suspend", "alice")
 	if code != ExitPrecondition {
 		t.Fatalf("second suspend: exit = %d, want %d: %s", code, ExitPrecondition, stderr)
@@ -219,7 +219,7 @@ func TestUserPasswdSaysItIsNotInThisRelease(t *testing.T) {
 }
 
 // TestTOTPEnrollmentPrintsTheSeedAloneOnStdout is R1-19 plus
-// docs/specs/10-cli.md §4: the secret has to be capturable with no decoration
+// dev/specs/10-cli.md §4: the secret has to be capturable with no decoration
 // to strip.
 func TestTOTPEnrollmentPrintsTheSeedAloneOnStdout(t *testing.T) {
 	a := newAppliance(t)

@@ -33,7 +33,7 @@ type Request struct {
 
 // Mutation is the capability an audited call needs in order to change state.
 //
-// docs/tasks/README.md makes "every mutating call passes through the audit
+// dev/tasks/README.md makes "every mutating call passes through the audit
 // layer" a constraint no milestone may violate, and requires it be structural
 // rather than conventional. This is the structure: the interface has an
 // unexported method, so no package outside internal/audit can implement it, and
@@ -45,7 +45,7 @@ type Request struct {
 // none: a holder has the raw transaction and could write to the audit table
 // itself, or delete from it. So could anyone holding the database file. That is
 // what the hash chain is for — tampering is made detectable, not impossible
-// (docs/specs/07-identity-audit.md §3).
+// (dev/specs/07-identity-audit.md §3).
 type Mutation interface {
 	// Tx is the transaction the change must be made in, so the change and the
 	// record it produces commit together or not at all.
@@ -70,7 +70,7 @@ func (p Partial) Error() string { return "partially applied: " + p.Err.Error() }
 func (p Partial) Unwrap() error { return p.Err }
 
 // ErrDeliveryBlocked is returned by Act when the posture is Block and a sink is
-// failing. It maps to docs/specs/10-cli.md §5's exit code 5.
+// failing. It maps to dev/specs/10-cli.md §5's exit code 5.
 var ErrDeliveryBlocked = errors.New("refused: audit delivery is failing")
 
 // maxErrorTail bounds what a failure puts in the record. An error tail is
@@ -130,7 +130,7 @@ func (l *Log) Act(ctx context.Context, req Request, fn func(Mutation) error) (Re
 		blocked := fmt.Errorf("%w: %w", ErrDeliveryBlocked, err)
 		// The refusal is itself an action, and it is recorded. The posture
 		// decides whether the next mutation proceeds, never whether a record is
-		// written — docs/specs/07-identity-audit.md §3 says so in as many
+		// written — dev/specs/07-identity-audit.md §3 says so in as many
 		// words. Nothing is wrong with the write path here; only delivery is
 		// failing. A refusal that left no trace would let anyone who can break
 		// a sink attempt mutations that never appear in the chain.

@@ -15,9 +15,9 @@ import (
 // TestOnlyDeploymentsThisHostCanReachAreServed is the honest half of a design
 // question the specifications have not answered.
 //
-// docs/specs/03-agent.md publishes a deployment on `127.0.0.1` "so the
+// dev/specs/03-agent.md publishes a deployment on `127.0.0.1` "so the
 // container is reachable by the gateway" — true when the gateway is on the same
-// machine, false when it is not — and docs/specs/00-overview.md §2 makes traffic
+// machine, false when it is not — and dev/specs/00-overview.md §2 makes traffic
 // to nodes agent-initiated only, so the control plane has no way to dial a
 // node's loopback either.
 //
@@ -228,7 +228,7 @@ func allReady(snap *config.Snapshot) map[string]bool {
 	return out
 }
 
-// R3-14, docs/specs/05-catalog.md §5: round-robin across **ready** members.
+// R3-14, dev/specs/05-catalog.md §5: round-robin across **ready** members.
 //
 // Before this, every member of a route was rendered whatever its state, so
 // LiteLLM kept an api_base pointed at a deployment the operator had disabled, at

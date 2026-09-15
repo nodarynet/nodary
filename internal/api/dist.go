@@ -31,12 +31,12 @@ func distName(s string) bool {
 	return !strings.HasPrefix(s, ".")
 }
 
-// serveDist is the mirror of docs/specs/01-install.md §3.
+// serveDist is the mirror of dev/specs/01-install.md §3.
 //
 // The control plane resolves components once and serves that cache to every
 // node, so **only the control-plane host ever contacts an upstream source** and
 // GPU hosts bootstrap with no internet and no registry access. That is the same
-// property docs/specs/03-agent.md §5 asserts at runtime, applied to install
+// property dev/specs/03-agent.md §5 asserts at runtime, applied to install
 // time: a node that curls GitHub to install containerd is a node with egress,
 // on the day it is least supervised.
 //
@@ -76,7 +76,7 @@ func (s *Server) serveDist(w http.ResponseWriter, r *http.Request) {
 
 	// The node verifies the digest against its own embedded manifest, so this
 	// serves bytes and makes no claim about them. Neither side trusts the
-	// other's word (docs/plans/R5a-components-and-units.md §1).
+	// other's word (dev/plans/R5a-components-and-units.md §1).
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeContent(w, r, name, info.ModTime(), f)
 }
@@ -85,7 +85,7 @@ func (s *Server) serveDist(w http.ResponseWriter, r *http.Request) {
 const DistDirName = "dist"
 
 // DistDir is where a control plane keeps resolved components.
-// docs/specs/01-install.md §12.
+// dev/specs/01-install.md §12.
 func DistDir(dataDir string) string { return filepath.Join(dataDir, DistDirName) }
 
 // LocalImage reports whether an image reference could only have come from this

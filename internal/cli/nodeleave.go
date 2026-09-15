@@ -21,7 +21,7 @@ type leaveStep struct {
 	Failed bool `json:"failed,omitempty"`
 }
 
-// cmdNodeLeave is docs/specs/12-node-guardrails.md §5, run on the node.
+// cmdNodeLeave is dev/specs/12-node-guardrails.md §5, run on the node.
 //
 // **It needs nothing to be reachable.** "This exists because taking a machine
 // back should not require the control plane to be healthy — the common case
@@ -40,7 +40,7 @@ type leaveStep struct {
 //
 // Weights stay unless asked for: `--purge-models` is separate because they
 // cost hours to restage and a decommissioned disk is often reused as-is,
-// the same split docs/specs/01-install.md §10 draws for uninstall.
+// the same split dev/specs/01-install.md §10 draws for uninstall.
 func cmdNodeLeave(e env, args []string) int {
 	fs := newFlagSet(e, "node leave")
 	root := fs.String("root", "", "act on this prefix instead of / (for testing; nothing is stopped)")

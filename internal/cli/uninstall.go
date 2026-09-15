@@ -24,7 +24,7 @@ import (
 // wrote themselves does not, and is left where it is.
 const unitMarker = "# Written by nodary."
 
-// cmdUninstall is docs/specs/01-install.md §10, for whichever roles this host
+// cmdUninstall is dev/specs/01-install.md §10, for whichever roles this host
 // actually has.
 //
 // **One verb for both, because a host can be both.** `--with-node` installs a

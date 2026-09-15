@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// docs/specs/02-enrollment.md §3: two thirds of the way through, computed from
+// dev/specs/02-enrollment.md §3: two thirds of the way through, computed from
 // the certificate rather than from a constant — so a control plane that starts
 // issuing a different lifetime moves its agents' schedules with it.
 func TestRenewalIsDueTwoThirdsThroughTheCertificatesLife(t *testing.T) {

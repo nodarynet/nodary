@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// The whole claim of docs/specs/13-evidence.md §3 is that an assessor checks a
+// The whole claim of dev/specs/13-evidence.md §3 is that an assessor checks a
 // bundle with the stock tool and no nodary. That is a claim about
 // interoperability with a program we do not control, so it is tested against
 // that program rather than against our own round trip — which would pass just
@@ -72,7 +72,7 @@ func TestWeVerifyTheReferenceToolsSignature(t *testing.T) {
 	msgPath := filepath.Join(dir, "components.json")
 	write(t, msgPath, []byte(`{"schema":1,"revision":7}`))
 	// -l is load-bearing: without it minisign 0.11 writes a prehashed
-	// signature, which docs/adr/0007 refuses.
+	// signature, which dev/adr/0007 refuses.
 	if out, err := exec.Command(bin, "-S", "-l", "-s", secret, "-m", msgPath,
 		"-c", "untrusted", "-t", "nodary manifest revision 7").CombinedOutput(); err != nil {
 		t.Fatalf("signing: %v\n%s", err, out)
@@ -91,7 +91,7 @@ func TestWeVerifyTheReferenceToolsSignature(t *testing.T) {
 	}
 }
 
-// docs/adr/0007 pins the non-prehashed algorithm, and prehashed is what
+// dev/adr/0007 pins the non-prehashed algorithm, and prehashed is what
 // minisign writes when nobody asks for anything. This is the realistic mistake
 // — a pipeline that forgets -l — caught against real output rather than a
 // forged byte.

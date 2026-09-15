@@ -172,7 +172,7 @@ func normalizeCode(code string) (string, bool) {
 // A step at or below floor is refused however well it verifies: a code is spent
 // once used. Without that, a code stands for its whole thirty-second window —
 // ninety seconds once skew is allowed — and anyone who saw it typed can replay
-// it, which is precisely what docs/specs/07-identity-audit.md §2's re-entry is
+// it, which is precisely what dev/specs/07-identity-audit.md §2's re-entry is
 // there to prevent.
 func verifyCode(seed []byte, code string, now time.Time, floor int64) (int64, bool) {
 	digits, ok := normalizeCode(code)
@@ -260,7 +260,7 @@ func Enroll(ctx context.Context, m audit.Mutation, by Role, now time.Time, k *se
 // VerifyTOTP consumes one code for a user.
 //
 // It mutates — spending the step is the point — so it takes a Mutation and
-// commits with whatever act it authorizes. In docs/specs/07-identity-audit.md
+// commits with whatever act it authorizes. In dev/specs/07-identity-audit.md
 // §2's terms it is the re-authentication, and it belongs in the same
 // transaction as the change it attests to.
 func VerifyTOTP(ctx context.Context, m audit.Mutation, now time.Time, k *secret.Key,

@@ -92,7 +92,7 @@ func Apply(ctx context.Context, m audit.Mutation, now time.Time, want *Snapshot,
 
 	// Nodes first: deployments reference them, and a node this control plane
 	// has never met cannot be conjured by a file. A node joins by enrolling
-	// (docs/specs/02-enrollment.md), and a configuration that could create one
+	// (dev/specs/02-enrollment.md), and a configuration that could create one
 	// would let a paste into the wrong terminal add a machine to the fleet.
 	for _, n := range want.Nodes {
 		var exists int
@@ -162,7 +162,7 @@ func applyModels(ctx context.Context, mut audit.Mutation, now time.Time, want, h
 	}
 
 	for _, m := range want.Models {
-		// docs/specs/05-catalog.md §1: the artifact kind **must match the
+		// dev/specs/05-catalog.md §1: the artifact kind **must match the
 		// backend's weights_layout**. Checked here because the alternative is
 		// where it was found — an apply that succeeds, and then a node
 		// reporting the model `corrupt` with "unknown weights layout", which
@@ -202,7 +202,7 @@ func applyModels(ctx context.Context, mut audit.Mutation, now time.Time, want, h
 //
 // **Only a new model, or one whose declared origin moved.** A profile tightened
 // after a model was registered flags its deployments rather than stopping them
-// (docs/specs/05-catalog.md §2, docs/specs/11-failure-modes.md), and refusing
+// (dev/specs/05-catalog.md §2, dev/specs/11-failure-modes.md), and refusing
 // every later document that merely restates that model would stop them by
 // another road: the operator could change nothing else in the fleet until they
 // deleted it. `nodary policy apply` names what a candidate profile would deny,
@@ -217,7 +217,7 @@ func checkOrigin(mut audit.Mutation, active policy.Profile, want Model, have *Sn
 	if err == nil {
 		return nil
 	}
-	// docs/specs/05-catalog.md §2: the rejection is recorded with the actor and
+	// dev/specs/05-catalog.md §2: the rejection is recorded with the actor and
 	// the attempted origin. The actor is a field of the record already; without
 	// these the origin would exist only inside the error text, which is prose a
 	// query cannot find. A rolled-back failure still carries them —
@@ -372,7 +372,7 @@ func checkPorts(ctx context.Context, tx *sql.Tx, want *Snapshot) error {
 // access to every route, and the deletion was invisible: with prune off, Apply
 // strips the `- ` lines from the change list, so the verb reported adding a
 // model and said nothing about the access it had just destroyed. The symptom is
-// 403 on a fleet where nothing else changed, and docs/specs/06-gateway.md §2's
+// 403 on a fleet where nothing else changed, and dev/specs/06-gateway.md §2's
 // deny-by-default means nobody can tell that from correct behavior.
 //
 // Removing a grant is therefore `--prune`, which is how everything else in this
@@ -640,7 +640,7 @@ func pruneAll(ctx context.Context, mut audit.Mutation, want, have *Snapshot,
 //
 // Refused rather than applied, and that is the point rather than the cheap way
 // out. `nodary policy apply` shows what a profile *loosens* before the
-// confirmation ([07 §4](docs/specs/07-identity-audit.md) requires loosening
+// confirmation ([07 §4](dev/specs/07-identity-audit.md) requires loosening
 // not to be silent) and what it would *deny* among models already registered
 // (05 §2). A posture that moved as a side effect of a configuration apply
 // would have had neither in front of the person agreeing to it.
@@ -898,7 +898,7 @@ func nullableInt(n int64) any {
 }
 
 // checkRouteDialects refuses a route carrying a deployment the gateway cannot
-// proxy — docs/specs/04-backends.md §8.
+// proxy — dev/specs/04-backends.md §8.
 //
 // `api` is what tells the control plane whether it may route to a deployment
 // directly, and the gateway hands LiteLLM `openai/<model>` for every member it
@@ -970,7 +970,7 @@ func checkRouteDialects(ctx context.Context, tx *sql.Tx) error {
 }
 
 // checkCapabilities refuses a deployment asking its backend for something the
-// descriptor says it cannot do — docs/specs/04-backends.md §7.
+// descriptor says it cannot do — dev/specs/04-backends.md §7.
 //
 // Here rather than only on the node, which is the point of the task: the agent
 // refuses an unrenderable deployment too, but a minute later and on a GPU host,
@@ -1041,7 +1041,7 @@ type DeniedModel struct {
 // Denied names the models a profile's origin lists would refuse, and the
 // deployments that would be left serving them.
 //
-// docs/specs/05-catalog.md §2 and docs/specs/11-failure-modes.md: tightening a
+// dev/specs/05-catalog.md §2 and dev/specs/11-failure-modes.md: tightening a
 // policy under a registered model **flags** it rather than stopping it, because
 // pulling a serving model out from under its users is a decision an operator
 // makes, not one a configuration change makes for them. Flagged has to mean
@@ -1091,7 +1091,7 @@ func originOf(m Model) string {
 //
 // Shared by `nodary model enable|disable` and POST /models/{id}/enable|disable
 // so the two front ends cannot disagree about which deployments a verb touches
-// — the constraint docs/tasks/README.md makes non-negotiable.
+// — the constraint dev/tasks/README.md makes non-negotiable.
 //
 // **Every matching deployment, not one row.** deployment.id is the only primary
 // key, so nothing stops two deployments of one model on one node; treating

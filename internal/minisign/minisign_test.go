@@ -92,7 +92,7 @@ func TestEveryTamperIsCaught(t *testing.T) {
 	})
 }
 
-// docs/adr/0007: the prehashed variant needs BLAKE2b, which is neither in the
+// dev/adr/0007: the prehashed variant needs BLAKE2b, which is neither in the
 // standard library nor FIPS-approved. It is refused by name so the message says
 // how to produce a signature this will accept.
 func TestPrehashedIsRefusedByName(t *testing.T) {

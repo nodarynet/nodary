@@ -23,7 +23,7 @@ import (
 )
 
 // The prompt every test sends. If this string ever appears in the database or
-// in a log, the guarantee in docs/adr/0006-cui-boundary-and-fips.md is broken —
+// in a log, the guarantee in dev/adr/0006-cui-boundary-and-fips.md is broken —
 // so it is distinctive enough to search for.
 const secretPrompt = "CUI-CANARY-do-not-store-this-prompt-anywhere"
 
@@ -83,7 +83,7 @@ func newFixture(t *testing.T, upstream http.HandlerFunc) *fixture {
 	// directly: config.Apply would need the whole enrollment, and none of that
 	// is what these tests are about.
 	//
-	// The deployment is not decoration. docs/specs/11-failure-modes.md §4 makes
+	// The deployment is not decoration. dev/specs/11-failure-modes.md §4 makes
 	// a route with no ready member a 503, so a fixture whose route has nothing
 	// behind it is testing the refusal rather than whatever it meant to test.
 	now := time.Now().UTC().Format(audit.TimeFormat)
@@ -190,7 +190,7 @@ func TestANonStreamingRequestIsProxiedAndMetered(t *testing.T) {
 		t.Errorf("row = %+v", u[0])
 	}
 	if u[0].requestID == "" {
-		t.Error("no request id recorded; docs/specs/06-gateway.md §6 makes it the way a report resolves to a row")
+		t.Error("no request id recorded; dev/specs/06-gateway.md §6 makes it the way a report resolves to a row")
 	}
 	if u[0].requestID != resp.Header.Get("X-Request-Id") {
 		t.Errorf("recorded %q, returned %q — a user's report would not resolve",
@@ -200,7 +200,7 @@ func TestANonStreamingRequestIsProxiedAndMetered(t *testing.T) {
 
 // R3-15, and the reason this slice exists where it does in the plan.
 //
-// docs/adr/0006-cui-boundary-and-fips.md: nodary records that a request
+// dev/adr/0006-cui-boundary-and-fips.md: nodary records that a request
 // happened, never what it said. This asserts it against the running system —
 // the canary goes through the gateway, and then every byte of the database and
 // every byte of the gateway's log is searched for it.
@@ -224,14 +224,14 @@ func TestNoRequestContentReachesStorage(t *testing.T) {
 		"the gateway's log": f.logs.Bytes(),
 	} {
 		if bytes.Contains(blob, []byte(secretPrompt)) {
-			t.Errorf("the prompt reached %s. docs/adr/0006-cui-boundary-and-fips.md makes "+
+			t.Errorf("the prompt reached %s. dev/adr/0006-cui-boundary-and-fips.md makes "+
 				"\"nodary records that a request happened, never what it said\" structural, "+
 				"and this is the assertion that it holds", what)
 		}
 	}
 }
 
-// docs/specs/06-gateway.md §2, all four rows.
+// dev/specs/06-gateway.md §2, all four rows.
 func TestAuthenticationRefusesWhatItShould(t *testing.T) {
 	f := newFixture(t, completion)
 
@@ -261,7 +261,7 @@ func TestAuthenticationRefusesWhatItShould(t *testing.T) {
 	}
 }
 
-// The allowlist, and the status code docs/specs/06-gateway.md §2 argues for.
+// The allowlist, and the status code dev/specs/06-gateway.md §2 argues for.
 func TestARouteOutsideTheAllowlistIs403AndNot404(t *testing.T) {
 	f := newFixture(t, completion)
 	body := chatBody(false)
@@ -471,7 +471,7 @@ func streamingUpstream(t *testing.T, sawIncludeUsage *bool, withUsage bool) http
 	}
 }
 
-// docs/specs/06-gateway.md §3: the gateway injects
+// dev/specs/06-gateway.md §3: the gateway injects
 // stream_options.include_usage, reads the final usage chunk, and passes the
 // stream through otherwise untouched.
 func TestAStreamIsMeteredAndRelayedUntouched(t *testing.T) {
@@ -512,7 +512,7 @@ func TestAStreamIsMeteredAndRelayedUntouched(t *testing.T) {
 	}
 }
 
-// docs/specs/06-gateway.md §3: a stream that ends without usage is never
+// dev/specs/06-gateway.md §3: a stream that ends without usage is never
 // silently dropped. If disconnecting erased usage, metering would be trivially
 // avoidable and the quota system decorative.
 func TestAStreamWithNoUsageChunkIsRecordedPartial(t *testing.T) {
@@ -609,7 +609,7 @@ func TestUsageIsFoundWhenAChunkIsSplitAcrossWrites(t *testing.T) {
 	}
 }
 
-// docs/specs/11-failure-modes.md §4: "No ready deployment on a route — 503 with
+// dev/specs/11-failure-modes.md §4: "No ready deployment on a route — 503 with
 // Retry-After; alert raised."
 //
 // Not a 404, and the difference is what a client does next: told "no such

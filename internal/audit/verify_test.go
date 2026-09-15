@@ -894,7 +894,7 @@ func TestCompareNamesAnInstallMismatch(t *testing.T) {
 }
 
 // The judgement belongs here rather than in whichever surface asked for it:
-// docs/tasks/README.md requires the CLI and the HTTP API to reach the same
+// dev/tasks/README.md requires the CLI and the HTTP API to reach the same
 // answer by the same route.
 func TestAssessment(t *testing.T) {
 	ok := &Result{Records: 3, FirstSeq: 1, LastSeq: 3}

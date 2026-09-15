@@ -73,7 +73,7 @@ func cmdServerInstall(e env, args []string) int {
 	offline := fs.Bool("offline", false,
 		"do not contact any upstream source; the mirror is whatever is already in the data directory")
 	bundlePath := fs.String("bundle", "",
-		"fill the mirror from an offline bundle (docs/specs/01-install.md §6); implies --offline")
+		"fill the mirror from an offline bundle (dev/specs/01-install.md §6); implies --offline")
 	skipPreflight := fs.Bool("skip-preflight", false,
 		"do not run the host checks. Records that they were skipped; it does not make them pass")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -87,7 +87,7 @@ func cmdServerInstall(e env, args []string) int {
 	ctx := context.Background()
 	o := install.Options{Root: *root, User: *svcUser}
 
-	// 1. Preflight. docs/specs/01-install.md §4 step 1: abort on any hard
+	// 1. Preflight. dev/specs/01-install.md §4 step 1: abort on any hard
 	// failure, printing every failure at once.
 	if !*skipPreflight {
 		r := preflight.Run(ctx, preflight.Options{
@@ -125,7 +125,7 @@ func cmdServerInstall(e env, args []string) int {
 		report(e, steps)
 	}
 
-	// The binary at docs/specs/01-install.md §12's location, before the units
+	// The binary at dev/specs/01-install.md §12's location, before the units
 	// that invoke it. Not fatal unprivileged: the units are then written
 	// pointing at a path that will exist once somebody installs properly.
 	if steps, _, err := install.EnsureBinary(buildinfo.Version, o); err != nil {
@@ -197,7 +197,7 @@ func cmdServerInstall(e env, args []string) int {
 			Detail: "bound to " + key.ID() + "; a different key will now be refused"}})
 	}
 
-	// 0700: it holds the agent CA's sealed key (docs/specs/01-install.md §12).
+	// 0700: it holds the agent CA's sealed key (dev/specs/01-install.md §12).
 	pki := filepath.Join(dir, "pki")
 	if err := os.MkdirAll(pki, 0o700); err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
@@ -278,7 +278,7 @@ func cmdServerInstall(e env, args []string) int {
 
 	// The gateway's master key. Generated here and never a default: one built
 	// in would be the same key on every install, which is no key at all
-	// (docs/specs/06-gateway.md §1).
+	// (dev/specs/06-gateway.md §1).
 	//
 	// Read back when it already exists, because the same key has to appear in
 	// two places — the gateway's environment and LiteLLM's configuration — and
@@ -403,7 +403,7 @@ func cmdServerInstall(e env, args []string) int {
 	return ExitOK
 }
 
-// installLocalNode is docs/specs/00-overview.md §2's single-box deployment: the
+// installLocalNode is dev/specs/00-overview.md §2's single-box deployment: the
 // control plane and one GPU host on the same machine.
 //
 // It **composes the two installs** rather than reimplementing either, for the
@@ -626,7 +626,7 @@ func firstHost(hosts []string, bind string) string {
 // randomToken is 256 bits of randomness for the gateway's master key.
 //
 // It is generated per install and written to a file only root and the service
-// account can read. docs/specs/06-gateway.md §1 has LiteLLM stateless behind a
+// account can read. dev/specs/06-gateway.md §1 has LiteLLM stateless behind a
 // single key that is never exposed to clients; a built-in default would be that
 // key on every install in the world.
 func randomToken() string {
@@ -642,7 +642,7 @@ func randomToken() string {
 
 // fetchIntoMirror is 01 §4 step 3: the cache every GPU host bootstraps from.
 //
-// **It resolves the node set, not the server's own.** docs/specs/01-install.md
+// **It resolves the node set, not the server's own.** dev/specs/01-install.md
 // §3 is the reason this belongs in the install rather than in a verb somebody
 // remembers to run: only the control-plane host ever contacts an upstream
 // source, and every node fetches this cache over mTLS. A control plane with an
@@ -692,7 +692,7 @@ func openBundleIntoMirror(e env, ctx context.Context, path, dataDir string) bool
 		if errors.Is(err, bundle.ErrDigestMismatch) {
 			fmt.Fprintf(e.stderr,
 				"  This is a hard stop. --offline removes the download, not the checks\n"+
-					"  (docs/specs/01-install.md §6), and there is no flag to proceed anyway.\n")
+					"  (dev/specs/01-install.md §6), and there is no flag to proceed anyway.\n")
 		}
 		return false
 	}
@@ -813,7 +813,7 @@ func ensureGatewayKey(e env, dir string) (string, int) {
 // reads it.
 //
 // The configuration is checked with the gateway's own assertion before it is
-// written, not after. docs/plans/pivot-cmmc.md makes LiteLLM a compliance
+// written, not after. dev/plans/pivot-cmmc.md makes LiteLLM a compliance
 // surface: inside a CUI boundary a configuration that failed to pin request
 // logging off is an incident, and one that reached the disk would be in force
 // the moment systemd started the unit.
@@ -930,7 +930,7 @@ func writeLiteLLMImage(dir, image string) (install.Step, error) {
 //
 // **NVIDIA is the base entry, not a vendor key.** Every image in the manifest
 // is a CUDA build, so a `vendors` map names what differs from that rather than
-// restating it (docs/plans/R6a-a-second-gpu-vendor.md §3). A component with no
+// restating it (dev/plans/R6a-a-second-gpu-vendor.md §3). A component with no
 // entry for the vendor asked for is refused here: vLLM, SGLang and TensorRT-LLM
 // genuinely have no Vulkan build, and saying so is the answer.
 func imageFor(m *components.Manifest, name, platform, vendor string) (string, error) {

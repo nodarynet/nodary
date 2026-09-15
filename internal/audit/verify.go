@@ -349,7 +349,7 @@ func lowest(pending map[int64]Record) int64 {
 // VerifyDB walks the chain in the database.
 //
 // Against genesis, unless retention has removed a prefix -- then against the
-// cut it recorded (docs/specs/08-data-model.md §3, migration 0019). A database
+// cut it recorded (dev/specs/08-data-model.md §3, migration 0019). A database
 // that has never been pruned is verified exactly as it always was.
 func VerifyDB(ctx context.Context, db *store.DB) (Result, error) {
 	anchor, err := pruneAnchor(ctx, db)
@@ -957,7 +957,7 @@ func bySequence(records iter.Seq2[Record, error], window int) iter.Seq2[Record, 
 // chain, an optional file, and how the two relate.
 //
 // It lives here rather than in the CLI because it is the answer, not the
-// rendering of one. docs/tasks/README.md requires the CLI and the HTTP API to
+// rendering of one. dev/tasks/README.md requires the CLI and the HTTP API to
 // call the same core functions and neither to hold business logic, and "did
 // this verify" is exactly the judgement GET /audit/verify has to reach by the
 // same route `nodary audit verify` does. Either may be nil: verifying only a

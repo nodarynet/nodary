@@ -28,7 +28,7 @@ func TestEverySettingSaysWhetherAnythingActsOnIt(t *testing.T) {
 		case strings.HasPrefix(f.standing, invariant):
 			invariantN++
 		case strings.HasPrefix(f.standing, pending):
-			// docs/plans/mvp.md §3: a stub nobody numbered is scope nobody
+			// dev/plans/mvp.md §3: a stub nobody numbered is scope nobody
 			// agreed to. The same rule, applied to a setting.
 			task := strings.TrimPrefix(f.standing, pending)
 			if !isTaskNumber(task) {

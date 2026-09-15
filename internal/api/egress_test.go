@@ -7,7 +7,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 )
 
-// R2-26 / R4-29 end to end: docs/specs/03-agent.md §5's assertion runs inside a
+// R2-26 / R4-29 end to end: dev/specs/03-agent.md §5's assertion runs inside a
 // deployment's network namespace on the node, and until this it reached that
 // node's journal and stopped there — so the one place an assessor looks knew
 // nothing about the control the whole boundary rests on. The endpoint is a read

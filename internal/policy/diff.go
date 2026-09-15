@@ -31,7 +31,7 @@ func (c Change) String() string {
 // standing carries the same idea one step further. A profile is read as a list
 // of controls, so a setting nothing acts on has to say so where it is displayed
 // — an operator cannot tell a ceiling from a label by looking at the number. It
-// is the stub discipline in docs/plans/mvp.md §3 applied to a setting rather
+// is the stub discipline in dev/plans/mvp.md §3 applied to a setting rather
 // than a verb: what is not in force names the task that will put it there.
 type field struct {
 	name    string
@@ -160,7 +160,7 @@ func addsAny(from, to []string) bool {
 
 // Diff reports every setting that differs, and which of them loosen.
 //
-// docs/specs/07-identity-audit.md §4: loosening is permitted; doing it silently
+// dev/specs/07-identity-audit.md §4: loosening is permitted; doing it silently
 // is not.
 func Diff(active, candidate Profile) []Change {
 	var out []Change
@@ -179,7 +179,7 @@ func Loosens(changes []Change) bool {
 	return slices.ContainsFunc(changes, func(c Change) bool { return c.Loosens })
 }
 
-// Describe renders every setting, in the order docs/specs/07-identity-audit.md
+// Describe renders every setting, in the order dev/specs/07-identity-audit.md
 // §4 presents them.
 //
 // It walks the same table Diff does, so a setting cannot appear in one and be

@@ -1,7 +1,7 @@
 # goreleaser configuration for the nodary binary.
 #
 # Every channel ships this one artifact and nothing else
-# (docs/adr/0004-release-artifacts-and-channels.md). Wheels, npm packages and
+# (dev/adr/0004-release-artifacts-and-channels.md). Wheels, npm packages and
 # the Homebrew bottle are all built from the binaries produced here.
 version: 2
 

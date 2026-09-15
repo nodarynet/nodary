@@ -19,7 +19,7 @@ import (
 // equivalents (GET /routes, GET /routes/{name}, PUT /routes/{name}) are
 // already built (R2-30) and read/write the same config.Route this does, so
 // the CLI and the API stay two callers of one core rather than a second
-// implementation (docs/tasks/README.md's cross-cutting constraint 1).
+// implementation (dev/tasks/README.md's cross-cutting constraint 1).
 func cmdRoute(e env, args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(e.stderr, "nodary route: expected a subcommand (list, show, set)\n")
@@ -153,7 +153,7 @@ func cmdRouteShow(e env, args []string) int {
 	return flush(e, "route show", tw)
 }
 
-// cmdRouteSet is the asymmetric case docs/specs/05-catalog.md §5 names —
+// cmdRouteSet is the asymmetric case dev/specs/05-catalog.md §5 names —
 // canarying a second backend, draining one replica without disabling it —
 // not the common path, which is a route created alongside a deployment by
 // `model register`. --add/--remove are comma-separated deployment ids,

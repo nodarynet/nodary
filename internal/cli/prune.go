@@ -11,7 +11,7 @@ import (
 	"github.com/nodarynet/nodary/internal/retention"
 )
 
-// cmdPrune is `nodary prune` — docs/specs/08-data-model.md §3's retention,
+// cmdPrune is `nodary prune` — dev/specs/08-data-model.md §3's retention,
 // applied once.
 //
 // **Through the ceremony rather than as a background goroutine in the server,
@@ -20,7 +20,7 @@ import (
 // is that "a retention job that silently deletes evidence is indistinguishable
 // from tampering", and a goroutine has no actor, no justification and no
 // intent to bind — it would need a synthetic principal invented for it, which
-// is the one thing docs/specs/07-identity-audit.md §3's seam exists to stop.
+// is the one thing dev/specs/07-identity-audit.md §3's seam exists to stop.
 // A verb gets the preview, the intent hash, the justification, the TOTP
 // re-authentication and the record for free, and the period comes from a
 // systemd timer, which is what schedules things on this appliance already.
@@ -28,7 +28,7 @@ import (
 // Gated on PermPolicyApply rather than a permission of its own. What may be
 // pruned is decided by audit_retention_days and usage_retention_days, so the
 // role that sets those already decides this; executing what it configured is
-// not a second privilege, and docs/specs/07-identity-audit.md §1's table is
+// not a second privilege, and dev/specs/07-identity-audit.md §1's table is
 // the vocabulary rather than a place to add to.
 //
 // A pass that removes nothing still writes its record. That it ran and found

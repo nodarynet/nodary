@@ -27,7 +27,7 @@ import (
 //
 // **--node is optional**, and it used to be required on the reasoning that a
 // restart is one node's act. That is true of cycling a unit and false of the
-// thing docs/specs/03-agent.md §7 describes, which iterates over the replicas
+// thing dev/specs/03-agent.md §7 describes, which iterates over the replicas
 // of a *model* and is where the "never drops the last ready replica" guarantee
 // comes from. Named, it narrows the roll to one host's copies; omitted, it
 // takes every replica.

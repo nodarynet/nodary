@@ -274,7 +274,7 @@ func TestMaxConcurrentRefusesASecondInFlightRequest(t *testing.T) {
 	}
 }
 
-// R3-07 / docs/specs/06-gateway.md §3: a stream that ends without a usage chunk
+// R3-07 / dev/specs/06-gateway.md §3: a stream that ends without a usage chunk
 // is still charged what it was seen to produce.
 //
 // This is the reason the spec gives for never dropping it: *"if disconnection

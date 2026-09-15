@@ -8,7 +8,7 @@ import (
 	"github.com/nodarynet/nodary/internal/config"
 )
 
-// R6-04/R6-05, docs/specs/04-backends.md §7: capabilities are enforced at
+// R6-04/R6-05, dev/specs/04-backends.md §7: capabilities are enforced at
 // enable time, not discovered at crash time.
 //
 // This is the spec's own table, driven. "Enable time" means here, in the

@@ -1,4 +1,4 @@
-// Package evidence produces the signed bundle of docs/specs/13-evidence.md.
+// Package evidence produces the signed bundle of dev/specs/13-evidence.md.
 //
 // Commercial. See ee/LICENSE.
 package evidence

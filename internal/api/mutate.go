@@ -7,7 +7,7 @@ import (
 	"github.com/nodarynet/nodary/internal/core"
 )
 
-// Headers carrying the attestation of docs/specs/07-identity-audit.md §2.
+// Headers carrying the attestation of dev/specs/07-identity-audit.md §2.
 //
 // They are the CLI's --justify, --totp and the hash it prints under --dry-run,
 // arriving by another road: 09 §2 makes attestation "available to API clients,

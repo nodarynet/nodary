@@ -9,7 +9,7 @@
 //
 // The modes travel with the paths deliberately. A file's permissions are part
 // of its contract — /etc/nodary/secret.key at 0644 is a silent total compromise
-// (docs/specs/08-data-model.md §4) — and keeping them here stops each package
+// (dev/specs/08-data-model.md §4) — and keeping them here stops each package
 // inventing its own answer.
 package paths
 
@@ -19,8 +19,8 @@ import (
 	"path/filepath"
 )
 
-// Directories nodary owns. See docs/specs/08-data-model.md and
-// docs/specs/07-identity-audit.md §3.
+// Directories nodary owns. See dev/specs/08-data-model.md and
+// dev/specs/07-identity-audit.md §3.
 const (
 	DataDir   = "/var/lib/nodary"
 	ConfigDir = "/etc/nodary"
@@ -54,7 +54,7 @@ const (
 	// It cannot be sealed under secret.key the way TOTP seeds and the agent CA
 	// are: LiteLLM reads a plain YAML file and has no way to consume a sealed
 	// value, so the key has to exist in cleartext on disk for the data plane to
-	// start at all (docs/specs/08-data-model.md §4 says so rather than implying
+	// start at all (dev/specs/08-data-model.md §4 says so rather than implying
 	// otherwise). The file mode is therefore the whole control, which is why it
 	// is 0600 and not 0640: presenting that key to 127.0.0.1:4000 reaches
 	// LiteLLM directly, past nodary's allowlist, quota and metering, so
@@ -64,7 +64,7 @@ const (
 )
 
 // Database is the SQLite database. One file, WAL mode.
-// docs/specs/08-data-model.md
+// dev/specs/08-data-model.md
 func Database() string { return filepath.Join(DataDir, "nodary.db") }
 
 // SecretKey is the at-rest encryption key: TOTP seeds, the LiteLLM master key
@@ -72,7 +72,7 @@ func Database() string { return filepath.Join(DataDir, "nodary.db") }
 //
 // A backup of the database without this file is useless, which is why
 // `nodary backup create` captures both.
-// docs/specs/08-data-model.md §4
+// dev/specs/08-data-model.md §4
 func SecretKey() string { return filepath.Join(ConfigDir, "secret.key") }
 
 // AuditLog is the append-only JSONL mirror of the audit chain.
@@ -80,7 +80,7 @@ func SecretKey() string { return filepath.Join(ConfigDir, "secret.key") }
 // It exists to be shipped off-box. A compromised control plane can rewrite the
 // chain in the database consistently; it cannot quietly rewrite a copy that
 // already left the machine.
-// docs/specs/07-identity-audit.md §3
+// dev/specs/07-identity-audit.md §3
 func AuditLog() string { return filepath.Join(LogDir, "audit.jsonl") }
 
 // AuditSinkToken holds the complete Authorization header value a network audit
@@ -96,7 +96,7 @@ func AuditSinkToken() string { return filepath.Join(ConfigDir, "audit-sink.token
 
 // Credentials is the CLI's personal-token file, under the invoking user's home
 // directory rather than a system path — it is per-operator, not per-host.
-// docs/specs/07-identity-audit.md §1
+// dev/specs/07-identity-audit.md §1
 func Credentials() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -106,7 +106,7 @@ func Credentials() (string, error) {
 }
 
 // OptDir is where the binary lives, versioned, with a `current` symlink.
-// docs/specs/01-install.md §12.
+// dev/specs/01-install.md §12.
 const OptDir = "/opt/nodary"
 
 // Binary is the stable path a systemd unit invokes.

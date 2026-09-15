@@ -45,7 +45,7 @@ func newSessionStore() *sessionStore { return &sessionStore{by: map[string]sessi
 // key is the hash of the cookie value, never the value itself. A session table
 // holding live cookies is a table whose disclosure is a fleet-wide compromise,
 // and the same reasoning already governs tokens
-// (docs/specs/02-enrollment.md §4).
+// (dev/specs/02-enrollment.md §4).
 func (s *sessionStore) key(v string) string {
 	sum := sha256.Sum256([]byte(v))
 	return hex.EncodeToString(sum[:])
@@ -160,7 +160,7 @@ func (s *Server) authenticate(r *http.Request) (identity.Principal, error) {
 		return identity.Principal{User: u, Role: u.Role,
 			Actor: audit.Actor{ID: u.ID, Method: "session"}}, nil
 	}
-	// Never local root. docs/plans/R1c-identity.md's argument for it is
+	// Never local root. dev/plans/R1c-identity.md's argument for it is
 	// filesystem access to the database; an HTTP caller has none, and treating
 	// an unauthenticated request as an administrator would be the same
 	// reasoning applied where it does not hold.

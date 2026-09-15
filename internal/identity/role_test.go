@@ -101,7 +101,7 @@ func TestOperatorRunsModelsAndDoesNotApproveNodes(t *testing.T) {
 	}
 }
 
-// TestRolesAreCumulative is what docs/specs/07-identity-audit.md §1 means by
+// TestRolesAreCumulative is what dev/specs/07-identity-audit.md §1 means by
 // "the above, plus": no role may hold something a stronger role does not.
 func TestRolesAreCumulative(t *testing.T) {
 	for i := 1; i < len(Roles); i++ {
@@ -201,7 +201,7 @@ func TestAuthorizeNamesWhatIsMissing(t *testing.T) {
 }
 
 // TestTheRoleTableIsWhatSection1Says transcribes
-// docs/specs/07-identity-audit.md §1's table and pins it whole.
+// dev/specs/07-identity-audit.md §1's table and pins it whole.
 //
 // Without it, moving a permission one tier up or down survives every other test
 // here: the cumulative and strictly-more checks only constrain the shape of the

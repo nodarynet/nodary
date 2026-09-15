@@ -24,7 +24,7 @@ type GPU struct {
 	MemoryMiB int    `json:"memory_mib"`
 	UUID      string `json:"uuid"`
 	// Vendor decides how the card is reached: CDI and `--gpus` on NVIDIA, a
-	// device node on everything else (docs/plans/R6a-a-second-gpu-vendor.md §2).
+	// device node on everything else (dev/plans/R6a-a-second-gpu-vendor.md §2).
 	// Absent means nvidia — see VendorName.
 	Vendor string `json:"vendor,omitempty"`
 	// Render is the /dev/dri node this card is reached through, on the vendors
@@ -32,10 +32,10 @@ type GPU struct {
 	//
 	// **Never serialized, so never in an offer.** The vendor belongs in the
 	// offer because an administrator approves the silicon a deployment may be
-	// placed on ([R6a §4](../../docs/plans/R6a-a-second-gpu-vendor.md)); a
+	// placed on ([R6a §4](../../dev/plans/R6a-a-second-gpu-vendor.md)); a
 	// device path is not a thing to approve, it is a fact about this boot of
 	// this machine. Putting it in the offer would freeze it there —
-	// docs/specs/02-enrollment.md §3 gates restating an offer behind
+	// dev/specs/02-enrollment.md §3 gates restating an offer behind
 	// certificate expiry — so a card that moved would be reached at the path it
 	// had a year ago. The node reads its own sysfs each reconcile instead,
 	// which is exactly what CDIDevices already does for NVIDIA.
@@ -45,7 +45,7 @@ type GPU struct {
 // VendorName is the vendor an offer names, with the default that keeps an
 // already-enrolled fleet working.
 //
-// **An absent vendor is nvidia, not unknown.** docs/specs/02-enrollment.md §3
+// **An absent vendor is nvidia, not unknown.** dev/specs/02-enrollment.md §3
 // gates restating an offer behind certificate expiry, so every node enrolled
 // before this field existed keeps the offer it made, forever, with no vendor in
 // it. Reading that as "unknown" would strand a working fleet on the release
@@ -64,7 +64,7 @@ func (g GPU) VendorName() string {
 // a native Linux host where /dev/nvidia0 exists for reasons unrelated to a
 // working driver, and it fails on every WSL2 node, where the only device is
 // /dev/dxg and `nvidia-smi` still reports the card correctly
-// (docs/spike-fips-and-manifest.md §5). The driver is the thing that knows.
+// (dev/spike-fips-and-manifest.md §5). The driver is the thing that knows.
 //
 // No GPU is not an error here. A control-plane-only host has none, an operator
 // enrolling before installing a driver should be told by preflight (R5) rather
@@ -128,7 +128,7 @@ func probeDRM(from int) []GPU {
 // offer this node makes at enrollment cannot disagree about the same machine.
 func isWSL() bool { return preflight.IsWSL() }
 
-// RebootPolicy is what this host reports at enrollment (docs/specs/03-agent.md §7).
+// RebootPolicy is what this host reports at enrollment (dev/specs/03-agent.md §7).
 func RebootPolicy() string { return preflight.RebootPolicy() }
 
 // CDIDevices are the device names the host's CDI specification declares.

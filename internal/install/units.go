@@ -1,4 +1,4 @@
-// Package install performs the privileged half of docs/specs/01-install.md:
+// Package install performs the privileged half of dev/specs/01-install.md:
 // placing component binaries, writing systemd units, creating the service user
 // and setting the filesystem layout.
 //
@@ -202,7 +202,7 @@ WantedBy=multi-user.target
 //
 // The contents are upstream's own, with the delegation and OOM settings that
 // matter: Delegate=yes so containerd manages its children's cgroups (which is
-// the whole reason docs/specs/03-agent.md §5 says the model is parented outside
+// the whole reason dev/specs/03-agent.md §5 says the model is parented outside
 // the unit), and KillMode=process so stopping containerd does not take running
 // containers with it.
 const containerdUnit = `# Written by nodary. Edits are overwritten.
@@ -266,7 +266,7 @@ RestartSec=10s
 WantedBy=multi-user.target
 `
 
-// pruneUnit applies docs/specs/08-data-model.md §3's retention windows once.
+// pruneUnit applies dev/specs/08-data-model.md §3's retention windows once.
 //
 // Type=oneshot and triggered by pruneTimer, never enabled on its own: the work
 // finishes, so a Restart= policy would run it in a loop.
@@ -296,7 +296,7 @@ ReadWritePaths=/var/lib/nodary
 ReadOnlyPaths=/etc/nodary
 `
 
-// pruneTimer is the "periodic task" in docs/specs/08-data-model.md §3.
+// pruneTimer is the "periodic task" in dev/specs/08-data-model.md §3.
 //
 // A timer rather than a goroutine inside nodary-server, because a prune writes
 // an audit record and a record needs an actor, a justification and an intent to

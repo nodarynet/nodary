@@ -74,7 +74,7 @@ func TestARecordReachesTheEndpointNamedInServerToml(t *testing.T) {
 }
 
 // A control believed to be in force and silently not is the failure
-// docs/plans/pilot.md §1 exists about. A typo in the sink specification fails
+// dev/plans/pilot.md §1 exists about. A typo in the sink specification fails
 // the command rather than quietly falling back to the local file.
 func TestAnUnusableSinkConfigurationFailsTheCommand(t *testing.T) {
 	a := newAppliance(t)

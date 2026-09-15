@@ -21,7 +21,7 @@ import (
 
 // `nodary upgrade` converges this host onto the release whose binary is running.
 //
-// [01 §9](../../docs/specs/01-install.md#9-upgrade) splits an upgrade in two:
+// [01 §9](../../dev/specs/01-install.md#9-upgrade) splits an upgrade in two:
 // replace the binary, then move everything the new release pins. install.sh is
 // already the first half — it downloads a release, verifies its signature and
 // its digest, and unpacks it beside the old one. Nothing did the second half,
@@ -226,7 +226,7 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 	}
 
 	// And this host's own binary, for the fleet. A node has no egress
-	// (docs/specs/03-agent.md §1), so the only way it ever sees a newer nodary
+	// (dev/specs/03-agent.md §1), so the only way it ever sees a newer nodary
 	// is through the mirror it already fetches components from — R5-16.
 	// buildinfo.Version, not versionString(): the latter is decorated for
 	// display ("0.0.1 (linux/amd64)") and the install prefix is named by the

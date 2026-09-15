@@ -4,7 +4,7 @@ Serves `nodary.net/install.sh`, `nodary.net/install.sh.minisig` and
 `nodary.net/releases/<version>/<asset>` from an R2 bucket.
 
 `install.sh` hardcodes `https://nodary.net` as its origin
-([01 §2](../../docs/specs/01-install.md#2-the-installsh-contract)), so the
+([01 §2](../../dev/specs/01-install.md#2-the-installsh-contract)), so the
 artifacts have to be on the apex rather than a subdomain. The Worker is bound to
 those three paths only, so the rest of the apex is untouched and free to serve
 whatever else the zone hosts.

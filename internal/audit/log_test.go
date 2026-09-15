@@ -238,7 +238,7 @@ func TestMutationCannotBeImplementedElsewhere(t *testing.T) {
 // The hole types cannot close: a package calling store.WriteTx directly rather
 // than going through Act. Migrate needs WriteTx and is not a mutation, so the
 // method cannot be hidden. This is a CI gate instead, and is described as such
-// in docs/plans/R1b-audit-chain.md.
+// in dev/plans/R1b-audit-chain.md.
 // bypassOffenders returns the non-test Go files under root, outside the allowed
 // directories, that name WriteTx. One function, so the canary below exercises
 // the scan the invariant actually depends on rather than a second copy of it.
@@ -289,10 +289,10 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 		// package here is that the alternative was exempting internal/api —
 		// which would put every handler in the product outside this gate in
 		// order to let a heartbeat through.
-		// docs/plans/R4a-agent-protocol.md §4
+		// dev/plans/R4a-agent-protocol.md §4
 		filepath.Join(root, "internal", "observed"): true,
 		// internal/replay writes one table and nothing else: what an HTTP
-		// request already answered (docs/specs/09-api.md §2). The act it
+		// request already answered (dev/specs/09-api.md §2). The act it
 		// protects has its own record in the chain; a record per retry of it
 		// would bury a month of administration, which is 0006_fleet.sql's
 		// argument for usage rows. Its package comment carries the rule.
@@ -314,7 +314,7 @@ func TestNothingBypassesTheSeam(t *testing.T) {
 }
 
 // Proof the scan is looking where it should. The invariant it guards is one
-// docs/tasks/README.md makes non-negotiable, so the canary has to run the same
+// dev/tasks/README.md makes non-negotiable, so the canary has to run the same
 // function — an earlier version walked the tree a second time and only counted
 // files, which would have passed just as happily against a scan whose needle
 // was mistyped or whose allow list had swallowed the repository root.
@@ -604,7 +604,7 @@ func TestAPartialPointerIsStillPartial(t *testing.T) {
 	}
 }
 
-// docs/specs/07-identity-audit.md §3: the posture decides whether the next
+// dev/specs/07-identity-audit.md §3: the posture decides whether the next
 // mutation proceeds, never whether the record is written. A refusal that left no
 // trace would let anyone who can break a sink act without appearing in the
 // chain — and it would also wedge the appliance, because delivery is the only

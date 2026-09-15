@@ -1,7 +1,7 @@
 // Package policy parses and validates the policy profile that decides how much
 // ceremony a mutation requires and how long evidence is kept.
 //
-// A profile is one reviewable object (docs/specs/07-identity-audit.md §4). That
+// A profile is one reviewable object (dev/specs/07-identity-audit.md §4). That
 // is why parsing is strict: a key nobody reads is a constraint an operator
 // believes is in force, and the whole value of the object is that reading it
 // tells you the posture. Unknown keys are refused rather than ignored.
@@ -29,9 +29,9 @@ var profiles embed.FS
 var ErrInvalid = errors.New("invalid policy profile")
 
 // Profile is the whole posture. Every field maps to a key in
-// docs/specs/07-identity-audit.md §4, and there are no fields that do not.
+// dev/specs/07-identity-audit.md §4, and there are no fields that do not.
 // The json tags are not decoration and are deliberately the same words as the
-// toml ones. `--format json` is a schema a script reads (docs/specs/10-cli.md
+// toml ones. `--format json` is a schema a script reads (dev/specs/10-cli.md
 // §4), and without them `policy show --format json` answered in Go field names
 // — so an operator reading `RequireTOTP` had no way to connect it to the
 // `require_totp` they write in the file, and `policy show` was the one verb on
@@ -77,7 +77,7 @@ type document struct {
 // They have no fields above, so they would already fail as unknown keys. The
 // generic message would be "unknown key", which is a poor answer to somebody
 // who just tried to disable the audit chain: it reads as a typo rather than as
-// a refusal. docs/specs/07-identity-audit.md §4 lists five such properties;
+// a refusal. dev/specs/07-identity-audit.md §4 lists five such properties;
 // intent_hash, digest pinning and the chain itself are here because they are
 // not expressible, while require_signed_artifacts and egress_default are real
 // keys checked in validate below.
@@ -130,7 +130,7 @@ func (p Profile) validate() error {
 	case strings.TrimSpace(p.Name) == "":
 		return fmt.Errorf("%w: name is required — a profile is cited in audit records by name", ErrInvalid)
 
-	// docs/specs/07-identity-audit.md §4: the two invariants a plausible
+	// dev/specs/07-identity-audit.md §4: the two invariants a plausible
 	// profile could actually contain, as opposed to the three that have no key.
 	case !p.RequireSignedArtifacts:
 		return fmt.Errorf("%w: require_signed_artifacts cannot be false — signature and digest verification is not a posture", ErrInvalid)
@@ -158,7 +158,7 @@ func (p Profile) validate() error {
 
 // Builtin returns one of the profiles shipped in the binary.
 //
-// docs/specs/07-identity-audit.md §4 makes `default` the profile a fresh
+// dev/specs/07-identity-audit.md §4 makes `default` the profile a fresh
 // install runs, because a first-run experience that demands a TOTP code before
 // a user exists converts nobody.
 func Builtin(name string) (Profile, []byte, error) {

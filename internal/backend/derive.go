@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Derive is docs/specs/04-backends.md §5: a base image corrected for this site.
+// Derive is dev/specs/04-backends.md §5: a base image corrected for this site.
 //
 // **Not `prepare`, and confusing the two bends the model out of shape.** A
 // prepare takes staged weights and produces an engine directory, on the node,

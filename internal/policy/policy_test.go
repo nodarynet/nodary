@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// The shipped profiles must match docs/specs/07-identity-audit.md §4 exactly.
+// The shipped profiles must match dev/specs/07-identity-audit.md §4 exactly.
 // R1-26 says "exactly", and the cheapest way to mean it is to compare against
 // the specification rather than against a transcription of it — a transcription
 // is the thing that drifts.
 func TestBuiltinProfilesMatchTheSpecification(t *testing.T) {
-	spec, err := os.ReadFile("../../docs/specs/07-identity-audit.md")
+	spec, err := os.ReadFile("../../dev/specs/07-identity-audit.md")
 	if err != nil {
 		t.Fatalf("reading the specification: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestBothBuiltinProfilesParse(t *testing.T) {
 	}
 }
 
-// docs/specs/07-identity-audit.md §4: `default` is the profile a fresh install
+// dev/specs/07-identity-audit.md §4: `default` is the profile a fresh install
 // runs, because demanding a TOTP code before a user exists converts nobody.
 func TestDefaultAsksForNoCeremony(t *testing.T) {
 	p, _, err := Builtin(Default)

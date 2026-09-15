@@ -1,7 +1,7 @@
 // Package minisign verifies detached minisign signatures.
 //
 // It exists because nothing in the tree verified a signature in Go: every check
-// was shell calling openssl or the minisign binary, and docs/adr/0007 needs the
+// was shell calling openssl or the minisign binary, and dev/adr/0007 needs the
 // component manifest verified inside the binary once it stops being embedded in
 // it. The same verifier checks a license key and the advisory feed.
 //
@@ -11,7 +11,7 @@
 // BLAKE2b-512 digest of it. This package implements the first and refuses the
 // second, deliberately. BLAKE2b is not in the standard library and is not
 // FIPS-approved, so accepting `ED` would put a non-approved hash on the path
-// that decides what a node installs — inside the boundary docs/adr/0006 exists
+// that decides what a node installs — inside the boundary dev/adr/0006 exists
 // to defend.
 //
 // **`Ed` is not what minisign produces by default.** Measured against minisign
@@ -160,7 +160,7 @@ func Verify(pub PublicKey, msg []byte, sigFile string) (Signature, error) {
 }
 
 // Sign produces a detached signature. It is here rather than in a test because
-// an install signs its own evidence bundle (docs/specs/13-evidence.md §2).
+// an install signs its own evidence bundle (dev/specs/13-evidence.md §2).
 func Sign(priv ed25519.PrivateKey, id [keyIDLen]byte, msg []byte, trustedComment string) string {
 	sig := ed25519.Sign(priv, msg)
 	line := append(append([]byte(algLegacy), id[:]...), sig...)

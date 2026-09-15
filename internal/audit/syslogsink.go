@@ -27,7 +27,7 @@ const syslogFacility = syslog.LOG_AUTHPRIV
 //
 // **Why this exists.** The default sink is the JSONL file beside the database
 // (FileSink), and that mirror lives on the same disk as the chain it mirrors —
-// so a control plane somebody owns can rewrite both. docs/specs/07-identity-audit.md
+// so a control plane somebody owns can rewrite both. dev/specs/07-identity-audit.md
 // §3's whole argument for shipping records off-box is that a compromised
 // appliance cannot quietly rewrite a copy that already left the machine, and
 // R2-41's HTTP sink assumes a SIEM endpoint to send it to. A small site has no

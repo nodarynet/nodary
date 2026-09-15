@@ -24,7 +24,7 @@ import (
 // This is what makes an administrator a person. Without it the only way to run
 // a privileged verb is a shell on the control-plane host, so every record the
 // chain keeps names `root` and the method `local`
-// (docs/specs/07-identity-audit.md §1) — an accountability product answering
+// (dev/specs/07-identity-audit.md §1) — an accountability product answering
 // "who did this" with the name of an account three people share.
 //
 // The credential is a personal token presented as `Authorization: Bearer`,
@@ -36,11 +36,11 @@ import (
 
 // errUnreachable is a control plane that did not answer. It is separate from
 // every refusal the control plane itself produces, because
-// docs/specs/10-cli.md §5 gives it its own exit code and a script retries it
+// dev/specs/10-cli.md §5 gives it its own exit code and a script retries it
 // where it would not retry a 403.
 var errUnreachable = errors.New("the control plane could not be reached")
 
-// serverFlag registers docs/specs/10-cli.md §2's --server.
+// serverFlag registers dev/specs/10-cli.md §2's --server.
 //
 // Deliberately not defaulted from an environment variable. A verb that runs on
 // this host and one that acts on another appliance are different acts, and an
@@ -152,7 +152,7 @@ func (r *remote) do(method, path string, body, out any) error {
 
 // get reads one object and returns the revision it was read at.
 //
-// The ETag is docs/specs/09-api.md §2's version of the whole configuration,
+// The ETag is dev/specs/09-api.md §2's version of the whole configuration,
 // and it is what a read-modify-write over the network sends back as If-Match.
 // The local route has no use for one — it reads and writes inside a single
 // transaction — but this one reads the object in one request and replaces it
@@ -231,7 +231,7 @@ func (r *remote) doWith(method, path string, body, out any,
 	return resp.Header, nil
 }
 
-// remoteList reads a whole listing, following docs/specs/09-api.md §2's cursor
+// remoteList reads a whole listing, following dev/specs/09-api.md §2's cursor
 // to the end.
 //
 // The CLI's listings are not paged — `nodary node list` prints the fleet — so
@@ -244,7 +244,7 @@ func remoteList[T any](r *remote, path, field string, q url.Values) ([]T, error)
 	}
 	q.Set("limit", strconv.Itoa(api.MaxLimit))
 	// Empty rather than nil. `--format json` is a stable schema a script reads
-	// (docs/specs/10-cli.md §2), config.Read returns an empty slice for a
+	// (dev/specs/10-cli.md §2), config.Read returns an empty slice for a
 	// listing with nothing in it, and a `null` where that script expects `[]`
 	// is a difference between the two routes with no reason behind it.
 	all := []T{}
@@ -280,7 +280,7 @@ type remoteAct struct {
 	body         any
 	// ifMatch is the revision a read-modify-write read its object at, which
 	// the control plane refuses the act against if the configuration has moved
-	// since (docs/specs/09-api.md §2). Empty for a verb that reads nothing
+	// since (dev/specs/09-api.md §2). Empty for a verb that reads nothing
 	// first: there is nothing for it to have raced with.
 	ifMatch string
 }
@@ -298,7 +298,7 @@ type remoteOutcome struct {
 }
 
 // attested is session.attested over the network: the same ceremony of
-// docs/specs/07-identity-audit.md §2, reached by the other road 09 §2 promises.
+// dev/specs/07-identity-audit.md §2, reached by the other road 09 §2 promises.
 //
 // It is a second sequence beside the local one and cannot be shared with it —
 // there the preview, the hash and the act are three calls into core with a
@@ -382,7 +382,7 @@ func addQuery(path, q string) string {
 
 // remoteError is a refusal the control plane stated.
 //
-// It carries the stable code of docs/specs/09-api.md §3 rather than a status
+// It carries the stable code of dev/specs/09-api.md §3 rather than a status
 // alone, because the code is what distinguishes refusals that share a status:
 // 403 is both "you may not" and "this needs a justification", and those are
 // different exit codes to a script.
@@ -412,7 +412,7 @@ func remoteFailure(status int, raw []byte) error {
 	return &remoteError{status: status, msg: fmt.Sprintf("%s (HTTP %d)", text, status)}
 }
 
-// exit is the code docs/specs/10-cli.md §5 assigns this refusal.
+// exit is the code dev/specs/10-cli.md §5 assigns this refusal.
 //
 // It is a second table beside internal/api's statusFor and that is the risk it
 // carries, so remote_test.go holds it to covering every code statusFor can
@@ -433,7 +433,7 @@ func (e *remoteError) exit() int {
 	case "invalid", "bad_request":
 		return ExitUsage
 	// A document this control plane will not apply is exit 1, not exit 2:
-	// docs/specs/10-cli.md §5 reserves 2 for bad flags and missing arguments,
+	// dev/specs/10-cli.md §5 reserves 2 for bad flags and missing arguments,
 	// and the local route already answers a refused document with 1.
 	case "invalid_configuration":
 		return ExitFailure

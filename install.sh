@@ -2,7 +2,7 @@
 #
 # nodary installer.
 #
-# Does four things and nothing else (docs/specs/01-install.md §2):
+# Does four things and nothing else (dev/specs/01-install.md §2):
 #   1. Detect OS and architecture; refuse clearly if unsupported.
 #   2. Download the binary, its .sha256 and its .sig.
 #   3. Verify the signature against the key embedded below, then the digest.
@@ -23,7 +23,7 @@
 # Verification is not optional and there is no --skip flag. `--offline` removes
 # the download, not the checks: every component in a bundle is re-hashed
 # against the digest the binary pins before it is placed
-# (docs/specs/01-install.md §6).
+# (dev/specs/01-install.md §6).
 
 set -eu
 
@@ -103,7 +103,7 @@ Enable it, then restart the distribution from Windows:
 Then reopen this distribution and run the command again."
                 fi
                 die "'nodary $_role install' requires systemd, which is not running on this host.
-See docs/specs/01-install.md §8 for supported platforms."
+See dev/specs/01-install.md §8 for supported platforms."
             fi
             ;;
     esac
@@ -171,7 +171,7 @@ verify manually and run the binary yourself:
   curl -fsSLO $NODARY_BASE_URL/$ASSET.minisig
   minisign -Vm $ASSET -P \"\$(cat nodary-release.pub)\"
 
-See docs/specs/01-install.md §2."
+See dev/specs/01-install.md §2."
 
     printf '%s\n' "$NODARY_PUBKEY" > "$_keyfile"
 
@@ -235,7 +235,7 @@ Re-run as root, or set NODARY_PREFIX to a writable directory."
 # --- main --------------------------------------------------------------------
 
 # --offline anywhere in the arguments means this host has no network and the
-# binary cannot be downloaded. docs/specs/01-install.md §6: the bundle carries
+# binary cannot be downloaded. dev/specs/01-install.md §6: the bundle carries
 # the components, and the binary is carried to the site by the same media —
 # already signature-verified on the connected machine that fetched it.
 #

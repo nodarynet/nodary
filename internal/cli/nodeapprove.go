@@ -26,7 +26,7 @@ import (
 // It builds the same change the API's handler does rather than a second one.
 // The preview carries the node's advertised offer and constraints because that
 // is what the administrator is agreeing to, and core.Act hashes the preview
-// into `intent_hash` — which is how docs/specs/02-enrollment.md §1's "neither
+// into `intent_hash` — which is how dev/specs/02-enrollment.md §1's "neither
 // side can later claim terms the other did not see" is structural rather than
 // prose.
 func cmdNodeTransition(e env, args []string, verb, to string) int {
@@ -128,7 +128,7 @@ func cmdNodeTransition(e env, args []string, verb, to string) int {
 func reportTransition(e env, verb, to, name, actorUserID string) {
 	if verb == "revoke" {
 		// What actually happens now, because none of it is obvious and all of
-		// it is already built: docs/specs/02-enrollment.md §3 refuses the
+		// it is already built: dev/specs/02-enrollment.md §3 refuses the
 		// certificate on next contact (internal/api's agentNode), a node that
 		// is not approved receives an empty desired state and so stops
 		// everything within a poll, and the gateway stops routing to it

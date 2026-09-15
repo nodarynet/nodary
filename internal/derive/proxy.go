@@ -1,4 +1,4 @@
-// Package derive builds the corrected images of docs/specs/04-backends.md §5.
+// Package derive builds the corrected images of dev/specs/04-backends.md §5.
 //
 // **The egress allowlist is the point of this package**, not a detail of it.
 // §5 requires a build to reach "the package index and nothing else", and the

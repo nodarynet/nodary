@@ -1,4 +1,4 @@
-// Package backup writes and describes the archive docs/specs/08-data-model.md
+// Package backup writes and describes the archive dev/specs/08-data-model.md
 // §4 requires.
 //
 // It is a package rather than a function in one front end because both of them
@@ -92,7 +92,7 @@ func CheckDestination(out string) error {
 	if mode := info.Mode().Perm(); mode&0o007 != 0 {
 		return fmt.Errorf("%w: %s is mode %04o — every TOTP seed, the LiteLLM master key "+
 			"and the agent CA private key are sealed under /etc/nodary/secret.key, which this "+
-			"archive contains (docs/specs/08-data-model.md §4). Write somewhere only root can "+
+			"archive contains (dev/specs/08-data-model.md §4). Write somewhere only root can "+
 			"reach: sudo install -d -m 0700 /var/backups/nodary", ErrExposedDestination, dir, mode)
 	}
 	if _, err := os.Stat(out); err == nil {

@@ -16,7 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
-// The agent protocol of docs/specs/03-agent.md §4.
+// The agent protocol of dev/specs/03-agent.md §4.
 //
 // Protocol is what this build speaks. ProtocolMin and ProtocolMax are the range
 // it accepts, which §4 requires the server to advertise: an agent outside it
@@ -38,7 +38,7 @@ const (
 // what is legal, and the intersection is a hostname.
 var nodeNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$`)
 
-// EnrollRequest is what a node sends to join. docs/specs/02-enrollment.md §1.
+// EnrollRequest is what a node sends to join. dev/specs/02-enrollment.md §1.
 type EnrollRequest struct {
 	Name  string `json:"name"`
 	Token string `json:"token"`
@@ -83,13 +83,13 @@ type EnrollResponse struct {
 var rebootPolicies = []string{"manual-console", "host-managed", "unattended"}
 
 // enroll is the only unauthenticated endpoint in the product
-// (docs/specs/03-agent.md §1), which is why almost everything it touches is
+// (dev/specs/03-agent.md §1), which is why almost everything it touches is
 // checked before it is used.
 //
 // It goes through audit.Log.Act rather than core.Act: an enrolling node has no
 // principal, no role and nobody to prompt for a TOTP code, and `login` — the
 // other mutation performed by somebody who is not yet a principal — already
-// takes this path (docs/plans/R4a-agent-protocol.md §3).
+// takes this path (dev/plans/R4a-agent-protocol.md §3).
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	var body EnrollRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
@@ -152,7 +152,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 		state = "pending"
 		if existing != nil {
-			// docs/plans/R4a-agent-protocol.md §8. Re-enrollment is 02 §3's
+			// dev/plans/R4a-agent-protocol.md §8. Re-enrollment is 02 §3's
 			// path for a node that was offline past expiry; anything earlier
 			// is a leaked token trying to inherit a live node's approval.
 			if existing.expires.IsZero() || now.Before(existing.expires) {

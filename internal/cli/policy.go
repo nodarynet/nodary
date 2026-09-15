@@ -264,7 +264,7 @@ func cmdPolicyApply(e env, args []string) int {
 			}
 			// What this profile would deny that is already registered. In the
 			// preview, so it is part of what the operator attests to rather
-			// than a warning printed after the decision — docs/specs/05-catalog.md
+			// than a warning printed after the decision — dev/specs/05-catalog.md
 			// §2 flags these rather than stopping them, and a flag nobody is
 			// shown at the moment of the change is not a flag.
 			denied, err := config.Denied(ctx, tx, candidate)
@@ -368,7 +368,7 @@ func plural(word string, n int) string {
 // reportDenied names what the profile just applied refuses and is still
 // serving.
 //
-// **Flagged, not stopped** (docs/specs/11-failure-modes.md). Nothing here stops
+// **Flagged, not stopped** (dev/specs/11-failure-modes.md). Nothing here stops
 // anything: it says what an operator would have to decide, and names the verb
 // that decides it, because a model pulled out from under its users by a policy
 // edit is exactly the surprise this rule exists to prevent.

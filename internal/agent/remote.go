@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 )
 
-// Downloader runs `source: remote` staging (R4-33, docs/specs/05-catalog.md
+// Downloader runs `source: remote` staging (R4-33, dev/specs/05-catalog.md
 // §3): the agent fetches a model's own weights and verifies each file
 // against a manifest the control plane holds — remote has no
 // weights-travel-on-removable-media channel the way local does, so there is
@@ -209,7 +209,7 @@ func (dl *Downloader) run(req stageRequest, d *progress) {
 // Status call starts clean.
 //
 // **Status never revisits a model on its own once it reaches a terminal
-// state**, which is the point of `corrupt` (docs/specs/05-catalog.md §3 makes
+// state**, which is the point of `corrupt` (dev/specs/05-catalog.md §3 makes
 // it terminal, on purpose) and not of `staged`. Reset is the only way either
 // gets revisited — and unlike the in-memory map it used to clear, restarting
 // the agent is no longer a second way, because the verdict is a file now.

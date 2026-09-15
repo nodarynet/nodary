@@ -12,7 +12,7 @@ import (
 )
 
 // ensureImage fetches a control-plane-built image the first time a node needs
-// it — docs/specs/04-backends.md §5's "stored in the control plane's mirror and
+// it — dev/specs/04-backends.md §5's "stored in the control plane's mirror and
 // served to nodes like any other image".
 //
 // **Only for an image built here.** A derive is committed into the control

@@ -16,7 +16,7 @@ import (
 // without importing the HTTP surface.
 const StaleAfter = fleet.StaleAfter
 
-// StatusReport is the heartbeat of docs/specs/03-agent.md §1.
+// StatusReport is the heartbeat of dev/specs/03-agent.md §1.
 type StatusReport struct {
 	Protocol     int             `json:"protocol"`
 	AgentVersion string          `json:"agent_version"`
@@ -38,7 +38,7 @@ type StatusReport struct {
 	// version the fleet targets (R5-15). Empty when it is, or when it has not
 	// been asked to move.
 	//
-	// Reported rather than logged on the node: docs/specs/01-install.md §9 has
+	// Reported rather than logged on the node: dev/specs/01-install.md §9 has
 	// an agent that cannot upgrade keep serving and say so, and the node is the
 	// machine an operator cannot reach — on a fleet whose whole point is that
 	// they do not have to.
@@ -66,7 +66,7 @@ type StatusUnit struct {
 	State  string `json:"state"`
 	Health string `json:"health"`
 	Error  string `json:"error"`
-	// Egress is docs/specs/03-agent.md §5's verdict — `compliant`,
+	// Egress is dev/specs/03-agent.md §5's verdict — `compliant`,
 	// `non-compliant` or `inconclusive` — and EgressReason is why, when it is
 	// not the first.
 	//
@@ -79,7 +79,7 @@ type StatusUnit struct {
 	Egress       string `json:"egress,omitempty"`
 	EgressReason string `json:"egress_reason,omitempty"`
 	// Artifact is the key of the build this deployment serves from — R6-06,
-	// docs/specs/04-backends.md §4. Empty for every backend that serves what
+	// dev/specs/04-backends.md §4. Empty for every backend that serves what
 	// was staged, which is all of them but TensorRT-LLM.
 	//
 	// **Empty means "no new answer" here too**, for the reason Egress does: a
@@ -104,7 +104,7 @@ type StatusStaging struct {
 // telemetry — the same line 0006_fleet.sql already draws for `usage`. The
 // column list below is exhaustive and fixed, so that "observed state only"
 // is visible here rather than only in the plan
-// (docs/plans/R4a-agent-protocol.md §4).
+// (dev/plans/R4a-agent-protocol.md §4).
 func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	n, err := s.agentNode(r)
 	if err != nil {
@@ -116,7 +116,7 @@ func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, badRequest("expected a status report"))
 		return
 	}
-	// R4-11, docs/specs/03-agent.md §4. An agent outside the supported range is
+	// R4-11, dev/specs/03-agent.md §4. An agent outside the supported range is
 	// **recorded as having checked in and nothing more**, rather than refused.
 	//
 	// Refusing was the wrong answer in the one way that matters: the node then

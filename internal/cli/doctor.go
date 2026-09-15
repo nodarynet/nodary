@@ -16,7 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/preflight"
 )
 
-// cmdDoctor is docs/specs/10-cli.md §3: the diagnostic entry point, and the
+// cmdDoctor is dev/specs/10-cli.md §3: the diagnostic entry point, and the
 // first thing to tell anyone to run.
 //
 // It is preflight plus the checks that need a running system, because they are
@@ -26,7 +26,7 @@ import (
 // It exits non-zero on any hard failure, and it runs egress verification here
 // as well as after every deployment start: R5-18's own reasoning is that a
 // control only checked at creation time is a control that drifts, and
-// docs/plans/R4d-egress-isolation.md is what happens when that turns out to be
+// dev/plans/R4d-egress-isolation.md is what happens when that turns out to be
 // literally true.
 func cmdDoctor(e env, args []string) int {
 	fs := newFlagSet(e, "doctor")
@@ -128,7 +128,7 @@ func dataDirOf() string {
 
 // certificateCheck reports how long this node's identity has left.
 //
-// docs/specs/02-enrollment.md §3 renews at two-thirds of lifetime, so a
+// dev/specs/02-enrollment.md §3 renews at two-thirds of lifetime, so a
 // certificate inside the last third and not renewing is a node heading for a
 // re-enrollment that needs an administrator.
 func certificateCheck(conf agent.Config) preflight.Check {
@@ -154,7 +154,7 @@ func certificateCheck(conf agent.Config) preflight.Check {
 		c.Level = preflight.LevelFail
 		c.Detail = fmt.Sprintf("expired %s ago; this node must re-enroll with a fresh token", days(-left))
 	case left < 30*24*time.Hour:
-		// docs/specs/02-enrollment.md §3 renews at two-thirds of a 90-day
+		// dev/specs/02-enrollment.md §3 renews at two-thirds of a 90-day
 		// lifetime, so inside the last third and still here means renewal is
 		// not happening — and past expiry needs an administrator.
 		c.Level = preflight.LevelWarn
@@ -180,7 +180,7 @@ func days(d time.Duration) string {
 // measures the clock against it.
 //
 // Clock skew is here rather than in preflight because it needs the other end:
-// docs/specs/11-failure-modes.md §1 makes skew over 60s a hard failure, since
+// dev/specs/11-failure-modes.md §1 makes skew over 60s a hard failure, since
 // it breaks both mTLS validity windows and audit ordering.
 func controlPlaneCheck(ctx context.Context, conf agent.Config) preflight.Check {
 	c := preflight.Check{Name: "control plane"}
@@ -238,7 +238,7 @@ func controlPlaneCheck(ctx context.Context, conf agent.Config) preflight.Check {
 //
 // The same VerifyEgress the reconcile loop calls after a start. R5-18: a
 // control that is only checked at creation time is a control that drifts, and
-// docs/plans/R4d-egress-isolation.md found a runtime that would have made that
+// dev/plans/R4d-egress-isolation.md found a runtime that would have made that
 // literal — a resolver injected on the container's own loopback, invisible to
 // any route check.
 func egressChecks(ctx context.Context, e env) []preflight.Check {

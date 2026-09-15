@@ -2,8 +2,8 @@
 // the applier that puts one back.
 //
 // A snapshot is *desired* state — what somebody decided — and never observed
-// state. docs/plans/R2b-revisions.md gives the reasoning: an export is
-// "canonical, for provisioning and DR" (docs/specs/08-data-model.md §2), and
+// state. dev/plans/R2b-revisions.md gives the reasoning: an export is
+// "canonical, for provisioning and DR" (dev/specs/08-data-model.md §2), and
 // replaying a node's last heartbeat onto a rebuilt control plane asserts
 // something false. It also decides what a diff means, since two revisions
 // differing because a node checked in would make `config diff` unreadable.
@@ -33,14 +33,14 @@ type Snapshot struct {
 	Deployments []Deployment `json:"deployments" toml:"deployment"`
 	Routes      []Route      `json:"routes" toml:"route"`
 	Limits      []Limit      `json:"limits" toml:"limits"`
-	// Grants are docs/specs/06-gateway.md §2's per-user model allowlist. They
+	// Grants are dev/specs/06-gateway.md §2's per-user model allowlist. They
 	// are in the snapshot because they are a decision an administrator made,
 	// and they are here *now* rather than when throttling lands because this
-	// struct is a hash preimage — docs/plans/mvp.md §2 makes adding a field to
+	// struct is a hash preimage — dev/plans/mvp.md §2 makes adding a field to
 	// it later the change that invalidates every revision chain a customer
 	// already holds.
 	Grants []Grant `json:"grants" toml:"grant"`
-	// Backends are operator-registered descriptors (docs/specs/04-backends.md
+	// Backends are operator-registered descriptors (dev/specs/04-backends.md
 	// §9). Built-ins are not here: they are compiled into the binary and are
 	// the same on every host, so recording them in a revision would be
 	// recording the build.
@@ -50,7 +50,7 @@ type Snapshot struct {
 	// declare its backends, and `config rollback` restores one that was
 	// removed — neither of which a side table outside the chain could do. And
 	// it is what carries a descriptor to a node: nothing else travels, and
-	// docs/specs/03-agent.md §1 gives the control plane no way to push.
+	// dev/specs/03-agent.md §1 gives the control plane no way to push.
 	Backends []Backend `json:"backends" toml:"backend"`
 	Policy   *Policy   `json:"policy" toml:"policy,omitempty"`
 }
@@ -119,10 +119,10 @@ type Deployment struct {
 	Backend  string `json:"backend" toml:"backend"`
 	// Image is the pinned container image the deployment runs, `repo@sha256:…`.
 	//
-	// It is here rather than resolved on the node because docs/adr/0004 pins
+	// It is here rather than resolved on the node because dev/adr/0004 pins
 	// every component by digest and a deployment is no different, and it is
 	// here *now* rather than when the backend catalog (R6) can fill it in
-	// because this struct is a hash preimage: docs/plans/mvp.md §2 makes adding
+	// because this struct is a hash preimage: dev/plans/mvp.md §2 makes adding
 	// a field to it later the one change that invalidates every revision chain
 	// a customer already holds.
 	Image     string `json:"image" toml:"image,omitempty"`
@@ -144,7 +144,7 @@ type Deployment struct {
 	// Disabled is `nodary model disable`: the deployment and its weights stay
 	// exactly as registered, but the agent is not to run it. `nodary model
 	// enable` flips it back without re-registering anything
-	// (docs/specs/05-catalog.md §4). No `omitempty` on the json tag — this
+	// (dev/specs/05-catalog.md §4). No `omitempty` on the json tag — this
 	// struct is a hash preimage (see Image's comment above) and every field
 	// must always be present in it.
 	Disabled bool `json:"disabled" toml:"disabled,omitempty"`
@@ -405,7 +405,7 @@ func readPolicy(ctx context.Context, q Querier, s *Snapshot) error {
 // A snapshot is what `config export` writes and `config apply` reads, and an
 // operator editing that file has names in front of them, not `usr_` ids. It is
 // also what makes an export portable: restoring onto a rebuilt control plane
-// where the same people have different ids is docs/specs/08-data-model.md §2's
+// where the same people have different ids is dev/specs/08-data-model.md §2's
 // "canonical, for provisioning and DR", and an id-keyed grant would not survive
 // it.
 func readGrants(ctx context.Context, q Querier, s *Snapshot) error {

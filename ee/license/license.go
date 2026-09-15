@@ -2,7 +2,7 @@
 //
 // Commercial. See ee/LICENSE.
 //
-// Two properties from docs/adr/0005-editions-and-the-advisory-feed.md are not
+// Two properties from dev/adr/0005-editions-and-the-advisory-feed.md are not
 // negotiable and are implemented here rather than promised:
 //
 //  1. An unlicensed install carries every commercial verb and explains what it

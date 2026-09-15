@@ -184,7 +184,7 @@ func TestTheEncoderAcceptsEverythingItEmits(t *testing.T) {
 	// literal asserts an exact integer, where a decimal literal asserts the
 	// real number nearest to it and rounding is JSON's defined semantics for
 	// it — and because narrowing what the encoder accepts is a change to the
-	// hash preimage's domain, which docs/plans/mvp.md §2 puts among the
+	// hash preimage's domain, which dev/plans/mvp.md §2 puts among the
 	// things that cannot be retrofitted. Idempotency, the property this test
 	// exists for, holds either way: the output re-encodes to itself.
 	once, err := EncodeJSON([]byte("9007199254740993.0"))

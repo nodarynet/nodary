@@ -30,7 +30,7 @@ import (
 const renewRetry = time.Hour
 
 // renewalAt is when a certificate should be replaced: two thirds of the way
-// through its life, per docs/specs/02-enrollment.md §3.
+// through its life, per dev/specs/02-enrollment.md §3.
 //
 // Computed from the certificate rather than from a constant, so a control
 // plane that starts issuing a different lifetime moves its agents' schedules
@@ -133,7 +133,7 @@ func (d *Daemon) Renew(ctx context.Context) error {
 //
 // It is two renames rather than one, so a crash between them leaves a new
 // certificate beside an old key. The window is two syscalls wide and the
-// recovery is docs/specs/02-enrollment.md §3's: an administrator re-enrolls
+// recovery is dev/specs/02-enrollment.md §3's: an administrator re-enrolls
 // the node, which keeps its state and its approval. Closing it properly means
 // the agent holding both pairs and choosing at startup, which is more
 // machinery than a two-syscall window is worth.

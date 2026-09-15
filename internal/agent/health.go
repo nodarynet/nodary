@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// HealthInterval and UnhealthyAfter are docs/specs/03-agent.md §7: the agent
+// HealthInterval and UnhealthyAfter are dev/specs/03-agent.md §7: the agent
 // polls each deployment's health endpoint every 10s, and three consecutive
 // failures mark it unhealthy.
 //
@@ -49,7 +49,7 @@ type Health struct {
 
 // NewHealth returns a tracker that probes over loopback.
 //
-// docs/specs/03-agent.md §5 publishes a deployment's port on 127.0.0.1 only, so
+// dev/specs/03-agent.md §5 publishes a deployment's port on 127.0.0.1 only, so
 // this is the only address that can reach it — and a probe that succeeded from
 // anywhere else would mean the isolation had failed.
 func NewHealth() *Health {
@@ -74,7 +74,7 @@ type Status struct {
 
 // Poll probes every unit once and returns what it found.
 //
-// It reports and does not act. docs/specs/03-agent.md §7 splits the two: the
+// It reports and does not act. dev/specs/03-agent.md §7 splits the two: the
 // agent marks a deployment unhealthy, "the control plane removes it from its
 // route, and Restart=always handles recovery". A route is fleet state — another
 // node may hold the last ready replica — so a node that withdrew itself would

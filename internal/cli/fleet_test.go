@@ -56,7 +56,7 @@ func TestNodeListNamesWhatAnOperatorMustActOn(t *testing.T) {
 		t.Errorf("a node offering nothing is not called out:\n%s", stderr)
 	}
 	// Guidance is diagnostic and belongs on stderr, so `node list | column` is
-	// still a table (docs/specs/10-cli.md §4).
+	// still a table (dev/specs/10-cli.md §4).
 	if strings.Contains(stdout, "nodary node approve") {
 		t.Errorf("guidance leaked onto stdout:\n%s", stdout)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// Listing limits, from docs/specs/09-api.md §2.
+// Listing limits, from dev/specs/09-api.md §2.
 const (
 	DefaultLimit = 50
 	MaxLimit     = 500
@@ -36,7 +36,7 @@ type Filter struct {
 	FromSeq int64
 	// BeforeSeq selects records strictly before a sequence number. Listings are
 	// descending, so this is what a page continues from: an upper bound, where
-	// FromSeq is a lower one (docs/specs/09-api.md §2).
+	// FromSeq is a lower one (dev/specs/09-api.md §2).
 	BeforeSeq int64
 	// Limit caps the result: zero means DefaultLimit, Unlimited means every
 	// match. Anything above MaxLimit is an error rather than a silent clamp,
@@ -44,7 +44,7 @@ type Filter struct {
 	// wrong answer quietly.
 	Limit int
 	// Ascending walks oldest-first. Listings are descending
-	// (docs/specs/09-api.md §2); an export is ascending, because a chain reads
+	// (dev/specs/09-api.md §2); an export is ascending, because a chain reads
 	// forwards.
 	Ascending bool
 }

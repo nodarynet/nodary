@@ -17,7 +17,7 @@ import (
 // Measured directly on systemd 255: the same binary at /tmp/x with
 // PrivateTmp=true exits 203, and with PrivateTmp=false exits 0. So the unit's
 // ExecStart has to be a path that exists inside the service's namespace, which
-// is what docs/specs/01-install.md §12 fixes at /opt/nodary/current/nodary.
+// is what dev/specs/01-install.md §12 fixes at /opt/nodary/current/nodary.
 func TestUnitsInvokeTheStablePathAndNotWhereverTheBinaryIs(t *testing.T) {
 	for role, units := range map[string]map[string]string{
 		"server": Units("server"), "node": Units("node"),

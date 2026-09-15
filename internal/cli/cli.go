@@ -1,6 +1,6 @@
 // Package cli implements the nodary command surface.
 //
-// Output discipline (docs/specs/10-cli.md §4): human output goes to stdout,
+// Output discipline (dev/specs/10-cli.md §4): human output goes to stdout,
 // diagnostics and progress to stderr, and `--format json` emits a stable
 // schema to stdout and nothing else.
 package cli
@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-// Exit codes are the contract in docs/specs/10-cli.md §5.
+// Exit codes are the contract in dev/specs/10-cli.md §5.
 const (
 	ExitOK           = 0
 	ExitFailure      = 1
@@ -28,7 +28,7 @@ const (
 )
 
 // ExitCancelled is what an operator answering "no" at the confirmation gets.
-// docs/specs/10-cli.md §5 has no code for it, and 0 would tell a script the
+// dev/specs/10-cli.md §5 has no code for it, and 0 would tell a script the
 // change was applied. 1 is the honest answer: the command did not do its job.
 const ExitCancelled = ExitFailure
 
@@ -59,7 +59,7 @@ type env struct {
 	defaultDB string
 	// tty reports that there is a human who can answer a prompt. It is a field
 	// rather than a check on stdin because an io.Reader cannot be asked, and
-	// because a test needs to drive both sides of docs/specs/07-identity-audit.md
+	// because a test needs to drive both sides of dev/specs/07-identity-audit.md
 	// §2 — the interactive path that prompts, and the unattended path that is
 	// refused for having nobody to prompt.
 	tty bool
@@ -92,7 +92,7 @@ func isTerminal(r io.Reader) bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// planned lists the verbs specified in docs/specs/10-cli.md that this release
+// planned lists the verbs specified in dev/specs/10-cli.md that this release
 // does not implement yet. They are recognized rather than rejected so the
 // error says "not in this release" instead of "unknown command", which is the
 // difference between a user waiting and a user filing a bug.
@@ -101,7 +101,7 @@ var planned = map[string]string{}
 // Main runs one invocation and returns its exit code.
 //
 // stdin is a parameter because one verb reads from it: TOTP enrollment asks for
-// a code back before it writes anything (docs/specs/07-identity-audit.md §1).
+// a code back before it writes anything (dev/specs/07-identity-audit.md §1).
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return dispatch(env{stdin: stdin, stdout: stdout, stderr: stderr, tty: isTerminal(stdin)}, args)
 }
@@ -188,7 +188,7 @@ func dispatch(e env, args []string) int {
 	if what, ok := planned[args[0]]; ok {
 		fmt.Fprintf(stderr, "nodary %s: %s is not implemented in this release (%s)\n",
 			args[0], what, versionString())
-		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show|register|remove|build|rebuild`, `bundle create|show|open`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See docs/specs/10-cli.md.\n")
+		fmt.Fprintf(stderr, "This release implements `version`, `components`, `audit`, `user`, `token`, `policy`, `license`, `evidence`, `config`, `server`, `node list|show|install|enroll|approve|drain|revoke|leave|verify-egress`, `model register|enable|disable|restart|restage|unstage`, `route list|show|set`, `backend list|show|register|remove|build|rebuild`, `bundle create|show|open`, `backup create|restore`, `status`, `restart`, `upgrade`, `agent plan|run|egress-probe|stage`, `gateway start`, `limits`, `usage`, `login`, `logout` and `doctor`. See dev/specs/10-cli.md.\n")
 		return ExitFailure
 	}
 
@@ -302,7 +302,7 @@ Global flags:
   --server URL         Act against a control plane over the network. Run nodary login
                        first; only the verbs that serve it remotely accept it
 
-Documentation: docs/specs/
+Documentation: dev/specs/
 `)
 }
 
@@ -333,7 +333,7 @@ func newFlagSet(e env, name string) *flag.FlagSet {
 // It exists to separate -h from a bad flag. flag.ContinueOnError reports both
 // as an error from Parse, so every verb returned ExitUsage with the help text
 // on stderr — while `nodary --help` puts its own on stdout and exits 0. A
-// requested help listing is human output (docs/specs/10-cli.md §4) and is not
+// requested help listing is human output (dev/specs/10-cli.md §4) and is not
 // "a usage error — bad flags, missing arguments" (§5), so `nodary audit list -h
 // | less` showed an empty screen and scripts saw a failure.
 func parseFlags(e env, fs *flag.FlagSet, args []string) int {

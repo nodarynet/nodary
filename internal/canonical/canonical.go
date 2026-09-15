@@ -1,9 +1,9 @@
 // Package canonical implements RFC 8785 (JSON Canonicalization Scheme).
 //
 // Every hash in nodary is taken over the bytes this package produces: the audit
-// chain's `hash` and `prev_hash` (docs/specs/07-identity-audit.md §3), the
+// chain's `hash` and `prev_hash` (dev/specs/07-identity-audit.md §3), the
 // `intent_hash` binding an approved preview to what was applied (§2), and the
-// configuration revision chain (docs/specs/08-data-model.md §2). Changing these
+// configuration revision chain (dev/specs/08-data-model.md §2). Changing these
 // bytes after records exist would invalidate history that was never tampered
 // with, so the output is a frozen contract rather than an implementation
 // detail.

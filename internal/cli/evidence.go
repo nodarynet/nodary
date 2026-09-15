@@ -15,7 +15,7 @@ import (
 
 // members is what an unlicensed install prints instead of a bundle.
 //
-// docs/adr/0005: the commercial surface is discoverable, never hidden. A verb
+// dev/adr/0005: the commercial surface is discoverable, never hidden. A verb
 // that is merely absent is discovered by a customer after they have chosen
 // something else.
 var members = []struct{ name, what string }{

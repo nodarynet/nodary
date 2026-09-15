@@ -1,10 +1,10 @@
-// Package attest holds the rules of docs/specs/07-identity-audit.md §2: the
+// Package attest holds the rules of dev/specs/07-identity-audit.md §2: the
 // preview an operator approves, the hash that binds it to what is applied, and
 // the ceremony the active profile demands before either happens.
 //
 // It performs no I/O and prompts for nothing. The CLI reads a terminal and R2's
 // HTTP layer reads headers, and both ask the same questions here — which is the
-// cross-cutting constraint in docs/tasks/README.md applied before there is a
+// cross-cutting constraint in dev/tasks/README.md applied before there is a
 // second front end to disagree with.
 package attest
 
@@ -23,14 +23,14 @@ import (
 //
 // It is a function rather than a value because binding a value computed once
 // binds nothing: it would still match after the world moved, having never been
-// recomputed. docs/specs/07-identity-audit.md §3 requires the change be
+// recomputed. dev/specs/07-identity-audit.md §3 requires the change be
 // re-rendered and re-hashed at apply time, and this is what gets run twice.
 type Render func(context.Context, *sql.Tx) (any, error)
 
 // Errors, mapped to exit codes by the caller. The distinction that matters is
 // ErrTOTPRequired against a code that simply failed to verify: the first is
 // policy refusing the operation, the second is a failed authentication, and
-// docs/specs/10-cli.md §5 gives them different codes.
+// dev/specs/10-cli.md §5 gives them different codes.
 var (
 	ErrIntentChanged       = errors.New("what would be applied is no longer what was previewed")
 	ErrJustification       = errors.New("policy requires a justification")
@@ -55,7 +55,7 @@ func Hash(change any) (string, error) {
 // Bind re-runs a render inside the mutation's transaction and refuses if the
 // result no longer hashes to what was approved.
 //
-// docs/specs/11-failure-modes.md §3: moving state between preview and apply
+// dev/specs/11-failure-modes.md §3: moving state between preview and apply
 // produces a refusal, not a silent apply of something the operator never saw.
 func Bind(ctx context.Context, tx *sql.Tx, r Render, approved string) (any, error) {
 	change, err := r(ctx, tx)
@@ -86,11 +86,11 @@ type Ceremony struct {
 	// inside the mutation, because spending the step is itself a write.
 	TOTPCode string
 	// Unattended reports that the credential was minted --allow-unattended.
-	// docs/specs/07-identity-audit.md §2 makes that grant the substitute for a
+	// dev/specs/07-identity-audit.md §2 makes that grant the substitute for a
 	// person being present, and the grant is itself in the chain.
 	Unattended bool
 	// Local reports the local-root principal: somebody running the CLI on the
-	// host with no credential, which docs/plans/R1c-identity.md resolves to
+	// host with no credential, which dev/plans/R1c-identity.md resolves to
 	// admin. It has no user row and therefore no TOTP seed, so a code cannot be
 	// demanded of it -- and the same reasoning R1c gives applies unchanged:
 	// anyone who can open the database can already do anything to it, so asking
@@ -144,7 +144,7 @@ func Require(p policy.Profile, c Ceremony) error {
 // AllowUnattendedMint reports whether a token may be minted with the grant.
 //
 // Refused outright under a profile that sets allow_unattended_tokens = false
-// (docs/specs/07-identity-audit.md §2), because the grant is the whole route
+// (dev/specs/07-identity-audit.md §2), because the grant is the whole route
 // around re-authentication and a profile that closes it must close it at the
 // mint rather than at every later use.
 func AllowUnattendedMint(p policy.Profile) error {

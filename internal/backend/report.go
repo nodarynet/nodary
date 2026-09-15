@@ -28,7 +28,7 @@ type Report struct {
 	Capabilities  Capabilities `json:"capabilities"`
 	// Args are the canonical parameter names this backend translates, and
 	// Extra the backend-specific ones it merely passes through. The
-	// distinction is the whole of docs/specs/04-backends.md §3, so it survives
+	// distinction is the whole of dev/specs/04-backends.md §3, so it survives
 	// into the rendering rather than being flattened into one list.
 	Args  []string `json:"args"`
 	Extra []string `json:"extra,omitempty"`

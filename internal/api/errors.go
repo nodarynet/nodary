@@ -1,4 +1,4 @@
-// Package api serves docs/specs/09-api.md over HTTP.
+// Package api serves dev/specs/09-api.md over HTTP.
 //
 // It holds no business logic. Every mutating handler builds an
 // identity.Principal, an attest.Ceremony and a core.Change and hands them to
@@ -24,7 +24,7 @@ import (
 	"github.com/nodarynet/nodary/internal/replay"
 )
 
-// Error is the envelope of docs/specs/09-api.md §3. `code` is stable and
+// Error is the envelope of dev/specs/09-api.md §3. `code` is stable and
 // machine-readable; `message` is for a human.
 type Error struct {
 	Code      string         `json:"code"`
@@ -104,7 +104,7 @@ func statusFor(err error) (int, string) {
 		return http.StatusForbidden, "unattended_forbidden"
 	case errors.Is(err, attest.ErrLifetimeTooLong):
 		return http.StatusForbidden, "lifetime_too_long"
-	// docs/specs/08-data-model.md §4's refusal. Its own code because a client
+	// dev/specs/08-data-model.md §4's refusal. Its own code because a client
 	// acts on it differently from every other 403 here: nothing about the
 	// credential is wrong, and the fix is a directory mode on the host.
 	case errors.Is(err, backup.ErrExposedDestination):
@@ -114,7 +114,7 @@ func statusFor(err error) (int, string) {
 
 	// Two codes at one status, because the CLI answers them with two different
 	// exit codes and 09 §3's `code` is what a client has to tell them apart by.
-	// docs/specs/10-cli.md §5 calls exit 2 "bad flags, missing arguments" — a
+	// dev/specs/10-cli.md §5 calls exit 2 "bad flags, missing arguments" — a
 	// name or a role spelled wrong is that, and a configuration document this
 	// control plane will not apply is not: it is a general failure, and the two
 	// front ends have to agree on which.

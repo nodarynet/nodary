@@ -297,7 +297,7 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
-// docs/specs/08-data-model.md §2 calls the export "canonical, for provisioning
+// dev/specs/08-data-model.md §2 calls the export "canonical, for provisioning
 // and DR". That is a claim about a *different machine*: exporting and applying
 // to the same database proves much less, because everything is already there.
 //
@@ -505,7 +505,7 @@ artifact = "hf-cache"
 	}
 }
 
-// TestAModelWhoseArtifactItsBackendCannotReadIsRefused is docs/specs/05-catalog.md
+// TestAModelWhoseArtifactItsBackendCannotReadIsRefused is dev/specs/05-catalog.md
 // §1's "must match the backend's weights_layout", enforced where it can still
 // be corrected.
 //
@@ -573,7 +573,7 @@ func TestARouteChangeAgainstANamedDatabaseOnlyPrintsTheSync(t *testing.T) {
 // lines from the change list, so the verb reported adding a model and said
 // nothing about the access it had destroyed.
 //
-// docs/specs/06-gateway.md §2 is deny-by-default, which is what makes this
+// dev/specs/06-gateway.md §2 is deny-by-default, which is what makes this
 // undetectable from the outside: the symptom is 403 on a fleet where nothing
 // else moved, and 403 is also what correct behavior looks like.
 func TestAPartialApplyDoesNotRevokeEveryGrant(t *testing.T) {

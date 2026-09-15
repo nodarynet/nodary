@@ -35,7 +35,7 @@ func tokenForRole(t *testing.T, f *fixture, name string, role identity.Role) str
 }
 
 // `GET /users` is gated by PermStateRead, so every viewer in the fleet can read
-// it. docs/specs/07-identity-audit.md §1 gives a viewer "read state", and an
+// it. dev/specs/07-identity-audit.md §1 gives a viewer "read state", and an
 // account's contact address is not fleet state: it is personal data attached to
 // a person, and a listing that hands every viewer every address is a harvest
 // rather than a read.

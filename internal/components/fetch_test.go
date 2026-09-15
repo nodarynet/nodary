@@ -71,7 +71,7 @@ func TestFetchVerifiesBeforeItPlaces(t *testing.T) {
 	}
 }
 
-// docs/specs/01-install.md §2 makes verification unskippable for the binary,
+// dev/specs/01-install.md §2 makes verification unskippable for the binary,
 // and a component arrives over the same kind of channel.
 func TestFetchRefusesAnArtifactThatDoesNotMatchItsDigest(t *testing.T) {
 	srv, _ := serveArtifact(t, []byte("not what the manifest pins"))
@@ -129,7 +129,7 @@ func TestATamperedCacheIsRefusedRatherThanReplaced(t *testing.T) {
 }
 
 // A node fetches from its control plane and contacts nothing else:
-// docs/specs/01-install.md §3.
+// dev/specs/01-install.md §3.
 func TestABaseURLPointsAFetchAtTheMirror(t *testing.T) {
 	body := []byte("served by the control plane")
 	sum := sha256.Sum256(body)

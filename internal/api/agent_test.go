@@ -27,7 +27,7 @@ type enrolledNode struct {
 	client *http.Client
 }
 
-// join runs docs/specs/02-enrollment.md §1 end to end and returns the node.
+// join runs dev/specs/02-enrollment.md §1 end to end and returns the node.
 func (f *fixture) join(name string) enrolledNode {
 	f.t.Helper()
 	key, csr := csrFor(f.t)
@@ -132,7 +132,7 @@ func (f *fixture) place(node, deployment string, gpu int) {
 
 const hex64 = "0000000000000000000000000000000000000000000000000000000000000000"
 
-// The whole of docs/specs/02-enrollment.md §1 and §2, in the order an operator
+// The whole of dev/specs/02-enrollment.md §1 and §2, in the order an operator
 // performs it. The assertion that matters is the middle one: a node that has
 // enrolled and not been approved holds a valid certificate, can heartbeat, and
 // receives no work.
@@ -329,7 +329,7 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 // R4-04: the approval record has to name the administrator, carry their
 // justification, and record the terms the node advertised — so that neither
 // side can later claim terms the other did not see
-// (docs/specs/02-enrollment.md §1).
+// (dev/specs/02-enrollment.md §1).
 //
 // The offer is asserted through the dry run because that is the preview
 // core.Act hashes into intent_hash: a field visible only in a log line beside

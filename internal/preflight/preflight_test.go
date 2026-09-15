@@ -45,7 +45,7 @@ func find(t *testing.T, r Report, name string) Check {
 	return Check{}
 }
 
-// docs/specs/01-install.md §11 opens with this, and it is a constraint on the
+// dev/specs/01-install.md §11 opens with this, and it is a constraint on the
 // control flow: an implementation that returned at the first failure would
 // satisfy the output format and miss the point entirely.
 func TestEveryCheckRunsEvenWhenOneFails(t *testing.T) {

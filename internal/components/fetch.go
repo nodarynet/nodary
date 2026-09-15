@@ -20,7 +20,7 @@ import (
 
 // ErrDigestMismatch is an artifact whose bytes are not what the manifest pins.
 //
-// It is a hard stop everywhere it appears. docs/specs/01-install.md §2 makes
+// It is a hard stop everywhere it appears. dev/specs/01-install.md §2 makes
 // signature and digest verification of the binary itself unskippable, and a
 // component is the same kind of thing arriving over the same kind of channel.
 var ErrDigestMismatch = errors.New("artifact does not match its pinned digest")
@@ -32,7 +32,7 @@ const (
 	// PlacedFetched means nodary downloaded it.
 	PlacedFetched Placement = "fetched"
 	// PlacedCached means it was already present and its digest matched, so
-	// nothing was downloaded — docs/specs/01-install.md §4's "skip anything
+	// nothing was downloaded — dev/specs/01-install.md §4's "skip anything
 	// already present and correct".
 	PlacedCached Placement = "cached"
 )
@@ -59,7 +59,7 @@ type FetchOptions struct {
 	Client *http.Client
 	// BaseURL replaces the manifest's own URL host, which is what makes a node
 	// fetch from its control plane rather than from upstream
-	// (docs/specs/01-install.md §3). Empty means fetch from the manifest's URL.
+	// (dev/specs/01-install.md §3). Empty means fetch from the manifest's URL.
 	BaseURL string
 	Timeout time.Duration
 }
@@ -216,7 +216,7 @@ type Owned struct {
 	// R5-11: ownership is recorded, never inferred. A host may already have
 	// containerd, installed by its operator and in use by something else; an
 	// uninstall that removed it because the name appears in nodary's manifest
-	// would take that down — on a machine docs/specs/12-node-guardrails.md
+	// would take that down — on a machine dev/specs/12-node-guardrails.md
 	// opens by pointing out is rarely only a nodary node.
 	Placed bool   `json:"placed"`
 	At     string `json:"at"`

@@ -29,7 +29,7 @@ func (p Principal) Local() bool { return p.Token.ID == "" }
 
 // LocalRoot is the principal for a local invocation by root.
 //
-// docs/specs/07-identity-audit.md §1 argues for it directly: an appliance that
+// dev/specs/07-identity-audit.md §1 argues for it directly: an appliance that
 // cannot authenticate its own administrator when the network is degraded is an
 // appliance that cannot be recovered. It is also honest about what is already
 // true — anyone who can open the database can change it, and the hash chain is

@@ -13,14 +13,14 @@ import (
 
 // cmdModelToggle is `nodary model enable`/`disable` — toggling an existing
 // deployment without re-registering anything. `nodary model register`
-// (already built) does everything docs/specs/05-catalog.md §4 describes for
+// (already built) does everything dev/specs/05-catalog.md §4 describes for
 // *creating* one, so this is only the on/off switch register never needed.
 //
 // **Resolves to every deployment naming this model, not to one row.**
 // `deployment.id` is the only primary key on that table — nothing stops two
 // deployments of one model on one node (replicas) — so treating (model,
 // node) as naming a single row would be wrong, and `--node` stays optional
-// (fleet-wide when omitted) exactly as docs/specs/05-catalog.md §4's own
+// (fleet-wide when omitted) exactly as dev/specs/05-catalog.md §4's own
 // example shows it: `nodary model disable google/gemma-4-31b-it [--node
 // gpu-01]`.
 func cmdModelToggle(e env, args []string, verb string, disabled bool) int {

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// docs/specs/11-failure-modes.md §2 and docs/specs/03-agent.md's reboot safety
+// dev/specs/11-failure-modes.md §2 and dev/specs/03-agent.md's reboot safety
 // both state the same "never" twice over: a GPU falling off the bus is
 // **never auto-rebooted**, and on a host with an encrypted root and no network
 // unlock — or on WSL2, where `reboot` inside the distribution does not restart

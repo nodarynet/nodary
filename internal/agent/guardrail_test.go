@@ -31,7 +31,7 @@ func withGuardrails(t *testing.T, c NodeConfig, deps ...api.DesiredDeployment) P
 	return p
 }
 
-// R4-14, docs/specs/12-node-guardrails.md §1. The limits were parsed, validated
+// R4-14, dev/specs/12-node-guardrails.md §1. The limits were parsed, validated
 // and advertised, and nothing evaluated the desired-state document against
 // them: a control plane could place a backend the node excluded, a VRAM
 // fraction above its ceiling, or more deployments than it said it would take,
@@ -160,7 +160,7 @@ func TestAnEmptyNodeConfigRefusesNothing(t *testing.T) {
 	}
 }
 
-// R4-16, docs/specs/12-node-guardrails.md §3. **A guardrail nobody dares touch
+// R4-16, dev/specs/12-node-guardrails.md §3. **A guardrail nobody dares touch
 // is not a guardrail.**
 //
 // This is the half Build cannot decide. A guardrail verdict produces no Unit,

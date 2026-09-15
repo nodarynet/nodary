@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// HeaderIdempotency is docs/specs/09-api.md §2's key, and HeaderReplay says a
+// HeaderIdempotency is dev/specs/09-api.md §2's key, and HeaderReplay says a
 // response is one that was made earlier.
 const (
 	HeaderIdempotency = "Idempotency-Key"
@@ -24,7 +24,7 @@ const maxIdempotentBody = 1 << 20
 // sealKind names what is sealed, as internal/secret requires.
 //
 // **Sealed, because a stored response can hold a secret.** `POST /tokens`
-// returns the plaintext token, and docs/specs/10-cli.md §4 says that is shown
+// returns the plaintext token, and dev/specs/10-cli.md §4 says that is shown
 // exactly once and is never readable again. A replay has to be able to return
 // it — that is the whole reason a client retries a mint — so the copy must not
 // be readable by anything that can read the database. It is sealed under

@@ -24,7 +24,7 @@ const CNIConfigDir = "/etc/cni/net.d"
 // operator can see whose it is.
 const IsolatedConfName = "10-nodary-isolated.conflist"
 
-// isolatedConf is docs/specs/03-agent.md §5's mechanism as CNI data.
+// isolatedConf is dev/specs/03-agent.md §5's mechanism as CNI data.
 //
 // Three properties, and each is doing work:
 //
@@ -52,7 +52,7 @@ const IsolatedConfName = "10-nodary-isolated.conflist"
 // outcome rather than trusting the configuration — it tries to resolve a name
 // that exists and requires the attempt to fail, which catches a reachable
 // resolver however the container came by one.
-// docs/plans/R4d-egress-isolation.md
+// dev/plans/R4d-egress-isolation.md
 func isolatedConf() map[string]any {
 	return map[string]any{
 		"cniVersion": "1.0.0",
@@ -124,7 +124,7 @@ func RenderIsolatedConf() ([]byte, error) {
 	return append(body, '\n'), nil
 }
 
-// EnsureIsolatedNetwork creates docs/specs/03-agent.md §5's network.
+// EnsureIsolatedNetwork creates dev/specs/03-agent.md §5's network.
 //
 // Everything here needs root, which the agent has because it drives systemctl.
 // It is idempotent: the configuration is compared before it is written, and
@@ -191,7 +191,7 @@ const (
 	nodaryChain = "isolate"
 )
 
-// ensureDropRule installs the nftables rule of docs/specs/03-agent.md §5.
+// ensureDropRule installs the nftables rule of dev/specs/03-agent.md §5.
 //
 // A dedicated table rather than a rule appended to `filter`: a node is rarely
 // only a nodary node, and appending to a chain somebody else owns makes

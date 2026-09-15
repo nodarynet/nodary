@@ -16,7 +16,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 )
 
-// Password hashing is PBKDF2-SHA256 (docs/adr/0006-cui-boundary-and-fips.md).
+// Password hashing is PBKDF2-SHA256 (dev/adr/0006-cui-boundary-and-fips.md).
 //
 // argon2id is the stronger password KDF and is not FIPS-approved. ADR 0006 puts
 // nodary inside a CUI boundary, and arguing to an assessor that password
@@ -26,7 +26,7 @@ const (
 	// pbkdf2SaltBytes is 16 because Go's FIPS module refuses a salt shorter
 	// than 128 bits. Measured, not chosen: under GODEBUG=fips140=only a 15-byte
 	// salt is an error, so this is a correctness requirement rather than a
-	// preference (docs/spike-fips-and-manifest.md).
+	// preference (dev/spike-fips-and-manifest.md).
 	pbkdf2SaltBytes = 16
 	// pbkdf2Iterations is ours to pick: Go enforces no floor. It is stored with
 	// each hash so it can be raised without invalidating anything.

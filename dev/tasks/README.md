@@ -4,7 +4,7 @@
 
 ## What this is
 
-A tracker, derived from [`docs/specs/`](../specs/) and disposable. It exists to
+A tracker, derived from [`dev/specs/`](../specs/) and disposable. It exists to
 say what is done, what is next, and where each piece of work comes from.
 
 **The specs are authoritative.** Nothing here restates a decision; every task
@@ -14,7 +14,7 @@ spec, and the tasks follow.
 
 **How a task gets built lives elsewhere.** A milestone is too large to design in
 one pass, so each is split into slices, and every slice has a plan in
-[`docs/plans/`](../plans/) carrying its design, the decisions behind it, and its
+[`dev/plans/`](../plans/) carrying its design, the decisions behind it, and its
 in-flight steps. A checkbox here flips only when a task's `done:` criteria
 actually pass — work in progress is visible in the plan rather than as a third
 checkbox state.

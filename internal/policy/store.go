@@ -14,7 +14,7 @@ import (
 // Active reads the profile in force.
 //
 // A fresh install has no row, and that absence means `default`
-// (docs/specs/07-identity-audit.md §4). Seeding a row at migration time would
+// (dev/specs/07-identity-audit.md §4). Seeding a row at migration time would
 // claim somebody applied it while no audit record named who, so the default is
 // resolved on read instead.
 func Active(ctx context.Context, q interface {

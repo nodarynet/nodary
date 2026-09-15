@@ -10,7 +10,7 @@ import (
 
 // EncodeTOML renders a snapshot as the file `config export` writes.
 //
-// docs/specs/08-data-model.md §2: "The database is authoritative; the export is
+// dev/specs/08-data-model.md §2: "The database is authoritative; the export is
 // a convenience." So this is a rendering, not a second source of truth, and it
 // is TOML rather than the JSON the chain hashes because a human edits this one
 // and TOML has comments.
@@ -43,7 +43,7 @@ const tomlHeader = `# nodary configuration, exported.
 // DecodeTOML reads a configuration file.
 //
 // Unknown keys are refused, for the same reason a policy profile refuses them
-// (docs/plans/R1d-policy.md): this file is reviewed by reading it, and a key
+// (dev/plans/R1d-policy.md): this file is reviewed by reading it, and a key
 // nobody applies is a decision an operator believes is in force.
 func DecodeTOML(b []byte) (*Snapshot, error) {
 	var s Snapshot

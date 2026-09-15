@@ -148,7 +148,7 @@ func TestEveryFieldChangesTheHash(t *testing.T) {
 	}
 }
 
-// docs/plans/R1a-storage-foundation.md froze this: an unset optional is null,
+// dev/plans/R1a-storage-foundation.md froze this: an unset optional is null,
 // never absent and never "". Absent, null and empty are three different hashes.
 func TestUnsetOptionalsEncodeAsNull(t *testing.T) {
 	r := sample()

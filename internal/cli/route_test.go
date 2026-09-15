@@ -69,7 +69,7 @@ func TestRouteShowRefusesAnUnknownName(t *testing.T) {
 	}
 }
 
-// The asymmetric case docs/specs/05-catalog.md §5 names: canarying a second
+// The asymmetric case dev/specs/05-catalog.md §5 names: canarying a second
 // backend onto an existing route without touching the first. Both
 // deployments have to be real, registered rows — routes may only name a
 // deployment this control plane actually has.

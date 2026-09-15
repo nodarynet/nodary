@@ -67,7 +67,7 @@ func (a *appliance) register(t *testing.T, models string, extra ...string) (int,
 	return code, stderr
 }
 
-// docs/specs/05-catalog.md §2: rejected at registration, and the rejection
+// dev/specs/05-catalog.md §2: rejected at registration, and the rejection
 // written to the chain with the actor and the attempted origin. A refusal that
 // left no record would make the control unprovable, which is the whole point of
 // having it here rather than in tribal knowledge.
@@ -137,7 +137,7 @@ func TestAnAllowedOriginRegisters(t *testing.T) {
 	}
 }
 
-// docs/specs/11-failure-modes.md: a model whose origin *becomes* denied has its
+// dev/specs/11-failure-modes.md: a model whose origin *becomes* denied has its
 // deployments **flagged, not stopped**. Refusing every later document that
 // merely restates the model would stop them by another road — the operator
 // could change nothing else in the fleet until they deleted it.
@@ -172,7 +172,7 @@ func TestTighteningPolicyDoesNotStopAModelAlreadyRegistered(t *testing.T) {
 	}
 }
 
-// docs/specs/05-catalog.md §2: deployments referencing a model whose origin
+// dev/specs/05-catalog.md §2: deployments referencing a model whose origin
 // later becomes denied are flagged, not silently stopped. The moment to show
 // that is when the operator applies the profile, inside the preview they
 // attest to — a flag nobody is shown at the moment of the decision is not one.

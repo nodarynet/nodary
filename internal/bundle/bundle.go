@@ -1,4 +1,4 @@
-// Package bundle is the offline install artifact of docs/specs/01-install.md §6.
+// Package bundle is the offline install artifact of dev/specs/01-install.md §6.
 //
 // A bundle is built on a connected machine and carries what an air-gapped site
 // cannot fetch: the pinned archives and binaries, and the container images a

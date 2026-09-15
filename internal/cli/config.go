@@ -115,7 +115,7 @@ func cmdConfigShow(e env, args []string) int {
 
 func cmdConfigExport(e env, args []string) int {
 	// Export is show without the revision flag and without a text/json choice:
-	// docs/specs/08-data-model.md §2 says it emits the file `apply -f` reads.
+	// dev/specs/08-data-model.md §2 says it emits the file `apply -f` reads.
 	fs := newFlagSet(e, "config export")
 	dbPath := dbFlag(fs)
 	server, credsPath := serverFlag(fs), credentialsFlag(fs)

@@ -455,7 +455,7 @@ func TestStoredTimesRoundTrip(t *testing.T) {
 
 // A join token is the only credential in the product that is spent rather than
 // presented, so the thing worth asserting is that spending it is final.
-// docs/specs/11-failure-modes.md §3 names the replay directly.
+// dev/specs/11-failure-modes.md §3 names the replay directly.
 func TestAJoinTokenIsBurnedOnUse(t *testing.T) {
 	f := newFixture(t)
 	_, plain := f.mintJoin(2, f.now.Add(time.Hour))

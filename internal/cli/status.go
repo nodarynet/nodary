@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// cmdStatus is docs/specs/10-cli.md §1's whole-appliance verb: what is
+// cmdStatus is dev/specs/10-cli.md §1's whole-appliance verb: what is
 // installed on this host, and is it running.
 //
 // **One verb for a host that is both.** `nodary server status` reads

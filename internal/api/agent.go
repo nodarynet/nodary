@@ -21,29 +21,29 @@ import (
 )
 
 // IsolatedNetwork is the CNI network every serving deployment attaches to.
-// docs/specs/03-agent.md §5 — it is the egress control, and R4-26 builds it.
+// dev/specs/03-agent.md §5 — it is the egress control, and R4-26 builds it.
 const IsolatedNetwork = "nodary-isolated"
 
-// pollInterval and pollWindow implement docs/specs/03-agent.md §1's long-poll.
+// pollInterval and pollWindow implement dev/specs/03-agent.md §1's long-poll.
 //
 // The handler re-reads one indexed row once a second. For the fleet an SMB
 // runs, that is unmeasurable next to a broadcast mechanism with a subscriber
 // lifecycle — and a notifier would be wrong the moment a second process writes
 // the database, which is not hypothetical because the CLI writes directly.
 // It becomes worth replacing when node count makes the read hot, and not
-// before (docs/plans/R4a-agent-protocol.md §7).
+// before (dev/plans/R4a-agent-protocol.md §7).
 const (
 	pollInterval = time.Second
 	pollWindow   = 60 * time.Second
 )
 
-// Desired is docs/specs/03-agent.md §2's document: the complete intended state
+// Desired is dev/specs/03-agent.md §2's document: the complete intended state
 // of one node, with no imperative commands anywhere in it.
 type Desired struct {
 	Rev      int64 `json:"rev"`
 	Protocol int   `json:"protocol"`
 	// ProtocolMin and ProtocolMax are the range this control plane accepts,
-	// which docs/specs/03-agent.md §4 requires it to advertise. An agent
+	// which dev/specs/03-agent.md §4 requires it to advertise. An agent
 	// outside the range stops reconciling and keeps running what is up; one
 	// that compared only against Protocol would stop for a server that speaks
 	// 2 and still accepts 1, which is every server mid-upgrade.
@@ -54,7 +54,7 @@ type Desired struct {
 	Staging     []DesiredStaging    `json:"staging"`
 	// Reset names weights the agent should discard and, if still desired
 	// elsewhere in this document, restage from nothing — `nodary model
-	// restage`/`unstage` (docs/specs/05-catalog.md §3-4). A model here may or
+	// restage`/`unstage` (dev/specs/05-catalog.md §3-4). A model here may or
 	// may not also appear in Staging: `unstage` targets one with no
 	// deployment on this node at all, so it can't be read off a Staging
 	// entry the way Build ordinarily resolves a layout.
@@ -62,7 +62,7 @@ type Desired struct {
 	// Restart names deployments `nodary model restart` (R4-36) asked to be
 	// cycled now, on this node — a one-shot request the agent consumes and
 	// acknowledges over the heartbeat, the same edge-triggered shape Reset
-	// already uses, since docs/specs/03-agent.md §2's protocol has no other
+	// already uses, since dev/specs/03-agent.md §2's protocol has no other
 	// way to express "do this now".
 	Restart []string `json:"restart,omitempty"`
 	// Backends are the operator-registered descriptors this node's deployments
@@ -143,7 +143,7 @@ type node struct {
 // Three things have to hold, and each closes a different door. The chain must
 // be verified — the listener does that, and its absence here means no
 // certificate was offered at all. The row must still exist and not have
-// departed, because docs/specs/02-enrollment.md §3 says a revoked node's
+// departed, because dev/specs/02-enrollment.md §3 says a revoked node's
 // certificate is refused on next contact and the server is the side that
 // enforces it. And the presented certificate must be the one currently on
 // record: a re-enrollment supersedes the previous certificate immediately,
@@ -175,7 +175,7 @@ func (s *Server) agentNode(r *http.Request) (node, error) {
 	return got, nil
 }
 
-// agentDesired is the long-poll of docs/specs/03-agent.md §1.
+// agentDesired is the long-poll of dev/specs/03-agent.md §1.
 //
 // Without `rev` it answers at once, which is a node's first contact. With
 // `rev=N` it blocks until the configuration has moved past N or the window
@@ -233,7 +233,7 @@ func (s *Server) waitForRevision(ctx context.Context, since int64, wait bool) (i
 // desiredFor renders one node's slice of the configuration.
 //
 // A node that is not `approved` or `ready` gets an empty document. That is
-// docs/specs/02-enrollment.md §2 in code: possession of a join token gets a
+// dev/specs/02-enrollment.md §2 in code: possession of a join token gets a
 // machine a certificate and a row, and an administrator's approval is what gets
 // it a workload. The node can heartbeat throughout, which is what makes the
 // waiting state visible rather than silent.
@@ -374,7 +374,7 @@ const EventTimeFormat = audit.TimeFormat
 
 // NodeEvent is something that happened on a node, on its way into the chain.
 //
-// docs/specs/03-agent.md §1 describes /agent/events as "audit records and
+// dev/specs/03-agent.md §1 describes /agent/events as "audit records and
 // lifecycle events generated on the node", and that is what this is: the
 // control plane writes one record per event, attributed to the node.
 type NodeEvent struct {
@@ -385,7 +385,7 @@ type NodeEvent struct {
 	ID string `json:"id"`
 	// At is the node's clock when this happened.
 	At string `json:"at"`
-	// Action is the vocabulary of docs/specs/07-identity-audit.md §3, prefixed
+	// Action is the vocabulary of dev/specs/07-identity-audit.md §3, prefixed
 	// `node.` so an event is never mistaken for an administrative act.
 	Action string         `json:"action"`
 	Target string         `json:"target,omitempty"`

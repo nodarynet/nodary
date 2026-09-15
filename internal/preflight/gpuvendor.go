@@ -56,7 +56,7 @@ type DRMCard struct {
 // **Second, never instead.** /sys/class/drm holds no cards at all on WSL2 — the
 // only device there is /dev/dxg — so a sysfs enumerator that replaced a driver
 // query would report nothing on the one platform this fleet has been proved
-// against (docs/plans/R6a-a-second-gpu-vendor.md §1). It answers what a driver
+// against (dev/plans/R6a-a-second-gpu-vendor.md §1). It answers what a driver
 // query structurally cannot, and nothing else.
 //
 // rocm-smi is not asked either: it ships with ROCm, and a node serving Vulkan
@@ -117,7 +117,7 @@ func sysfsField(dir, name string) string {
 //
 // The question every GPU check has to ask first, because the answer decides
 // whether a failing NVIDIA check is a broken node or simply a node that is not
-// NVIDIA (docs/plans/R6a-a-second-gpu-vendor.md §5). Asked once per check
+// NVIDIA (dev/plans/R6a-a-second-gpu-vendor.md §5). Asked once per check
 // rather than cached: preflight runs a handful of times, and a cached "no"
 // would outlive a driver an operator installed while reading the output.
 func nvidiaAnswers(ctx context.Context, o Options) bool {

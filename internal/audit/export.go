@@ -11,8 +11,8 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// Export formats. docs/specs/09-api.md §1 specifies these values on this
-// endpoint; they are not docs/specs/10-cli.md §2's global text|json|yaml,
+// Export formats. dev/specs/09-api.md §1 specifies these values on this
+// endpoint; they are not dev/specs/10-cli.md §2's global text|json|yaml,
 // because here the value is the export encoding rather than a rendering style.
 const (
 	FormatJSONL = "jsonl"

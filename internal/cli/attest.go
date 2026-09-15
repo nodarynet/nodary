@@ -14,7 +14,7 @@ import (
 	"github.com/nodarynet/nodary/internal/core"
 )
 
-// ceremonyFlags are the global flags of docs/specs/10-cli.md §2 that every
+// ceremonyFlags are the global flags of dev/specs/10-cli.md §2 that every
 // mutating verb carries.
 type ceremonyFlags struct {
 	justify *string
@@ -45,7 +45,7 @@ type change struct {
 	apply func(m audit.Mutation, bound any) error
 }
 
-// attested runs the whole of docs/specs/07-identity-audit.md §2 and then the
+// attested runs the whole of dev/specs/07-identity-audit.md §2 and then the
 // act: preview, hash, ceremony, confirmation, and the re-render that binds the
 // approved preview to what is applied.
 //
@@ -71,7 +71,7 @@ func (s *session) attested(e env, verb string, c change, f ceremonyFlags, format
 		return audit.Record{}, false, writeDryRun(e, verb, format, c.action, intent, shown)
 	}
 
-	// --yes skips this and only this. docs/specs/10-cli.md §2 is explicit that
+	// --yes skips this and only this. dev/specs/10-cli.md §2 is explicit that
 	// it skips neither justification nor TOTP, and neither is decided here.
 	if !*f.yes && e.interactive() {
 		showPreview(e, c.action, intent, shown)
@@ -125,7 +125,7 @@ func showPreview(e env, action, intent string, preview any) {
 
 // writeDryRun prints the change and its hash and applies nothing.
 //
-// The preview goes to stderr everywhere else, because docs/specs/10-cli.md §4
+// The preview goes to stderr everywhere else, because dev/specs/10-cli.md §4
 // reserves stdout for a stable schema. Here the preview *is* the output, so
 // under --format json it is the JSON document on stdout.
 func writeDryRun(e env, verb, format, action, intent string, preview any) int {

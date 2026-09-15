@@ -66,7 +66,7 @@ func TestUsageIsReportedAndGrouped(t *testing.T) {
 		t.Errorf("%d nodes, want 2: %v", got, byNode)
 	}
 
-	// docs/adr/0006: counts only, never content. There is no column for it, so
+	// dev/adr/0006: counts only, never content. There is no column for it, so
 	// this is a guard on the rendering rather than on the schema.
 	for _, raw := range rows {
 		row, _ := raw.(map[string]any)
@@ -88,7 +88,7 @@ func TestAnUnknownGroupByIsRefused(t *testing.T) {
 }
 
 // **Every authenticated caller reads usage, including other people's**, and
-// that is docs/specs/07-identity-audit.md §1's table as written: `state.read`
+// that is dev/specs/07-identity-audit.md §1's table as written: `state.read`
 // and `usage.read.self` are both granted to RoleViewer, the lowest role, so
 // there is no line separating "mine" from "everyone's" for a handler to
 // enforce. Pinned rather than assumed, so that when a `usage.read.all` is added

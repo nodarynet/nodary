@@ -2,7 +2,7 @@
 // what runs on them.
 //
 // It exists so both front ends answer "what is out there" the same way.
-// docs/specs/10-cli.md §1 makes that a constraint rather than an aspiration —
+// dev/specs/10-cli.md §1 makes that a constraint rather than an aspiration —
 // neither the CLI nor the HTTP API holds business logic — and this read had
 // drifted furthest from it: the API carried its own SQL while `nodary node
 // list` was a stub, so the only way to see a fleet *from the machine hosting
@@ -32,15 +32,15 @@ import (
 	"github.com/nodarynet/nodary/internal/config"
 )
 
-// StaleAfter is docs/specs/11-failure-modes.md §1's silence threshold.
+// StaleAfter is dev/specs/11-failure-modes.md §1's silence threshold.
 //
 // Derived at read time and never stored: a node is stale whether or not
 // anything wrote it down, and the alternative needs a sweeper that can leave the
 // database claiming `ready` about a node that has been gone for a minute
-// (docs/plans/R4a-agent-protocol.md §5).
+// (dev/plans/R4a-agent-protocol.md §5).
 const StaleAfter = 60 * time.Second
 
-// The agent protocol, docs/specs/03-agent.md §4.
+// The agent protocol, dev/specs/03-agent.md §4.
 //
 // Protocol is what this build speaks; ProtocolMin and ProtocolMax are the range
 // it accepts from an agent. Server and agent are the same binary and share a
@@ -102,7 +102,7 @@ type Node struct {
 	// never moves, which reads as "nothing happened" rather than as a fault.
 	UpgradeTarget string `json:"upgrade_target,omitempty"`
 	UpgradeError  string `json:"upgrade_error,omitempty"`
-	// Incompatible is docs/specs/03-agent.md §4's verdict about this node's
+	// Incompatible is dev/specs/03-agent.md §4's verdict about this node's
 	// agent: it speaks a protocol outside what this control plane accepts, so
 	// it has stopped reconciling and is running whatever was already up.
 	//
@@ -138,7 +138,7 @@ type Deployment struct {
 	LastError string   `json:"last_error"`
 	UpdatedAt string   `json:"updated_at"`
 	// Egress is the last verdict this node reached about the deployment's
-	// isolation (docs/specs/03-agent.md §5, R4-29): `compliant`,
+	// isolation (dev/specs/03-agent.md §5, R4-29): `compliant`,
 	// `non-compliant`, `inconclusive`, or empty for one that has never run and
 	// so has never been probed. EgressReason is why, when it is not the first.
 	Egress          string `json:"egress"`
@@ -410,7 +410,7 @@ func staging(ctx context.Context, q config.Querier, node string) ([]Staging, err
 	return out, rows.Err()
 }
 
-// Egress verdicts, docs/specs/03-agent.md §5. The vocabulary is
+// Egress verdicts, dev/specs/03-agent.md §5. The vocabulary is
 // internal/agent's — it is what the probe produces — and is restated here
 // because this package cannot import that one (internal/agent imports
 // internal/api, which imports this). TestTheFleetEgressVocabularyIsTheAgents

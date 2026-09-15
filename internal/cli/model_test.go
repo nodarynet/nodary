@@ -55,7 +55,7 @@ func TestModelRegisterTurnsPlacedWeightsIntoAServedRoute(t *testing.T) {
 	}
 
 	// The grant rides along, because a route nobody may call is not a served
-	// route: docs/specs/06-gateway.md §2 denies by default.
+	// route: dev/specs/06-gateway.md §2 denies by default.
 	for _, want := range []string{"+ model acme/tiny", "+ deployment tiny-fractal",
 		"+ route tiny", "+ grant alice → tiny"} {
 		if !strings.Contains(stdout, want) {

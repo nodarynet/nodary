@@ -90,7 +90,7 @@ func TestAWindowNamingAZoneThisHostCannotResolveIsRefused(t *testing.T) {
 	}
 }
 
-// docs/specs/12-node-guardrails.md §3's second half. A deployment a node.toml
+// dev/specs/12-node-guardrails.md §3's second half. A deployment a node.toml
 // edit invalidated waits "for the control plane to withdraw it, **or for the
 // next maintenance window**" — and until now there was no such window, so it
 // waited forever: the node restated the verdict every minute about something it

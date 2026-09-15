@@ -1,5 +1,5 @@
 // Command nodary is the single binary containing the nodary server, agent and CLI.
-// The role is selected by subcommand; see docs/specs/10-cli.md.
+// The role is selected by subcommand; see dev/specs/10-cli.md.
 package main
 
 import (

@@ -21,7 +21,7 @@
 //     above by reading it.
 //
 // The reasoning for the split, and the rejected alternatives, are in
-// docs/plans/R4a-agent-protocol.md §4. The short version is that a heartbeat
+// dev/plans/R4a-agent-protocol.md §4. The short version is that a heartbeat
 // every fifteen seconds per node is not evidence: burying a month's
 // administrative acts under a hundred and seventy thousand records makes the
 // chain unreadable, which is a cost paid by the assessor the chain is for.
@@ -37,7 +37,7 @@ import (
 	"github.com/nodarynet/nodary/internal/store"
 )
 
-// NodeReport is one heartbeat: docs/specs/03-agent.md §1.
+// NodeReport is one heartbeat: dev/specs/03-agent.md §1.
 type NodeReport struct {
 	AgentVersion  string
 	Protocol      int
@@ -69,7 +69,7 @@ type NodeReport struct {
 	// reporting what it decided about itself, the same as a unit state.
 	Refusals []RefusalReport
 	// OutOfPolicy is what this node is running *anyway*, outside what
-	// node.toml now allows (R4-16, docs/specs/12-node-guardrails.md §3). Same
+	// node.toml now allows (R4-16, dev/specs/12-node-guardrails.md §3). Same
 	// table, different verdict: a refusal names something that is not running,
 	// and this names something that is.
 	OutOfPolicy []RefusalReport
@@ -101,7 +101,7 @@ type DeploymentReport struct {
 	State  string
 	Health string
 	Error  string
-	// Egress and EgressReason are docs/specs/03-agent.md §5's verdict, when
+	// Egress and EgressReason are dev/specs/03-agent.md §5's verdict, when
 	// this node reached one. Empty means the report carries no new answer,
 	// and Heartbeat leaves whatever is stored alone — a verdict is expensive
 	// to reach (three network operations inside a namespace) and is not
@@ -286,12 +286,12 @@ func positiveOrNull(n int64) any {
 // identity.Touch does the same thing inside an audited act, which is right for
 // an administrative mutation: the credential's last use and the change it made
 // commit together. An inference request is not a mutation and produces no audit
-// record (docs/specs/06-gateway.md §3 makes it a usage row), so the touch has
+// record (dev/specs/06-gateway.md §3 makes it a usage row), so the touch has
 // nowhere to ride along and becomes an observation of its own.
 //
 // It is an observation by the package's own rule: a credential being presented
 // is something that happened, not something anybody decided. And it is what
-// makes stale-credential cleanup possible, which docs/specs/06-gateway.md §2
+// makes stale-credential cleanup possible, which dev/specs/06-gateway.md §2
 // names as the reason for recording it at all.
 //
 // A failure is returned and not swallowed, but the caller is expected to log
@@ -314,7 +314,7 @@ func TouchToken(ctx context.Context, db *store.DB, id string, now time.Time) err
 // Seen records that a node checked in, and nothing else about it.
 //
 // It is the heartbeat of an agent whose protocol this control plane does not
-// support (docs/specs/03-agent.md §4). Heartbeat cannot be used for one: the
+// support (dev/specs/03-agent.md §4). Heartbeat cannot be used for one: the
 // report's *shape* is what a protocol version governs, so a document from a
 // version this build does not know is a document whose inventory, unit states
 // and staging progress it cannot honestly claim to have read. Writing them

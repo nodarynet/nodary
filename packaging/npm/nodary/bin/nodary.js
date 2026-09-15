@@ -71,7 +71,7 @@ if (result.error) {
 }
 
 // Propagate a fatal signal as the conventional 128+n so exit codes stay
-// meaningful to callers (docs/specs/10-cli.md §5).
+// meaningful to callers (dev/specs/10-cli.md §5).
 if (result.signal) {
   process.exit(128 + (require("node:os").constants.signals[result.signal] || 0));
 }

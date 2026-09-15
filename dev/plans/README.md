@@ -1,7 +1,7 @@
 # Implementation plans
 
-**How.** [`docs/specs/`](../specs/) says what, [`docs/adr/`](../adr/) says why,
-[`docs/tasks/`](../tasks/) says what is done. A plan says how one slice of a
+**How.** [`dev/specs/`](../specs/) says what, [`dev/adr/`](../adr/) says why,
+[`dev/tasks/`](../tasks/) says what is done. A plan says how one slice of a
 milestone gets built, and records the decisions taken along the way.
 
 ## What a plan is for
@@ -21,7 +21,7 @@ A plan carries three things the tracker cannot:
 
 ## The rules
 
-- **The plan is the in-flight record.** A checkbox in [`docs/tasks/`](../tasks/) flips
+- **The plan is the in-flight record.** A checkbox in [`dev/tasks/`](../tasks/) flips
   only when the task's `done:` criteria actually pass. Progress before that point lives
   in the plan's steps.
 - **The specs stay authoritative.** A plan never restates a decision a spec already

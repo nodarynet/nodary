@@ -55,7 +55,7 @@ func TestModesExcludeGroupAndOther(t *testing.T) {
 // TestDataDirGrantsOnlyGroupTraverse pins DataDir's one deliberate exception
 // to the rule above: group *execute*, so a member of the service account's
 // group can pass through to `models/` (0755 in Layout, and meant to be
-// written by an operator per docs/specs/05-catalog.md §3) without being able
+// written by an operator per dev/specs/05-catalog.md §3) without being able
 // to list the directory or reach anything else in it. Pinned to exactly that
 // bit so a future change that also grants group *read* — which would make the
 // directory listable, though still not the database, whose own mode holds
@@ -70,7 +70,7 @@ func TestDataDirGrantsOnlyGroupTraverse(t *testing.T) {
 // and a writable key is one an attacker can replace rather than merely read.
 func TestSecretKeyIsReadOnly(t *testing.T) {
 	if ModeSecretKey != 0o400 {
-		t.Errorf("ModeSecretKey = %#o, want 0400 (docs/specs/08-data-model.md §4)", ModeSecretKey)
+		t.Errorf("ModeSecretKey = %#o, want 0400 (dev/specs/08-data-model.md §4)", ModeSecretKey)
 	}
 }
 

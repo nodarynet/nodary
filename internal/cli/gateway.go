@@ -27,7 +27,7 @@ func cmdGateway(e env, args []string) int {
 	return ExitUsage
 }
 
-// cmdGatewayStart serves docs/specs/06-gateway.md's OpenAI surface.
+// cmdGatewayStart serves dev/specs/06-gateway.md's OpenAI surface.
 //
 // It runs in the foreground and logs to stderr, for the reason `agent run`
 // does: systemd owns its lifetime, and R5's nodary-gateway.service is where
@@ -58,7 +58,7 @@ func cmdGatewayStart(e env, args []string) int {
 	}
 	masterKey := os.Getenv("NODARY_MASTER_KEY")
 	if masterKey == "" {
-		// Refused rather than defaulted. docs/specs/06-gateway.md §1 has LiteLLM
+		// Refused rather than defaulted. dev/specs/06-gateway.md §1 has LiteLLM
 		// stateless behind a single key; a built-in default would be the same
 		// key on every install, which is no key at all.
 		fmt.Fprintf(e.stderr, "nodary gateway start: NODARY_MASTER_KEY is required; it is the credential "+
@@ -67,7 +67,7 @@ func cmdGatewayStart(e env, args []string) int {
 	}
 
 	// A writing handle: the gateway records usage, and authentication updates
-	// last_used_at (docs/specs/06-gateway.md §2).
+	// last_used_at (dev/specs/06-gateway.md §2).
 	path, _ := resolveDB(*dbPath)
 	db, err := store.Open(context.Background(), path)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 
 // RenewRequest carries a new public key and nothing else.
 //
-// There is no name in it. docs/specs/02-enrollment.md §3 renews "over the
+// There is no name in it. dev/specs/02-enrollment.md §3 renews "over the
 // existing mTLS channel", so the node is whoever the client certificate says
 // it is — already checked against the recorded fingerprint by agentNode. A
 // name in the body would be a second, weaker claim about identity sitting

@@ -84,7 +84,7 @@ func TestASysfsWithNoCardsEnumeratesNothing(t *testing.T) {
 	}
 }
 
-// docs/specs/02-enrollment.md §3 gates restating an offer behind certificate
+// dev/specs/02-enrollment.md §3 gates restating an offer behind certificate
 // expiry, so an offer written before this field existed is the offer those
 // nodes keep. It has to keep working, and it was nvidia.
 func TestAnOfferWithNoVendorReadsAsNVIDIA(t *testing.T) {

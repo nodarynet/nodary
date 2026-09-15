@@ -1,4 +1,4 @@
-# vLLM. docs/specs/04-backends.md §6.
+# vLLM. dev/specs/04-backends.md §6.
 [backend]
 name           = "vllm"
 api            = "openai"

@@ -12,7 +12,7 @@ import (
 // The projections of an account and a credential that a front end renders.
 //
 // They live here rather than in either front end because both render them and
-// both must render the same thing: docs/specs/10-cli.md §1's constraint is that
+// both must render the same thing: dev/specs/10-cli.md §1's constraint is that
 // the CLI and the HTTP API call the same core functions, and a listing is where
 // that quietly stops being true. It had — `nodary token list` showed a
 // credential's name, its expiry, when it was last used and the outstanding join
@@ -20,7 +20,7 @@ import (
 // differently depending on which road it took. The shapes are the CLI's,
 // because those are the ones a `--format json` consumer already depends on.
 //
-// **There is no field for a secret in any of them.** docs/specs/10-cli.md §4
+// **There is no field for a secret in any of them.** dev/specs/10-cli.md §4
 // keeps a plaintext credential out of every list; the prefix is what identifies
 // one to a human.
 
@@ -131,7 +131,7 @@ func JoinReports(js []JoinToken) []JoinReport {
 	return out
 }
 
-// DefaultLifetime per kind, from docs/specs/02-enrollment.md §4: a service key
+// DefaultLifetime per kind, from dev/specs/02-enrollment.md §4: a service key
 // defaults to a year, a personal token is session-scoped or explicit — ninety
 // days is the explicit default — and a join token lives minutes to hours.
 var DefaultLifetime = map[Kind]time.Duration{

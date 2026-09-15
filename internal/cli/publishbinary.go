@@ -22,11 +22,11 @@ const BinarySig = "nodary.minisig"
 
 // publishBinary copies this host's own binary and its release signature into
 // the mirror, so a node with no egress can fetch and verify an upgrade
-// (docs/specs/03-agent.md §1, R5-16).
+// (dev/specs/03-agent.md §1, R5-16).
 //
 // **It verifies before it publishes.** A control plane that served a binary it
 // could not itself check would be asking every node to trust bytes on its word
-// — which is the one thing docs/plans/R5a-components-and-units.md §1 says
+// — which is the one thing dev/plans/R5a-components-and-units.md §1 says
 // neither side does. Verifying here also means the failure lands on the machine
 // with an operator on it, rather than on twenty nodes at once.
 //

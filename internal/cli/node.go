@@ -12,7 +12,7 @@ import (
 )
 
 // nodeVerbs that this release does not implement. They are listed rather than
-// falling through to "unknown", because docs/specs/10-cli.md names them and an
+// falling through to "unknown", because dev/specs/10-cli.md names them and an
 // operator reading the specification should be told the difference between a
 // verb that does not exist and one that is not built yet.
 var nodeVerbs = map[string]string{
@@ -58,9 +58,9 @@ func cmdNode(e env, args []string) int {
 	return ExitUsage
 }
 
-// cmdNodeEnroll is step 4 of docs/specs/01-install.md §5, runnable on its own.
+// cmdNodeEnroll is step 4 of dev/specs/01-install.md §5, runnable on its own.
 //
-// It is separate from `node install` because docs/specs/02-enrollment.md §3
+// It is separate from `node install` because dev/specs/02-enrollment.md §3
 // requires a node offline past certificate expiry to re-enroll, and that is not
 // a reinstall: the components, the isolated network and the units are all still
 // in place and only the identity has lapsed.
@@ -72,7 +72,7 @@ func cmdNodeEnroll(e env, args []string) int {
 	name := fs.String("name", "", "this node's name in the fleet (default: hostname)")
 	confPath := fs.String("config", "", "agent.toml path")
 	modelsDir := fs.String("models-dir", "", "where weights are staged")
-	// docs/specs/12-node-guardrails.md §2 puts these on `node install`, which is
+	// dev/specs/12-node-guardrails.md §2 puts these on `node install`, which is
 	// R5. Until it exists they belong here, because the file they write is what
 	// the control plane is told this machine offers — and an operator who has
 	// to hand-write TOML before enrolling will enrol offering everything.
@@ -93,7 +93,7 @@ func cmdNodeEnroll(e env, args []string) int {
 			fmt.Fprintf(e.stderr, "nodary node enroll: %s is required\n", req.flag)
 			// The fingerprint is the one an operator is most likely to skip,
 			// and skipping it is the one that matters
-			// (docs/specs/02-enrollment.md §5).
+			// (dev/specs/02-enrollment.md §5).
 			if req.flag == "--ca-fingerprint" {
 				fmt.Fprintf(e.stderr,
 					"  `nodary server install` prints it. Carry it to this host out of band —\n"+
@@ -161,7 +161,7 @@ func cmdNodeEnroll(e env, args []string) int {
 
 // writeNodeConfig places node.toml from the flags, refusing rather than
 // overwriting: the file is edited by root on the node
-// (docs/specs/12-node-guardrails.md §2), and silently replacing an operator's
+// (dev/specs/12-node-guardrails.md §2), and silently replacing an operator's
 // limits during a re-enrollment would widen what the machine offers without
 // anybody asking.
 func writeNodeConfig(e env, path, gpus string, maxDeployments int, maintenance string) int {
@@ -209,7 +209,7 @@ func orElse(s, d string) string {
 	return s
 }
 
-// cmdNodeVerifyEgress is docs/specs/03-agent.md §5's mandatory verification.
+// cmdNodeVerifyEgress is dev/specs/03-agent.md §5's mandatory verification.
 //
 // It runs on the node, against a live deployment. Given how easy this mechanism
 // is to get subtly wrong — twice measured, once for a network that silently

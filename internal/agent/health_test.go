@@ -36,7 +36,7 @@ func healthUnit(port int) Unit {
 		Probe: Probe{Health: "/health", Ready: "/health", ReadyTimeoutS: 60}}
 }
 
-// docs/specs/03-agent.md §7: three consecutive failures mark it unhealthy.
+// dev/specs/03-agent.md §7: three consecutive failures mark it unhealthy.
 // Three and not one, because a model server under load drops a probe
 // occasionally and a single miss that pulled it from its route would make the
 // fleet less available than no health checking at all.
@@ -152,7 +152,7 @@ func TestCountersAreForgottenWhenADeploymentGoes(t *testing.T) {
 	}
 }
 
-// The probe goes to loopback and nowhere else: docs/specs/03-agent.md §5
+// The probe goes to loopback and nowhere else: dev/specs/03-agent.md §5
 // publishes a deployment's port on 127.0.0.1 only, so a probe that reached a
 // deployment by any other address would mean the isolation had failed.
 func TestTheProbeOnlyEverAsksLoopback(t *testing.T) {

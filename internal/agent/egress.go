@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// The three assertions of docs/specs/03-agent.md §5: a route off-box, a DNS
+// The three assertions of dev/specs/03-agent.md §5: a route off-box, a DNS
 // lookup, and a connection to a known-external address must all fail.
 //
 // They are not redundant, and that was measured rather than assumed. On a
@@ -25,7 +25,7 @@ import (
 // server does not need to connect anywhere: `<data>.attacker.example` is a
 // channel out of a container that passes a route check.
 //
-// docs/plans/R4d-egress-isolation.md carries the measurement.
+// dev/plans/R4d-egress-isolation.md carries the measurement.
 const (
 	CheckRoute   = "route"
 	CheckDNS     = "dns"
@@ -331,7 +331,7 @@ const (
 // in-namespace probe fails for reasons unrelated to the isolation and would
 // report compliant. The isolation may well be correct; the point is that the
 // check did not establish it, and saying so is the honest answer
-// (docs/plans/R4d-egress-isolation.md §3).
+// (dev/plans/R4d-egress-isolation.md §3).
 func Judge(deployment string, inside, host EgressProbe) EgressVerdict {
 	v := EgressVerdict{Deployment: deployment, Inside: inside, Host: host}
 

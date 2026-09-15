@@ -129,7 +129,7 @@ func TestOpenReadOnlyRefusesAForeignDatabase(t *testing.T) {
 	}
 }
 
-// docs/specs/08-data-model.md §5: a read-only open refuses when the schema is
+// dev/specs/08-data-model.md §5: a read-only open refuses when the schema is
 // behind rather than changing it underneath a reader.
 func TestOpenReadOnlyRefusesASchemaBehindTheBinaryAndLeavesItAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nodary.db")

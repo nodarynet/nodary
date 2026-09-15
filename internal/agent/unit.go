@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// UnitTemplate is docs/specs/03-agent.md §6, verbatim.
+// UnitTemplate is dev/specs/03-agent.md §6, verbatim.
 //
 // One templated unit, one instance per deployment, `%i` the deployment id. The
 // agent writes only the environment file and calls systemctl; systemd owns
@@ -26,22 +26,22 @@ import (
 // Measured on systemd 255: with `${NODARY_ARGS}` the whole argv arrives as a
 // single string and the model server exits on an unrecognized argument, which
 // is a failure that surfaces on a GPU host as a container that will not start.
-// This corrects docs/specs/03-agent.md §6, which had it braced.
+// This corrects dev/specs/03-agent.md §6, which had it braced.
 //
 // **NODARY_GPUS carries its own flag and there is no literal `--gpus` here.**
 // A card is reached by `--gpus device=0` on NVIDIA and by
 // `--device /dev/dri/renderD128` on AMD — a different flag, not a different
-// value (docs/plans/R6a-a-second-gpu-vendor.md §2), and a unit file has no
+// value (dev/plans/R6a-a-second-gpu-vendor.md §2), and a unit file has no
 // conditional to choose between them. So gpuFlag renders both halves and this
 // line holds neither. The variable is unbraced for the same reason
 // NODARY_ARGS is: `--device /dev/dri/renderD128` is two arguments.
-const unitTemplate = `# Written by nodary. Edits are overwritten; see docs/specs/03-agent.md §6.
+const unitTemplate = `# Written by nodary. Edits are overwritten; see dev/specs/03-agent.md §6.
 [Unit]
 Description=nodary model deployment %%i
 After=containerd.service
 Requires=containerd.service
 
-# docs/specs/11-failure-modes.md §2: a crash-looping deployment is "marked
+# dev/specs/11-failure-modes.md §2: a crash-looping deployment is "marked
 # failed after N restarts in a window". systemd implements exactly that, and
 # the window has to be set explicitly — its default is 10s, which RestartSec
 # below can never fit five restarts into, so the default limit is unreachable
@@ -72,10 +72,10 @@ RestartSec=10s
 # reparents it — so this filter attaches to the nerdctl client and not to the
 # model. And a user-session manager is delegated cpu, memory and pids with no
 # network controller at all, so in a user unit it has nothing to attach to.
-# Both were measured; see docs/spike-fips-and-manifest.md §5.
+# Both were measured; see dev/spike-fips-and-manifest.md §5.
 #
 # The control is the network namespace with no route off-box
-# (docs/specs/03-agent.md §5), asserted by 'nodary node verify-egress'.
+# (dev/specs/03-agent.md §5), asserted by 'nodary node verify-egress'.
 IPAddressDeny=any
 IPAddressAllow=localhost
 
@@ -101,7 +101,7 @@ const TemplateName = "nodary-model@.service"
 // EnsureUnitTemplate writes the template if it is absent or has drifted, and
 // reports whether it changed — which is what tells the caller to reload.
 //
-// The port publication is here rather than optional: docs/specs/03-agent.md §5
+// The port publication is here rather than optional: dev/specs/03-agent.md §5
 // requires a deployment's port on 127.0.0.1 only, so the container is reachable
 // by the gateway and by nothing off-host (R4-27).
 func EnsureUnitTemplate(unitDir, configDir string) (changed bool, err error) {

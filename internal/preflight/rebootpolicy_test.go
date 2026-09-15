@@ -100,7 +100,7 @@ func TestAnUnencryptedRootIsUnattended(t *testing.T) {
 	}
 }
 
-// The encrypted root docs/specs/03-agent.md §7 is about: a person at the
+// The encrypted root dev/specs/03-agent.md §7 is about: a person at the
 // physical console, in a locked rack, before the machine is back.
 func TestAnEncryptedRootThatPromptsNeedsAConsole(t *testing.T) {
 	f := newFakeHostFS(t)

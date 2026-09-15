@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// docs/status.md's milestone table is a claim about what this product does, in
+// dev/status.md's milestone table is a claim about what this product does, in
 // the place a reader is sent to find out — the same kind of statement
-// [docs/plans/pilot.md]'s Tier 0 is about. It is maintained by hand against ten
+// [dev/plans/pilot.md]'s Tier 0 is about. It is maintained by hand against ten
 // tracker files, and it had drifted on three rows before this test existed:
 // work that landed and rows that were added both moved the denominators and the
 // page kept the old numbers.
@@ -34,7 +34,7 @@ var (
 	// what is done. Both are "N of M" over the same M, which is the only reason
 	// one test can hold both.
 	indexRow   = regexp.MustCompile(`(?m)^\| \*\*\[(R\d+)\]\([^)]*\)\*\*(?:[^|]*\|){4}\s*\*{0,2}(\d+) of (\d+)\*{0,2}\s*\|`)
-	trackerDir = filepath.Join("..", "docs", "tasks")
+	trackerDir = filepath.Join("..", "dev", "tasks")
 )
 
 type counted struct{ done, total int }
@@ -73,13 +73,13 @@ func countTrackers(t *testing.T) map[string]counted {
 func TestTheStatusPageMilestoneCountsMatchTheTrackers(t *testing.T) {
 	tracked := countTrackers(t)
 
-	body, err := os.ReadFile(filepath.Join("..", "docs", "status.md"))
+	body, err := os.ReadFile(filepath.Join("..", "dev", "status.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows := statusRow.FindAllStringSubmatch(string(body), -1)
 	if len(rows) == 0 {
-		t.Fatal("no milestone rows found in docs/status.md; has the table's shape changed, " +
+		t.Fatal("no milestone rows found in dev/status.md; has the table's shape changed, " +
 			"or moved again? A count nothing checks is the one that goes stale.")
 	}
 
@@ -89,12 +89,12 @@ func TestTheStatusPageMilestoneCountsMatchTheTrackers(t *testing.T) {
 		claimed[milestone] = true
 		got, ok := tracked[milestone]
 		if !ok {
-			t.Errorf("docs/status.md claims %s is %d of %d, and no tracker has any %s row",
+			t.Errorf("dev/status.md claims %s is %d of %d, and no tracker has any %s row",
 				milestone, done, total, milestone)
 			continue
 		}
 		if done != got.done || total != got.total {
-			t.Errorf("docs/status.md claims %s is %d of %d; the tracker says %d of %d.\n"+
+			t.Errorf("dev/status.md claims %s is %d of %d; the tracker says %d of %d.\n"+
 				"  This page is where a reader is sent to find out, and a stale number reads "+
 				"exactly like a current one.", milestone, done, total, got.done, got.total)
 		}

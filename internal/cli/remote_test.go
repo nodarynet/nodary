@@ -79,7 +79,7 @@ func TestLoginVerifiesTheCredentialBeforeItWritesIt(t *testing.T) {
 	}
 
 	// A token the control plane refuses is not written, and the exit code is
-	// the one docs/specs/10-cli.md §5 gives an authentication failure.
+	// the one dev/specs/10-cli.md §5 gives an authentication failure.
 	path2 := credsFile(t)
 	code, _, errb = runWithStdin(t, "nodary_pt_wrong\n",
 		"login", "--server", base, "--ca-fingerprint", fp, "--credentials", path2)
@@ -186,7 +186,7 @@ func TestAVerbThatDoesNotSpeakToAServerRefusesRatherThanActingLocally(t *testing
 	}
 }
 
-// A control plane that is down is not a refusal, and docs/specs/10-cli.md §5
+// A control plane that is down is not a refusal, and dev/specs/10-cli.md §5
 // gives it its own code: a script retries an unreachable appliance and must
 // not retry a 403.
 func TestAnUnreachableControlPlaneIsItsOwnExitCode(t *testing.T) {
@@ -214,7 +214,7 @@ func TestAnUnreachableControlPlaneIsItsOwnExitCode(t *testing.T) {
 	}
 }
 
-// The stable codes of docs/specs/09-api.md §3 are a second table beside
+// The stable codes of dev/specs/09-api.md §3 are a second table beside
 // internal/api's statusFor, and a second table is one that drifts. A refusal
 // the control plane can state and this client has no meaning for arrives as a
 // generic failure, so the exit code a script sees would silently stop matching
@@ -237,7 +237,7 @@ func TestEveryRefusalTheApiCanStateHasAnExitCodeHere(t *testing.T) {
 	for code := range served {
 		if !handled[code] {
 			t.Errorf("the API can refuse with %q and remoteError.exit does not name it; "+
-				"decide which exit code docs/specs/10-cli.md §5 gives it", code)
+				"decide which exit code dev/specs/10-cli.md §5 gives it", code)
 		}
 	}
 }

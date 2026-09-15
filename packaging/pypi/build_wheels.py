@@ -2,7 +2,7 @@
 """Build per-platform nodary wheels around prebuilt Go binaries.
 
 Every channel ships the same binary; the wheel is a delivery mechanism, not a
-different build (docs/adr/0004-release-artifacts-and-channels.md). A wheel is a
+different build (dev/adr/0004-release-artifacts-and-channels.md). A wheel is a
 zip with a prescribed layout, so it is written directly here rather than
 through a build backend — there is no Python source to compile and no
 dependency worth adding to do it.

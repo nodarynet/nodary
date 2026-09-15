@@ -50,7 +50,7 @@ func TestNodeShowSurfacesARefusalAndWhatToDo(t *testing.T) {
 	if !strings.Contains(stdout, "tiny-fractal") {
 		t.Errorf("stdout = %q, want the refused deployment named", stdout)
 	}
-	// Naming the problem is half of it; docs/specs/12-node-guardrails.md §1
+	// Naming the problem is half of it; dev/specs/12-node-guardrails.md §1
 	// says nothing retries, so the operator has to know it is on them.
 	if !strings.Contains(stderr, "not retrying") {
 		t.Errorf("stderr = %q, want it to say nothing is retrying this", stderr)

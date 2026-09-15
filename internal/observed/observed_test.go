@@ -360,7 +360,7 @@ func egressOf(t *testing.T, db *store.DB, id string) (state, reason, at string) 
 	return state, reason, at
 }
 
-// R4-29 / R2-26: docs/specs/03-agent.md §5's verdict is reached on a start and
+// R4-29 / R2-26: dev/specs/03-agent.md §5's verdict is reached on a start and
 // while it is inconclusive, not on every heartbeat — so most reports carry no
 // new answer, and a report carrying none must leave the stored one standing.
 // Blanking it would make a node that asserted isolation ten seconds ago
@@ -436,7 +436,7 @@ func TestAnEgressVerdictForAnotherNodesDeploymentIsIgnored(t *testing.T) {
 	}
 }
 
-// R6-06, docs/specs/04-backends.md §4: which engine a deployment was compiled
+// R6-06, dev/specs/04-backends.md §4: which engine a deployment was compiled
 // into is recorded, and a heartbeat that carries no key does not erase it.
 //
 // The second half is the one worth a test. An artifact costs hours on a GPU,

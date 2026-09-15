@@ -1,10 +1,10 @@
 // Package identity implements users, roles, TOTP enrollment and tokens:
-// docs/specs/07-identity-audit.md §1.
+// dev/specs/07-identity-audit.md §1.
 //
 // Nothing here opens a database. Every mutating function takes an
 // audit.Mutation, so the change and the record describing it commit in one
 // transaction, and a caller cannot reach one without going through the audit
-// seam (docs/specs/07-identity-audit.md §3).
+// seam (dev/specs/07-identity-audit.md §3).
 package identity
 
 import (
@@ -13,7 +13,7 @@ import (
 	"slices"
 )
 
-// Role is one of the four roles in docs/specs/07-identity-audit.md §1.
+// Role is one of the four roles in dev/specs/07-identity-audit.md §1.
 type Role string
 
 const (
@@ -66,7 +66,7 @@ func JoinRoles() string {
 
 // Permission is one thing a role may do.
 //
-// Every permission below names a phrase from docs/specs/07-identity-audit.md
+// Every permission below names a phrase from dev/specs/07-identity-audit.md
 // §1's table and nothing else. Two of them — ModelRestart and NodeApprove —
 // describe operations no milestone has built yet, because the vocabulary is the
 // deliverable here and the operations arrive later and find it.
@@ -129,7 +129,7 @@ var minimumRole = map[Permission]Role{
 	PermPolicyApply:     RoleAdmin,
 }
 
-// ErrDenied is an authorization failure. It maps to docs/specs/10-cli.md §5's
+// ErrDenied is an authorization failure. It maps to dev/specs/10-cli.md §5's
 // exit code 3.
 var ErrDenied = errors.New("denied")
 

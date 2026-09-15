@@ -9,7 +9,7 @@ import (
 	"github.com/nodarynet/nodary/internal/api"
 )
 
-// R4-14, [12 §1](../../docs/specs/12-node-guardrails.md#1-where-they-apply):
+// R4-14, [12 §1](../../dev/specs/12-node-guardrails.md#1-where-they-apply):
 // the desired-state document evaluated against node.toml before anything is
 // reconciled.
 //

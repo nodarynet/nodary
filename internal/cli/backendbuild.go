@@ -29,7 +29,7 @@ var buildDerive = derive.Build
 // export a real code path to run.
 var buildRuntime derive.Runner = runNerdctl
 
-// cmdBackendBuild is `nodary backend build` and `rebuild` — docs/specs/04-backends.md §5.
+// cmdBackendBuild is `nodary backend build` and `rebuild` — dev/specs/04-backends.md §5.
 //
 // **The build runs before the ceremony, and the ceremony is what adopts it.**
 // A build takes up to `timeout_s`, which §5's own example sets to half an hour,
@@ -81,7 +81,7 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 	if d.Backend.Derive == nil {
 		fmt.Fprintf(e.stderr, "nodary backend %s: %s is not a derived image; there is no recipe "+
 			"to build.\n  A derive declares [backend.derive] and inherits a built-in "+
-			"(docs/specs/04-backends.md §5).\n", verb, name)
+			"(dev/specs/04-backends.md §5).\n", verb, name)
 		return ExitFailure
 	}
 	// Refused before the build rather than after it: half an hour of work and
@@ -108,7 +108,7 @@ func cmdBackendBuild(e env, args []string, verb string) int {
 		if err := d.Backend.Derive.Pinned(); err != nil {
 			fmt.Fprintf(e.stderr, "nodary backend %s: %v\n"+
 				"  The %s profile sets require_pinned_derives, so a build has to be "+
-				"reproducible\n  rather than merely recorded (docs/specs/04-backends.md §5).\n",
+				"reproducible\n  rather than merely recorded (dev/specs/04-backends.md §5).\n",
 				verb, err, active.Name)
 			return ExitPolicy
 		}

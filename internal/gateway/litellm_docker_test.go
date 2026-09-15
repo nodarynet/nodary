@@ -112,7 +112,7 @@ func TestTheRealLiteLLMAcceptsTheGeneratedConfiguration(t *testing.T) {
 	}
 
 	// The master key is the only credential, and that is only meaningful if it
-	// is also required: docs/specs/06-gateway.md §1 never exposes it to clients.
+	// is also required: dev/specs/06-gateway.md §1 never exposes it to clients.
 	bare, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:14999/v1/models", nil)
 	if resp, err := http.DefaultClient.Do(bare); err == nil {
 		resp.Body.Close()

@@ -32,13 +32,13 @@ type Server struct {
 	// the listener verifies client certificates against it.
 	pki string
 	// dist is the component cache this control plane serves to nodes
-	// (docs/specs/01-install.md §3).
+	// (dev/specs/01-install.md §3).
 	dist string
 	now  func() time.Time
 	slog *slog.Logger
 	// sessions are the cookie-authenticated logins. In-memory because they are
 	// short-lived by policy and because a restart invalidating them is the
-	// correct outcome: docs/specs/07-identity-audit.md §2 makes a session a
+	// correct outcome: dev/specs/07-identity-audit.md §2 makes a session a
 	// weaker thing than an act's own attestation, and the CLI does not use them
 	// at all.
 	sessions *sessionStore

@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-// R4-30, docs/specs/03-agent.md §5: a weight download runs as a transient unit
+// R4-30, dev/specs/03-agent.md §5: a weight download runs as a transient unit
 // on the host rather than inside the agent process.
 //
 // Two things come of the move, and the second is the one that made it worth
@@ -322,7 +322,7 @@ func readProgress(path string) (Stage, bool) {
 //
 // It returns the verdict it recorded rather than an error for a failed
 // download, because a download that fails verification is not an error in this
-// program — it is docs/specs/05-catalog.md §3's `corrupt`, a terminal state
+// program — it is dev/specs/05-catalog.md §3's `corrupt`, a terminal state
 // with a reason, and the file it wrote is where the agent reads it.
 func RunStaging(requestPath string) (Stage, error) {
 	req, err := readStageRequest(requestPath)

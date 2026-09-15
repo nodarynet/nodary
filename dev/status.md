@@ -1,6 +1,6 @@
 # Where the implementation stands
 
-**Derived from [`docs/tasks/`](tasks/), which is derived from [`docs/specs/`](specs/).**
+**Derived from [`dev/tasks/`](tasks/), which is derived from [`dev/specs/`](specs/).**
 The specifications are authoritative; a number here that disagrees with a tracker
 is a bug in this page, and two tests in [`scripts/`](../scripts/) fail when one does.
 
@@ -12,7 +12,7 @@ approved, weights are staged and verified, a model is deployed onto an isolated
 network with no route off the box, and served through the gateway — metered, with one
 usage row recording counts and no prompt text anywhere in the database. `nodary
 doctor` diagnoses a host in one pass, including a live re-run of the egress
-assertion. The route is [docs/plans/mvp.md](docs/plans/mvp.md).
+assertion. The route is [dev/plans/mvp.md](dev/plans/mvp.md).
 
 ## What is not built
 

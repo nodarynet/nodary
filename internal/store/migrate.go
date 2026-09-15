@@ -20,7 +20,7 @@ import (
 var migrationsFS embed.FS
 
 // Refusals. Every one of these aborts rather than repairing:
-// docs/specs/08-data-model.md §5 requires refusing to proceed against an
+// dev/specs/08-data-model.md §5 requires refusing to proceed against an
 // unexpected schema, and a migration runner that silently corrects what it
 // finds is indistinguishable from one that corrupts it.
 var (
@@ -82,7 +82,7 @@ func (db *DB) MigrateFS(ctx context.Context, fsys fs.FS, dir string) error {
 	}
 
 	// The entire run is one immediate transaction. Two processes reaching this
-	// at once is not hypothetical — docs/tasks/R1-core-audit-identity.md has
+	// at once is not hypothetical — dev/tasks/R1-core-audit-identity.md has
 	// the CLI opening the database directly, so a CLI invocation can race a
 	// server start. Reading the applied set inside the transaction, after the
 	// write lock is held, is what makes the loser a no-op rather than a second

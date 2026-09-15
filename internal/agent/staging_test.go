@@ -179,7 +179,7 @@ func TestParseManifestRefusesWhatIsNotOne(t *testing.T) {
 }
 
 func TestModelDirFollowsTheHuggingFaceLayout(t *testing.T) {
-	// docs/specs/05-catalog.md §3: an existing cache is adopted rather than
+	// dev/specs/05-catalog.md §3: an existing cache is adopted rather than
 	// copied into a layout of our own, so this path is not ours to choose.
 	got, err := ModelDir("/var/lib/nodary/models", "hf-cache", "google/gemma-4-31b-it")
 	if err != nil {

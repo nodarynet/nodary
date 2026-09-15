@@ -1,5 +1,5 @@
 // Package audit implements the tamper-evident chain of
-// docs/specs/07-identity-audit.md §3: one record per action, each hashed over
+// dev/specs/07-identity-audit.md §3: one record per action, each hashed over
 // its canonical JSON and carrying the hash of its predecessor.
 //
 // The chain does not prevent tampering; it makes tampering detectable. A
@@ -50,7 +50,7 @@ const TimeFormat = "2006-01-02T15:04:05.000Z"
 // at seq 1.
 const GenesisPrevHash = "0000000000000000000000000000000000000000000000000000000000000000"
 
-// Outcome is docs/specs/07-identity-audit.md §3's outcome column.
+// Outcome is dev/specs/07-identity-audit.md §3's outcome column.
 type Outcome string
 
 const (
@@ -63,7 +63,7 @@ const (
 	OutcomePartial Outcome = "partial"
 )
 
-// Actor is who acted: docs/specs/07-identity-audit.md §3's "user id,
+// Actor is who acted: dev/specs/07-identity-audit.md §3's "user id,
 // authentication method, session id".
 //
 // Method is what disambiguates the ID's namespace. A local root CLI invocation

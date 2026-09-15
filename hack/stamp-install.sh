@@ -14,7 +14,7 @@
 # The output is verified before it is written: a stamped script that still
 # carries either placeholder is a failure, not a warning.
 #
-# See docs/specs/01-install.md §2.
+# See dev/specs/01-install.md §2.
 
 set -eu
 

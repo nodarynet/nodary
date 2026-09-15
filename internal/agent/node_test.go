@@ -17,7 +17,7 @@ func four() []GPU {
 	}
 }
 
-// docs/specs/12-node-guardrails.md §4: a four-GPU host offering three appears as
+// dev/specs/12-node-guardrails.md §4: a four-GPU host offering three appears as
 // a three-GPU node. The narrowing happens on the node, so the control plane is
 // never told about the fourth card and cannot place work on it.
 func TestAFourGPUHostOfferingThreeIsAThreeGPUNode(t *testing.T) {

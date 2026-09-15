@@ -1,6 +1,6 @@
 # nodary
 #
-# One artifact, four channels (docs/adr/0004-release-artifacts-and-channels.md).
+# One artifact, four channels (dev/adr/0004-release-artifacts-and-channels.md).
 # `make dist` cross-compiles the binary; the wheel and npm targets package that
 # same binary rather than building anything of their own.
 

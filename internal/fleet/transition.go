@@ -25,7 +25,7 @@ const (
 // Permission is the authority a transition needs.
 //
 // **Revoke shares approval's permission rather than inventing one.**
-// docs/specs/07-identity-audit.md §1 gives admin "node approval" as the
+// dev/specs/07-identity-audit.md §1 gives admin "node approval" as the
 // node-lifecycle authority and names no separate revoke, and ejecting a node is
 // that same authority exercised in the other direction. Drain is an operator's
 // to do — it takes work off a machine without ending its membership.
@@ -40,7 +40,7 @@ func Permission(to string) identity.Permission {
 //
 // It carries the node's advertised offer and constraints because that is the
 // agreement: core.Act hashes the preview into intent_hash and writes it into
-// the record, which is docs/specs/02-enrollment.md §1's "neither side can later
+// the record, which is dev/specs/02-enrollment.md §1's "neither side can later
 // claim terms the other did not see" made structural — the terms are inside the
 // hash the approver signed off, not in prose beside it.
 func TransitionPreview(ctx context.Context, q config.Querier, name, to string) (map[string]any, error) {
@@ -77,7 +77,7 @@ func Transition(ctx context.Context, m audit.Mutation, now time.Time, name, to, 
 	case StateApproved:
 		// Both columns or neither: 0006_fleet.sql pairs them with a CHECK, and
 		// a local invocation has an actor but no *account* —
-		// docs/specs/07-identity-audit.md §1 makes local root a real principal
+		// dev/specs/07-identity-audit.md §1 makes local root a real principal
 		// without a user row, and `approved_by` references one. So a console
 		// approval records NULL for both and the chain carries who and when,
 		// which is the authoritative record either way. Inventing a user id
@@ -232,7 +232,7 @@ func RollID(now time.Time) string {
 // ErrWouldDropTheModel is a roll that cannot keep the model answerable.
 var ErrWouldDropTheModel = errors.New("this would stop the model everywhere")
 
-// AllowRoll is docs/specs/03-agent.md §7's "fewer than two replicas requires
+// AllowRoll is dev/specs/03-agent.md §7's "fewer than two replicas requires
 // --allow-downtime".
 //
 // The refusal is not paternalism and it is not always right — restarting a
@@ -279,7 +279,7 @@ func ReplicaIDs(rs []Replica) []string {
 // outstanding until the node has cycled the unit *and* the deployment is
 // serving again — so the next node does not start stopping its copy until this
 // one is back. The control plane is the only place that can enforce that,
-// because it is the only place that sees every node: docs/specs/03-agent.md §1
+// because it is the only place that sees every node: dev/specs/03-agent.md §1
 // gives it no way to push, so what it does instead is decline to *offer* the
 // next restart.
 //

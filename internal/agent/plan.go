@@ -16,7 +16,7 @@ import (
 
 // A Plan is what the agent would do, worked out without doing any of it.
 //
-// docs/specs/03-agent.md §3's loop is `desired → evaluate → observe → act`, and
+// dev/specs/03-agent.md §3's loop is `desired → evaluate → observe → act`, and
 // everything up to `act` is a pure function of a document, a models directory
 // and what the driver reported. Keeping it that way is what lets the decisions
 // be tested exhaustively without containerd, systemd or a GPU — and it is what
@@ -31,7 +31,7 @@ type Plan struct {
 	Units []Unit  `json:"units"`
 	Stage []Stage `json:"stage"`
 	// Refused is a deployment the node will not run, with the reason. A refusal
-	// is a normal outcome (docs/specs/03-agent.md §2) and is reported, not
+	// is a normal outcome (dev/specs/03-agent.md §2) and is reported, not
 	// retried.
 	Refused []Refusal `json:"refused"`
 	// ResetDone is models whose weights this run actually discarded in
@@ -40,14 +40,14 @@ type Plan struct {
 	// (internal/observed.Heartbeat consumes it).
 	ResetDone []string `json:"reset_done,omitempty"`
 	// Disabled is a deployment `nodary model disable` turned off
-	// (docs/specs/05-catalog.md §4). No Unit is built for it — nothing about
+	// (dev/specs/05-catalog.md §4). No Unit is built for it — nothing about
 	// GPUs, the backend or staged weights matters for something that will
 	// not run — and Reconcile's existing "stop what is not wanted" loop
 	// (internal/agent/reconcile.go) is what actually stops it, since it is
 	// simply absent from Units.
 	Disabled []string `json:"disabled,omitempty"`
 	// OutOfPolicy is a deployment the control plane placed that node.toml
-	// narrows out (docs/specs/12-node-guardrails.md §1).
+	// narrows out (dev/specs/12-node-guardrails.md §1).
 	//
 	// Separate from Refused because the outcome turns on something Build
 	// cannot see. 12 §3 requires that a guardrail narrowed under a *running*
@@ -58,7 +58,7 @@ type Plan struct {
 	// started and leaving alone one that did.
 	OutOfPolicy []Refusal `json:"out_of_policy,omitempty"`
 	// Prepare is the build each deployment needs before it can serve
-	// (docs/specs/04-backends.md §4). Empty for every backend that serves what
+	// (dev/specs/04-backends.md §4). Empty for every backend that serves what
 	// was staged, which is all of them but TensorRT-LLM.
 	Prepare []Prepared `json:"prepare,omitempty"`
 	// Restart is deployment ids `nodary model restart` (R4-36) asked to be
@@ -68,7 +68,7 @@ type Plan struct {
 	// reports which ones landed as Report.RestartDone.
 	Restart []string `json:"restart,omitempty"`
 	// Failed is a deployment whose hardware has gone: a GPU it was assigned is
-	// no longer on the bus (R4-25, docs/specs/11-failure-modes.md §2).
+	// no longer on the bus (R4-25, dev/specs/11-failure-modes.md §2).
 	//
 	// Its own list rather than a Refusal, because the outcome is different in
 	// the one way that matters to an operator. A refusal says "this never
@@ -77,7 +77,7 @@ type Plan struct {
 	// against the deployment with the missing card named — and **never** as a
 	// reboot. A node that reboots itself to clear a GPU fault is a node that
 	// comes back with an encrypted root waiting at a console nobody is at
-	// (docs/specs/03-agent.md's reboot safety).
+	// (dev/specs/03-agent.md's reboot safety).
 	Failed []Refusal `json:"failed,omitempty"`
 	// MaintenanceOpen says whether node.toml's window is open at the moment
 	// this plan was built. Decided here rather than in Reconcile so the plan
@@ -88,7 +88,7 @@ type Plan struct {
 
 // Unit is one deployment rendered as everything systemd needs.
 //
-// docs/specs/03-agent.md §6: the agent writes only
+// dev/specs/03-agent.md §6: the agent writes only
 // /etc/nodary/deployments/<id>.env and calls systemctl. It holds no supervision
 // logic, so this struct is the whole of what it decides.
 type Unit struct {
@@ -112,7 +112,7 @@ type EnvVar struct {
 	Value string `json:"value"`
 }
 
-// Probe is what R4c polls: docs/specs/03-agent.md §7.
+// Probe is what R4c polls: dev/specs/03-agent.md §7.
 type Probe struct {
 	Health        string `json:"health"`
 	Ready         string `json:"ready"`
@@ -163,13 +163,13 @@ type PlanOptions struct {
 	// The two together are how a card that node.toml excluded is told from one
 	// that is no longer there, which are the same absence from Present and
 	// opposite facts: the first is a decision somebody made on this machine,
-	// the second is docs/specs/11-failure-modes.md §2's "GPU falls off the
+	// the second is dev/specs/11-failure-modes.md §2's "GPU falls off the
 	// bus". Nil means the caller did not measure — `agent plan` against a
 	// hand-written document — and the check is skipped rather than declaring
 	// every card missing.
 	Detected []GPU
 	// Node is /etc/nodary/node.toml, evaluated against the document before
-	// anything is reconciled (docs/specs/12-node-guardrails.md §1). The zero
+	// anything is reconciled (dev/specs/12-node-guardrails.md §1). The zero
 	// value offers the whole machine, which is what an absent file means.
 	Node NodeConfig
 	// Now is the clock the maintenance window is read against. The zero value
@@ -206,7 +206,7 @@ type PlanOptions struct {
 // Two kinds of verdict come out of it, and they are not the same thing.
 // Refused is what this node *cannot* do — an unknown backend, a GPU that is not
 // on offer, a deployment with no image. OutOfPolicy is what node.toml says it
-// *will* not do (R4-14, docs/specs/12-node-guardrails.md §1), which is a
+// *will* not do (R4-14, dev/specs/12-node-guardrails.md §1), which is a
 // decision an operator made on this machine and can unmake by editing a file.
 // Keeping them apart is what lets 12 §3 hold: a placement that is out of policy
 // and already serving is left alone, and one that is merely impossible never
@@ -298,7 +298,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		p.Restart = append(p.Restart, doc.Restart...)
 	}
 
-	// Staging first, and the order is not cosmetic: docs/specs/03-agent.md §3
+	// Staging first, and the order is not cosmetic: dev/specs/03-agent.md §3
 	// fixes it — weights are staged before a deployment is prepared, and a
 	// deployment is prepared before its unit starts.
 	byModel := map[string]Stage{}
@@ -373,7 +373,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			p.Failed = append(p.Failed, Refusal{Deployment: d.ID,
 				Reason: fmt.Sprintf("GPU %s %s assigned to this deployment and no longer on this "+
 					"host's bus; the driver reports %s. Nothing is rebooted to clear it "+
-					"(docs/specs/11-failure-modes.md §2)",
+					"(dev/specs/11-failure-modes.md §2)",
 					joinIndices(gone), plural(gone), presentList(opt.Detected))})
 			continue
 		}
@@ -386,7 +386,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			continue
 		}
 		// The prepare phase, between staging and the unit
-		// (docs/specs/04-backends.md §4). It produces the directory the unit
+		// (dev/specs/04-backends.md §4). It produces the directory the unit
 		// will serve from, so it is worked out before unitFor rather than
 		// after: for a backend that builds, the model path *is* the artifact.
 		var prep *Prepared
@@ -400,7 +400,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			p.Refused = append(p.Refused, Refusal{Deployment: d.ID, Reason: err.Error()})
 			continue
 		}
-		// R4-23: docs/specs/03-agent.md §7 — "the control plane guarantees no
+		// R4-23: dev/specs/03-agent.md §7 — "the control plane guarantees no
 		// two deployments on a node claim the same index, and the agent
 		// double-checks before starting."
 		//
@@ -468,7 +468,7 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		return Unit{}, fmt.Errorf("no host port is assigned")
 	}
 	if len(d.GPUs) == 0 {
-		return Unit{}, fmt.Errorf("no GPU is assigned; docs/specs/03-agent.md §7 makes assignment explicit, always")
+		return Unit{}, fmt.Errorf("no GPU is assigned; dev/specs/03-agent.md §7 makes assignment explicit, always")
 	}
 	// The node's own check of what the control plane assigned. R4-23 makes this
 	// a hard refusal, and it deliberately does not test for /dev/nvidia<index>:
@@ -585,7 +585,7 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		HostPort:   d.Port,
 		Probe: Probe{Health: desc.Backend.Probe.Health, Ready: desc.Backend.Probe.Ready,
 			ReadyTimeoutS: desc.Backend.Probe.ReadyTimeoutS},
-		// The names are the unit template's, docs/specs/03-agent.md §6, and
+		// The names are the unit template's, dev/specs/03-agent.md §6, and
 		// nothing else may appear here: a variable the template does not
 		// reference is a setting that looks applied and is not.
 		Env: []EnvVar{
@@ -608,7 +608,7 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	}, nil
 }
 
-// RenderEnv is the file docs/specs/03-agent.md §6's EnvironmentFile= reads.
+// RenderEnv is the file dev/specs/03-agent.md §6's EnvironmentFile= reads.
 //
 // systemd's parser is not a shell: a value is taken literally to end of line,
 // so nothing here is quoted or escaped. Values that could contain whitespace —
@@ -631,7 +631,7 @@ func (u Unit) Image() string {
 func (u Unit) RenderEnv() []byte {
 	var b strings.Builder
 	b.WriteString("# Written by nodary. Edits are overwritten on the next reconcile.\n")
-	fmt.Fprintf(&b, "# Deployment %s — docs/specs/03-agent.md §6\n", u.Deployment)
+	fmt.Fprintf(&b, "# Deployment %s — dev/specs/03-agent.md §6\n", u.Deployment)
 	for _, v := range u.Env {
 		fmt.Fprintf(&b, "%s=%s\n", v.Key, v.Value)
 	}
@@ -665,7 +665,7 @@ func sortedStageKeys(m map[string]Stage) []string {
 // `--device /dev/dri/renderD128` and no toolkit at all. Same backend, same
 // deployment, different argument — decided by the vendor of the silicon, which
 // the node offered and an administrator approved
-// (docs/plans/R6a-a-second-gpu-vendor.md §2). So the unit template holds
+// (dev/plans/R6a-a-second-gpu-vendor.md §2). So the unit template holds
 // `$NODARY_GPUS` unbraced and no literal flag, and this function renders both.
 //
 // The NVIDIA half below is unchanged and is the older and harder of the two:
@@ -677,7 +677,7 @@ func sortedStageKeys(m map[string]Stage) []string {
 //
 //	CDI device injection failed: unresolvable CDI devices nvidia.com/gpu=0
 //
-// on a host where `nerdctl run --gpus all` works perfectly. docs/specs/03-agent.md
+// on a host where `nerdctl run --gpus all` works perfectly. dev/specs/03-agent.md
 // §7's note that a WSL2 host has no per-GPU device node was written about the
 // *assignment check*; this is the same fact reaching the argv.
 //
@@ -696,7 +696,7 @@ func gpuFlag(assigned []int, present map[int]GPU, cdi []string) (string, error) 
 	// Every assigned card, one vendor. A mixed assignment has no right answer
 	// — one container gets one device argument — and `model register` already
 	// refuses to write one, but a hand-edited document reaches here without
-	// passing through that verb (docs/plans/R6a-a-second-gpu-vendor.md §9).
+	// passing through that verb (dev/plans/R6a-a-second-gpu-vendor.md §9).
 	vendors := map[string]bool{}
 	for _, idx := range assigned {
 		vendors[present[idx].VendorName()] = true
@@ -775,7 +775,7 @@ func gpuFlag(assigned []int, present map[int]GPU, cdi []string) (string, error) 
 // `RuntimeError: UVA is not available`, and both published fixes —
 // `VLLM_WSL2_ENABLE_PIN_MEMORY=1` and `VLLM_USE_V2_MODEL_RUNNER=0` — are
 // environment variables with no command-line form. No deployment could be made
-// to run on a platform docs/specs/01-install.md §8 supports.
+// to run on a platform dev/specs/01-install.md §8 supports.
 //
 // Sorted, because the result goes into a unit's environment file and a set that
 // reordered between reconciles would rewrite the file and restart a serving

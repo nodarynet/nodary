@@ -10,7 +10,7 @@ import (
 	"github.com/nodarynet/nodary/internal/identity"
 )
 
-// SetupPath is where the one-time URL of docs/specs/01-install.md §4 step 9
+// SetupPath is where the one-time URL of dev/specs/01-install.md §4 step 9
 // points.
 //
 // Not under Prefix. Everything under /api/v1 is a machine surface; this is the

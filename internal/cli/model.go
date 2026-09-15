@@ -65,7 +65,7 @@ func cmdModel(e env, args []string) int {
 // naming what to fetch — into a served route.
 //
 // **`--source local` is the step that was a shell script, and the script is
-// not installed anywhere.** docs/specs/05-catalog.md §3 makes it the
+// not installed anywhere.** dev/specs/05-catalog.md §3 makes it the
 // air-gapped path and a first-class one, so placing weights by hand is the
 // supported flow — but everything *after* placing them is arithmetic: digest
 // every file, hash the list, look up the pinned image for this platform, and
@@ -100,7 +100,7 @@ func cmdModelRegister(e env, args []string) int {
 	envJSON := fs.String("env", "", "container environment, a JSON object")
 	grant := fs.String("grant", "", "users who may call this route, comma-separated")
 	source := fs.String("source", "local", "local (weights already on this box) or remote (the agent fetches them)")
-	// docs/specs/05-catalog.md §1. Provenance is checked against the active
+	// dev/specs/05-catalog.md §1. Provenance is checked against the active
 	// profile's origin lists (§2) and the license is recorded and never
 	// interpreted, so one is a control and the other is evidence.
 	originOrg := fs.String("origin-org", "", "who published the weights, checked against policy")
@@ -274,7 +274,7 @@ func cmdModelRegister(e env, args []string) int {
 			Members: []config.RouteMember{{DeploymentID: name + "-" + *node, Weight: 1}},
 		}},
 	}
-	// docs/specs/06-gateway.md §2 is deny-by-default, so a route with no grant
+	// dev/specs/06-gateway.md §2 is deny-by-default, so a route with no grant
 	// is one nobody may call. Doing it here keeps a working model one command
 	// away instead of one command plus a hand-written TOML fragment — and it is
 	// the same applier and the same revision either way, so nothing is granted
@@ -445,7 +445,7 @@ func pinnedImage(e env, rem *remote, dbPath, backend, node string, gpus []int) (
 // The offer is the authority on the vendor, and it is deliberately not in
 // config.Snapshot — readNodes selects four columns and not offer_json, which is
 // why adding a vendor to it invalidated no revision chain
-// (docs/plans/R6a-a-second-gpu-vendor.md §4). So this reads fleet.Node, which
+// (dev/plans/R6a-a-second-gpu-vendor.md §4). So this reads fleet.Node, which
 // carries the offer and is already served both ways by `node list`.
 //
 // **An unknown node falls back to this machine's platform**, which is what
@@ -481,7 +481,7 @@ func nodeTarget(e env, rem *remote, dbPath, node string, gpus []int) (string, st
 	// **A mixed host is refused rather than resolved.** Two vendors among the
 	// assigned cards means two images, and there is one image per deployment —
 	// so picking either one pins a container that cannot drive half the GPUs it
-	// was given. docs/plans/R6a-a-second-gpu-vendor.md §9 leaves the general
+	// was given. dev/plans/R6a-a-second-gpu-vendor.md §9 leaves the general
 	// case open; this is the one path that has to answer it today.
 	if len(vendors) > 1 {
 		names := make([]string, 0, len(vendors))

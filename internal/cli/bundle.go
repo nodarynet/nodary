@@ -30,7 +30,7 @@ func runNerdctl(ctx context.Context, name string, args ...string) ([]byte, error
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
-// cmdBundle is docs/specs/01-install.md §6, the offline install.
+// cmdBundle is dev/specs/01-install.md §6, the offline install.
 //
 // `create` on a connected machine, `open` on the air-gapped one, and `show` for
 // the question an operator actually asks about a forty-gigabyte file somebody

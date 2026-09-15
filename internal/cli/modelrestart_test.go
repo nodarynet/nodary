@@ -54,7 +54,7 @@ func TestRestartWritesADeploymentRestartRow(t *testing.T) {
 // --node narrows a roll; omitting it takes every replica of the model.
 //
 // It used to be required, on the reasoning that a restart is one node's act.
-// That is true of cycling a unit and false of the thing docs/specs/03-agent.md
+// That is true of cycling a unit and false of the thing dev/specs/03-agent.md
 // §7 describes, which iterates over the replicas of a *model* — and the "never
 // drops the last ready replica" guarantee only means anything across all of
 // them.
@@ -156,7 +156,7 @@ func (a *appliance) twoReplicas(t *testing.T) {
 	a.readyDeployments(t)
 }
 
-// The guarantee of docs/specs/03-agent.md §7, asserted where it is enforced:
+// The guarantee of dev/specs/03-agent.md §7, asserted where it is enforced:
 // the control plane offers one replica of a roll at a time, so no two nodes
 // stop their copy at once.
 func TestARollOffersOneReplicaAtATime(t *testing.T) {
@@ -216,7 +216,7 @@ func TestARollHaltsOnAReplicaThatDoesNotComeBack(t *testing.T) {
 	}
 }
 
-// docs/specs/03-agent.md §7: fewer than two replicas requires --allow-downtime.
+// dev/specs/03-agent.md §7: fewer than two replicas requires --allow-downtime.
 //
 // Not paternalism — restarting a single-replica model is an ordinary thing to
 // do. What it prevents is doing it without noticing: the same command is safe

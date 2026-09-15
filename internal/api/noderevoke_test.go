@@ -87,7 +87,7 @@ func TestRevokingAnUnknownNodeIsRefused(t *testing.T) {
 
 // Drain is an operator's to do — it takes work off a machine without ending its
 // membership. Ejecting a node from the fleet is the node-lifecycle authority
-// docs/specs/07-identity-audit.md §1 gives an admin, and revoke is that
+// dev/specs/07-identity-audit.md §1 gives an admin, and revoke is that
 // authority exercised in the other direction.
 func TestAnOperatorMayDrainANodeButNotRevokeIt(t *testing.T) {
 	f := newFixture(t)

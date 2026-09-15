@@ -48,7 +48,7 @@ var fingerprintPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // PinnedTLS trusts exactly one certificate and no certificate authority.
 //
-// docs/specs/02-enrollment.md §1 has the agent pin the control plane by a
+// dev/specs/02-enrollment.md §1 has the agent pin the control plane by a
 // fingerprint carried out of band, and refuse anything else. That check happens
 // here, inside the handshake, rather than by fetching the certificate first and
 // reconnecting: verifying on first contact is what the specification asks for,
@@ -57,7 +57,7 @@ var fingerprintPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // InsecureSkipVerify disables chain and hostname validation and nothing else —
 // VerifyPeerCertificate still runs, and an exact key match is stricter than CA
 // validation rather than weaker. This is the same trade
-// docs/specs/01-install.md §5 already makes for `curl --insecure
+// dev/specs/01-install.md §5 already makes for `curl --insecure
 // --pinnedpubkey`, and it looks alarming for the same reason and is not.
 func PinnedTLS(fingerprint string) (*tls.Config, error) {
 	want := strings.ToLower(strings.TrimSpace(fingerprint))
@@ -116,7 +116,7 @@ type EnrollOptions struct {
 	Dir string
 	// NodeConfig is the path to node.toml. Empty uses the default; a file that
 	// is not there offers the whole machine, which is what
-	// docs/specs/12-node-guardrails.md §2 makes the right default for a
+	// dev/specs/12-node-guardrails.md §2 makes the right default for a
 	// dedicated GPU host.
 	NodeConfig string
 }
@@ -131,7 +131,7 @@ type Result struct {
 	CertPath    string
 }
 
-// Enroll performs steps 3 to 5 of docs/specs/02-enrollment.md §1.
+// Enroll performs steps 3 to 5 of dev/specs/02-enrollment.md §1.
 //
 // The private key never leaves this machine: it is generated here, the
 // certificate request carries only its public half, and the control plane
@@ -184,7 +184,7 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 	offer, constraints := guardrails.Advertise(inv.GPUs, BackendNames())
 
 	// What the control plane is told exists is the *offer*, not the machine.
-	// docs/specs/12-node-guardrails.md §4: a four-GPU host offering three
+	// dev/specs/12-node-guardrails.md §4: a four-GPU host offering three
 	// appears as a three-GPU node, so the reported inventory is narrowed here
 	// rather than sent whole and filtered at the far end — a control plane that
 	// was told about the fourth card could place work on it.
@@ -254,7 +254,7 @@ func Enroll(ctx context.Context, opt EnrollOptions) (Result, error) {
 //
 // what names the act, because this is reached from two of them and a renewal
 // that reports itself as a refused enrollment sends the operator to the wrong
-// half of docs/specs/02-enrollment.md.
+// half of dev/specs/02-enrollment.md.
 func serverError(what string, resp *http.Response) error {
 	var body struct {
 		Error struct{ Code, Message string } `json:"error"`
@@ -302,7 +302,7 @@ func (i Inventory) raw() api.Inventory {
 // LocalInventory asks each vendor that can answer what is present.
 //
 // Per vendor and in this order, not one enumerator for all of them:
-// docs/plans/R6a-a-second-gpu-vendor.md §1. A host where both answer has cards
+// dev/plans/R6a-a-second-gpu-vendor.md §1. A host where both answer has cards
 // from both, which is a real machine — so the second source numbers its cards
 // after the first rather than from zero, and an index remains this node's one
 // handle on a card.

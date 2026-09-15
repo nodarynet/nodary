@@ -43,7 +43,7 @@ type LiteLLMModel struct {
 // pinnedOff are the settings that must appear, set to these values, in every
 // configuration this renders.
 //
-// docs/plans/pivot-cmmc.md makes LiteLLM a compliance surface. Inside a CUI
+// dev/plans/pivot-cmmc.md makes LiteLLM a compliance surface. Inside a CUI
 // boundary "LiteLLM began writing request bodies somewhere by default in a
 // minor release" is an incident, not a nuisance — and the failure is silent,
 // because a configuration that omits a setting inherits whatever the new
@@ -52,7 +52,7 @@ type LiteLLMModel struct {
 // So each of these is written explicitly even where it is already the default,
 // and AssertLoggingOff checks the rendered output rather than trusting this
 // list. That is the same principle as egress verification
-// (docs/specs/03-agent.md §5), and it is here for the same reason: a control
+// (dev/specs/03-agent.md §5), and it is here for the same reason: a control
 // whose failure looks exactly like success.
 var pinnedOff = []struct {
 	Key    string
@@ -70,14 +70,14 @@ var pinnedOff = []struct {
 // Render writes litellm.yaml.
 //
 // The proxy is given exactly one credential — the master key — and no database.
-// docs/specs/06-gateway.md §1: because identity lives in nodary, LiteLLM runs
+// dev/specs/06-gateway.md §1: because identity lives in nodary, LiteLLM runs
 // stateless behind a single key that is never exposed to clients.
 func (c LiteLLMConfig) Render() []byte {
 	var b strings.Builder
 	b.WriteString(`# Written by nodary. Edits are overwritten.
 #
 # Generated from the routes and deployments in the control plane's
-# configuration (docs/specs/06-gateway.md §1). LiteLLM owns OpenAI
+# configuration (dev/specs/06-gateway.md §1). LiteLLM owns OpenAI
 # compatibility, routing, retries and fallbacks; nodary owns identity, quota,
 # metering and audit, which is why there is no database here and no key but one.
 
@@ -109,7 +109,7 @@ model_list:
 		b.WriteString("  []\n")
 	}
 
-	// docs/specs/05-catalog.md §5 spreads requests across a route's ready
+	// dev/specs/05-catalog.md §5 spreads requests across a route's ready
 	// members, and these are what make that happen *between* syncs.
 	//
 	// **This is the live half of health-driven membership.** nodary removes a

@@ -158,7 +158,7 @@ func (f *fixture) do(method, path, token string, body any, headers map[string]st
 
 func TestAnUnauthenticatedRequestIsRefused(t *testing.T) {
 	f := newFixture(t)
-	// Never local root: docs/plans/R1c-identity.md's argument for it is
+	// Never local root: dev/plans/R1c-identity.md's argument for it is
 	// filesystem access to the database, and an HTTP caller has none.
 	if code, _ := f.do("GET", "/users", "", nil, nil); code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", code)

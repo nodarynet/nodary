@@ -195,7 +195,7 @@ func cmdNodeShow(e env, args []string) int {
 
 	// The hardware, then the narrowing of it. An offer smaller than the
 	// inventory is the node's own guardrails at work
-	// (docs/specs/12-node-guardrails.md §2), and it is otherwise invisible: the
+	// (dev/specs/12-node-guardrails.md §2), and it is otherwise invisible: the
 	// deployment is simply refused with nothing saying which side refused it.
 	gpus := gpuList(d.GPUs)
 	if len(gpus) == 0 {
@@ -270,7 +270,7 @@ func cmdNodeShow(e env, args []string) int {
 						"restarts it, and removing the deployment is what frees the card.\n",
 					dep.ID, pluralCard(dep.GPUs), joinInts(dep.GPUs), dep.ModelID)
 			}
-			// docs/specs/11-failure-modes.md §3 makes a failing assertion a
+			// dev/specs/11-failure-modes.md §3 makes a failing assertion a
 			// critical alert, and the column above is a word in a table. This
 			// is the line that says what it means: the isolation §5 requires
 			// is the control keeping a model's weights and a customer's
@@ -279,7 +279,7 @@ func cmdNodeShow(e env, args []string) int {
 			case fleet.EgressNonCompliant:
 				fmt.Fprintf(e.stderr,
 					"\n%s has a way off this box: %s\nIt is still serving. "+
-						"docs/specs/03-agent.md §5 requires it not to.\n", dep.ID, dep.EgressReason)
+						"dev/specs/03-agent.md §5 requires it not to.\n", dep.ID, dep.EgressReason)
 			case fleet.EgressInconclusive:
 				fmt.Fprintf(e.stderr,
 					"\n%s could not be shown to be isolated: %s\n", dep.ID, dep.EgressReason)
@@ -290,7 +290,7 @@ func cmdNodeShow(e env, args []string) int {
 	// Refusals first among the follow-ups: a refused deployment is the one
 	// an operator is most likely to be staring at, because it sits in
 	// `defined` forever and every other column looks fine
-	// (docs/specs/12-node-guardrails.md §1).
+	// (dev/specs/12-node-guardrails.md §1).
 	var refused, outOfPolicy []fleet.Refusal
 	for _, r := range d.Refusals {
 		if r.Kind == observed.KindOutOfPolicy {
@@ -317,7 +317,7 @@ func cmdNodeShow(e env, args []string) int {
 	}
 
 	// Its own table, and not folded into the one above, because the operative
-	// word is different: these are **running**. docs/specs/12-node-guardrails.md
+	// word is different: these are **running**. dev/specs/12-node-guardrails.md
 	// §3 forbids killing a deployment a guardrail narrowed under, so nothing
 	// here is stuck — something is serving outside the limits its own host now
 	// declares, and closing that gap is a decision rather than a fix.
@@ -433,7 +433,7 @@ func hostDetail(d fleet.Detail) string {
 
 // certDetail says when the node's certificate stops being accepted, because
 // that is also when it may re-enroll under the same name
-// (docs/specs/02-enrollment.md §3) — and an expired one explains a node that
+// (dev/specs/02-enrollment.md §3) — and an expired one explains a node that
 // went silent without anything else being wrong.
 func certDetail(expires string, now time.Time) string {
 	if expires == "" {

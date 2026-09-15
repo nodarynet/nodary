@@ -295,7 +295,7 @@ func knownJSON(known []advisory.Known, now time.Time, interval int) []map[string
 // two answers to one question, and an assessor would read whichever was blank.
 //
 // It is not gated by a permission, which is not an oversight. The vocabulary in
-// docs/specs/07-identity-audit.md §1 has no entry for a remediation decision,
+// dev/specs/07-identity-audit.md §1 has no entry for a remediation decision,
 // and quietly extending that table from here would put a claim in the spec that
 // nothing agreed to. It sits where `limits set` sits, and the fleet-wide
 // question of role-gating writes is its own task.

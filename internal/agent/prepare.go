@@ -17,7 +17,7 @@ import (
 	"github.com/nodarynet/nodary/internal/backend"
 )
 
-// R6-06, docs/specs/04-backends.md §4: the lifecycle is stage → prepare →
+// R6-06, dev/specs/04-backends.md §4: the lifecycle is stage → prepare →
 // serve, not stage → serve.
 //
 // TensorRT-LLM is why. It compiles a per-GPU-architecture engine out of the
@@ -405,7 +405,7 @@ func logTail(body []byte) string {
 }
 
 // planPrepare works out one deployment's artifact and starts the build if
-// nothing is doing it — docs/specs/04-backends.md §4.
+// nothing is doing it — dev/specs/04-backends.md §4.
 //
 // **Weights first.** A build reads the staged weights, so a model that is
 // still arriving has nothing to build from and this reports `absent` rather
@@ -485,7 +485,7 @@ func planPrepare(d api.DesiredDeployment, desc backend.Descriptor, st Stage,
 
 	// The builder reaches a card the same way the server will, because it is
 	// the same card: TensorRT-LLM compiles against the architecture it is
-	// handed (docs/specs/04-backends.md §4), so a build that got a different
+	// handed (dev/specs/04-backends.md §4), so a build that got a different
 	// device than the deployment would produce an engine for the wrong one.
 	flag, err := gpuFlag(d.GPUs, present, opt.CDIDevices)
 	if err != nil {

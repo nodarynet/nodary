@@ -2,7 +2,7 @@
 //
 // **Every command migrates, and that is not the thing to change.** An
 // operator's first command reaches an unmigrated database, so
-// docs/specs/08-data-model.md §5 has any process that opens it for writing
+// dev/specs/08-data-model.md §5 has any process that opens it for writing
 // apply migrations — internal/cli's openSession does, and so does the server.
 // What that costs is paid per *process* in production and per *test* here,
 // and a package with a database per test pays it hundreds of times: applying

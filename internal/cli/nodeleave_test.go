@@ -38,7 +38,7 @@ func enrolledTree(t *testing.T, models string) (root string, conf, cert, key str
 	return root, conf, cert, key
 }
 
-// R4-06 / docs/specs/12-node-guardrails.md §5: leaving destroys the
+// R4-06 / dev/specs/12-node-guardrails.md §5: leaving destroys the
 // credentials that made this machine a node. Anything short of that is a host
 // that can still be told what to run.
 func TestNodeLeaveDestroysTheCredentials(t *testing.T) {

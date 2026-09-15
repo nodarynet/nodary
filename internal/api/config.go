@@ -12,7 +12,7 @@ import (
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
-// ServerConfig is /etc/nodary/server.toml (R2-35, docs/specs/01-install.md §12).
+// ServerConfig is /etc/nodary/server.toml (R2-35, dev/specs/01-install.md §12).
 type ServerConfig struct {
 	Bind    string `toml:"bind"`
 	DataDir string `toml:"data_dir"`

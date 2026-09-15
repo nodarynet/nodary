@@ -185,7 +185,7 @@ func TestStatusStillReportsAfterTheConfigurationIsGone(t *testing.T) {
 	}
 }
 
-// R4-25, docs/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
+// R4-25, dev/specs/11-failure-modes.md §2: "GPU falls off the bus — agent
 // reports; affected deployments marked `failed`; **node flagged**."
 //
 // Flagged by derivation rather than by a stored column: the offer is what the

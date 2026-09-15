@@ -10,7 +10,7 @@ import (
 	"github.com/nodarynet/nodary/internal/audit"
 )
 
-// SetupTTL is how long a setup link lives. docs/specs/01-install.md §4 step 9.
+// SetupTTL is how long a setup link lives. dev/specs/01-install.md §4 step 9.
 //
 // Fifteen minutes is short enough that a URL left in a terminal's scrollback is
 // not a credential, and long enough to walk to another machine.
@@ -19,7 +19,7 @@ const SetupTTL = 15 * time.Minute
 // KindSetup is the prefix a setup credential carries.
 //
 // **Deliberately not in Kinds.** The prefix exists for the reason every prefix
-// in docs/specs/02-enrollment.md §4 exists — a leaked credential should be
+// in dev/specs/02-enrollment.md §4 exists — a leaked credential should be
 // greppable in a log and recognizable to a secret scanner — but this is not a
 // kind anybody may mint. `nodary token create --kind st` has to stay an error,
 // and leaving it out of Kinds is what makes ParseKind and Valid refuse it.

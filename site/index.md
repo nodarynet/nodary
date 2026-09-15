@@ -72,9 +72,9 @@ We do not sell security — we sell the paperwork.
 
 | | |
 | :--- | :--- |
-| [Specifications](https://github.com/nodarynet/nodary/tree/main/docs/specs) | What every component is required to do |
-| [Decision records](https://github.com/nodarynet/nodary/tree/main/docs/adr) | Why it's built this way, and what was rejected |
-| [Implementation tracker](https://github.com/nodarynet/nodary/tree/main/docs/tasks) | What's done, what's next |
+| [Specifications](https://github.com/nodarynet/nodary/tree/main/dev/specs) | What every component is required to do |
+| [Decision records](https://github.com/nodarynet/nodary/tree/main/dev/adr) | Why it's built this way, and what was rejected |
+| [Implementation tracker](https://github.com/nodarynet/nodary/tree/main/dev/tasks) | What's done, what's next |
 
 The [README](https://github.com/nodarynet/nodary#status) carries the full list of what is
 recorded but not yet enforced, and what is not built at all. It is on the front page rather

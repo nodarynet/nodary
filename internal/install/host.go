@@ -15,7 +15,7 @@ import (
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
-// Layout is docs/specs/01-install.md §12, as directories and their modes.
+// Layout is dev/specs/01-install.md §12, as directories and their modes.
 //
 // The modes are the specification's, and they are not decorative:
 // /var/lib/nodary at 0710 gives its group traverse only, so an operator added
@@ -310,7 +310,7 @@ func Restart(ctx context.Context, unit string, o Options) (Step, error) {
 	return step, nil
 }
 
-// EnsureBinary places this executable at docs/specs/01-install.md §12's
+// EnsureBinary places this executable at dev/specs/01-install.md §12's
 // location and points `current` at it.
 //
 // **The units must not invoke the binary wherever it happened to be at install

@@ -4,7 +4,7 @@
 // The manifest is the single source of truth for what an install fetches, and
 // the same data drives both the online path (resolve from upstream) and the
 // offline path (`nodary bundle create`), so the two verify identically.
-// See docs/adr/0004-release-artifacts-and-channels.md.
+// See dev/adr/0004-release-artifacts-and-channels.md.
 package components
 
 import (
@@ -77,7 +77,7 @@ type Artifact struct {
 	// obvious shortcut — `linux/amd64+vulkan` — needs no schema change and
 	// smuggles a second dimension into a string that resolvePlatform,
 	// ForPlatform and ArtifactName all split on `/`
-	// (docs/plans/R6a-a-second-gpu-vendor.md §3).
+	// (dev/plans/R6a-a-second-gpu-vendor.md §3).
 	//
 	// An Artifact rather than a narrower type so an override says everything
 	// a base entry can — a vendor may differ by url and sha256, not only by

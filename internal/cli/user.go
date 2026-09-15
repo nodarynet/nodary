@@ -35,7 +35,7 @@ func cmdUser(e env, args []string) int {
 	case "totp":
 		return cmdUserTOTP(e, args[1:])
 	case "passwd":
-		// docs/specs/10-cli.md §1 lists it. Nothing in R1 reads a password
+		// dev/specs/10-cli.md §1 lists it. Nothing in R1 reads a password
 		// hash: the CLI authenticates with a personal token and the only
 		// consumer is R2's login endpoint, so the hashing lands there rather
 		// than being written here against no call site.
@@ -376,7 +376,7 @@ func cmdUserShow(e env, args []string) int {
 //
 // The seed goes to stdout alone and everything else to stderr, so capturing
 // stdout yields exactly the secret and nothing to strip
-// (docs/specs/10-cli.md §4). The provisioning URI carries the same secret and
+// (dev/specs/10-cli.md §4). The provisioning URI carries the same secret and
 // is the human-facing form, which is why it is on the human-facing stream.
 func cmdUserTOTP(e env, args []string) int {
 	fs := newFlagSet(e, "user totp")

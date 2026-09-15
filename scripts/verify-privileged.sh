@@ -247,7 +247,7 @@ if [ -f /etc/cni/net.d/10-nodary-isolated.conflist ]; then
   else bad "ipMasq is not false"; fi
   if grep -q '"dns": {}' /etc/cni/net.d/10-nodary-isolated.conflist; then
     ok "dns is empty — no resolver in the namespace"
-  else bad "dns is not empty; see docs/plans/R4d-egress-isolation.md"; fi
+  else bad "dns is not empty; see dev/plans/R4d-egress-isolation.md"; fi
 else
   bad "the CNI configuration was not written"
 fi

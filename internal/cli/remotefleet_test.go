@@ -491,8 +491,8 @@ func TestLimitsSetOverServer(t *testing.T) {
 // The constraint R2-34 is about, at the level a script sees: one refusal, two
 // roads, one exit code.
 //
-// It is not automatic. docs/specs/09-api.md §3's codes and
-// docs/specs/10-cli.md §5's exit codes are two tables, and they are filled in
+// It is not automatic. dev/specs/09-api.md §3's codes and
+// dev/specs/10-cli.md §5's exit codes are two tables, and they are filled in
 // by different people at different times — `config.ErrInvalid` and
 // `identity.ErrBadName` shared one code while the CLI answered them 1 and 2,
 // which this caught.
@@ -581,7 +581,7 @@ func TestUserVerbsOverServer(t *testing.T) {
 	}
 
 	// The same document either way. `user add --format json` is a stable schema
-	// (docs/specs/10-cli.md §2), and a caller who created the account supplied
+	// (dev/specs/10-cli.md §2), and a caller who created the account supplied
 	// the address, so nothing here is withheld from them.
 	code, out, stderr = run(t, "user", "add", "carol", "--role", "viewer",
 		"--email", "carol@example.test", "--server", base, "--credentials", a.creds,
@@ -1451,7 +1451,7 @@ func TestRegisterPicksAPortFromTheControlPlanesFleet(t *testing.T) {
 // `backup create` over --server, and the shape of it: the archive is written on
 // the control plane and stays there.
 //
-// docs/specs/08-data-model.md §4 is the reason. The archive holds
+// dev/specs/08-data-model.md §4 is the reason. The archive holds
 // /etc/nodary/secret.key, the agent CA private key and the LiteLLM master key,
 // so streaming it to whichever machine asked would move this control plane's
 // entire secret material onto one with a different posture as a side effect of

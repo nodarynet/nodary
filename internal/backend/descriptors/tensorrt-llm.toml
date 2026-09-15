@@ -1,4 +1,4 @@
-# TensorRT-LLM. docs/specs/04-backends.md §6.
+# TensorRT-LLM. dev/specs/04-backends.md §6.
 #
 # **It has no [backend.prepare], and that is a correction rather than an
 # omission.** R6-02 recorded this backend as blocked on R6-06's build phase,

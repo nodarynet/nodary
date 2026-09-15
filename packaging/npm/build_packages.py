@@ -5,7 +5,7 @@ Publishing nodary to npm means publishing five packages: the entry package and
 one per platform, referenced through optionalDependencies. This is the esbuild
 layout, chosen because it needs no postinstall script — nothing downloads at
 install time, so an air-gapped or locked-down npm install behaves the same as
-any other (docs/adr/0004-release-artifacts-and-channels.md).
+any other (dev/adr/0004-release-artifacts-and-channels.md).
 
     python3 packaging/npm/build_packages.py --version 0.0.1 --dist dist/
 

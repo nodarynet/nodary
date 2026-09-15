@@ -19,7 +19,7 @@ import (
 // **`unstage` requires no deployment on this node still wants the model** —
 // deleting weights out from under a live deployment is exactly the accident
 // that precondition exists to prevent. **`restage` requires the observed
-// state to be `corrupt`** — docs/specs/05-catalog.md §3 makes that state the
+// state to be `corrupt`** — dev/specs/05-catalog.md §3 makes that state the
 // one an explicit restage is for, not a general "redownload even though it's
 // fine" button that could yank weights out from under a healthy deployment.
 // And `restage` refuses `source: local` outright: VerifyStaged re-reads
@@ -31,7 +31,7 @@ import (
 // request lives in its own table (`stage_reset`), consumed by the agent and
 // acknowledged over the heartbeat (internal/observed.Heartbeat), the same
 // shape join-token redemption already uses for a one-shot request the
-// protocol's "no imperative commands" rule (docs/specs/03-agent.md §2) has
+// protocol's "no imperative commands" rule (dev/specs/03-agent.md §2) has
 // no other way to express.
 func cmdModelStageReset(e env, args []string, verb string) int {
 	fs := newFlagSet(e, "model "+verb)
@@ -107,7 +107,7 @@ func cmdModelStageReset(e env, args []string, verb string) int {
 }
 
 // notePoll says when the request takes effect. The agent pulls; nothing here
-// pushes (docs/specs/03-agent.md §1), so "done" means "recorded", and an
+// pushes (dev/specs/03-agent.md §1), so "done" means "recorded", and an
 // operator watching `node show` for an immediate change needs to know that.
 func notePoll(e env, verb, id, node string) {
 	fmt.Fprintf(e.stderr, "model %s: %s on %s will be applied on the agent's next poll (up to 60s)\n",

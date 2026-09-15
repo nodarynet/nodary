@@ -12,7 +12,7 @@ import (
 
 // R4-10: a node's events become records in the control plane's chain.
 //
-// docs/specs/03-agent.md §1 calls this endpoint "audit records and lifecycle
+// dev/specs/03-agent.md §1 calls this endpoint "audit records and lifecycle
 // events generated on the node", and that is what it has to be — a security
 // event that only ever reaches the node's own journal is one an assessor cannot
 // see and a compromised node can erase.

@@ -851,7 +851,7 @@ re-running `server install` as an upgrade would, which is why this is a separate
 
 !!! warning "GPU nodes are upgraded by hand"
     `nodary upgrade` moves the host it runs on. Agents fetching a new binary from their control
-    plane's mirror is [R5-16](https://github.com/nodarynet/nodary/blob/main/docs/tasks/R5-install.md)
+    plane's mirror is [R5-16](https://github.com/nodarynet/nodary/blob/main/dev/tasks/R5-install.md)
     and is not built, so a node is upgraded by re-running `install.sh` on it. The two sides
     share a protocol version and skew is bounded to the upgrade window, so do the control plane
     first and the nodes shortly after.
@@ -929,10 +929,10 @@ something that is almost never containerd.
 
 ## Next
 
-- The [CLI reference](https://github.com/nodarynet/nodary/blob/main/docs/specs/10-cli.md)
+- The [CLI reference](https://github.com/nodarynet/nodary/blob/main/dev/specs/10-cli.md)
   covers every verb and every flag.
-- The [specifications](https://github.com/nodarynet/nodary/tree/main/docs/specs) are what
+- The [specifications](https://github.com/nodarynet/nodary/tree/main/dev/specs) are what
   every component is required to do; the
-  [decision records](https://github.com/nodarynet/nodary/tree/main/docs/adr) say why.
-- The [implementation tracker](https://github.com/nodarynet/nodary/tree/main/docs/tasks)
+  [decision records](https://github.com/nodarynet/nodary/tree/main/dev/adr) say why.
+- The [implementation tracker](https://github.com/nodarynet/nodary/tree/main/dev/tasks)
   is what is done and what is next.

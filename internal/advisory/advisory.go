@@ -2,7 +2,7 @@
 // digests this binary pins.
 //
 // **The mechanism is here and free; the content is the product.**
-// docs/adr/0005-editions-and-the-advisory-feed.md draws that line for the whole
+// dev/adr/0005-editions-and-the-advisory-feed.md draws that line for the whole
 // edition split, and it falls the same way here: verifying a revision and
 // matching it against the manifest is a hundred lines of standard library, and
 // what a customer pays for is a *current* revision. So there is no license
@@ -24,7 +24,7 @@
 // The feed maps **component digest → advisory → recommended digest**, never
 // version to version. A version string is what a project calls a release; a
 // digest is what is actually on the disk, and the whole point of
-// docs/adr/0007-independent-component-manifest.md is that nodary pins the
+// dev/adr/0007-independent-component-manifest.md is that nodary pins the
 // second.
 package advisory
 
@@ -41,7 +41,7 @@ import (
 
 // TrustedKey is the public key this build trusts for feed revisions.
 //
-// **Deliberately not the license key**, though docs/tasks/R9-evidence-remediation.md
+// **Deliberately not the license key**, though dev/tasks/R9-evidence-remediation.md
 // says "the same trust root as R9-02" and this is the same *mechanism*: an
 // embedded minisign key, stamped in at release with -ldflags, refusing to
 // verify anything while it holds the placeholder.

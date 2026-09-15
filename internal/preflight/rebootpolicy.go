@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// How this host comes back from a restart, which docs/specs/03-agent.md §7
+// How this host comes back from a restart, which dev/specs/03-agent.md §7
 // stores as `reboot_policy` and nothing in this package ever acts on: nodary
 // initiates no restart under any of these (R4-25), so the value records what an
 // operator would have to do rather than granting anybody permission.
@@ -39,7 +39,7 @@ func (h hostFS) path(p string) string {
 
 // RebootPolicy is which kind of machine this is.
 //
-// It lives here rather than in internal/agent because docs/specs/03-agent.md §7
+// It lives here rather than in internal/agent because dev/specs/03-agent.md §7
 // makes this preflight's detection and the agent's report of it, and both need
 // the same answer. They had two: this, and a check here that read /etc/crypttab
 // alone — which never looked at the root device at all, so an encrypted data

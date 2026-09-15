@@ -48,7 +48,7 @@ func TestEventsAreHeldUntilTheyAreAccepted(t *testing.T) {
 	}
 }
 
-// docs/specs/11-failure-modes.md §1: the oldest events spill to disk.
+// dev/specs/11-failure-modes.md §1: the oldest events spill to disk.
 func TestTheOldestEventsSpillToDiskAndComeBack(t *testing.T) {
 	spill := filepath.Join(t.TempDir(), "events.ndjson")
 	q := NewEvents(spill)

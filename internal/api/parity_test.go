@@ -11,7 +11,7 @@ import (
 	"github.com/nodarynet/nodary/internal/cli"
 )
 
-// The cross-cutting constraint in docs/tasks/README.md says the CLI and the API
+// The cross-cutting constraint in dev/tasks/README.md says the CLI and the API
 // call the same core functions and neither holds business logic. That both call
 // core.Act is visible in the source; what a reader cannot see is whether they
 // therefore *behave* the same, which is the thing the constraint is actually
@@ -84,7 +84,7 @@ func TestBothFrontEndsRefuseTheSameThings(t *testing.T) {
 	// Both must also *succeed* on the same input, or the test above passes on a
 	// pair of front ends that refuse everything.
 	t.Run("both accept a good justification", func(t *testing.T) {
-		// The CLI acts as local root, which docs/plans/R1c-identity.md exempts
+		// The CLI acts as local root, which dev/plans/R1c-identity.md exempts
 		// from re-authentication; the API caller is a token principal and is
 		// not, so `regulated` refuses it without a code. That asymmetry is a
 		// decision, not a divergence — the two front ends are asking the same

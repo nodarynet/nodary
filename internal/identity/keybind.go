@@ -12,7 +12,7 @@ import (
 	"github.com/nodarynet/nodary/internal/secret"
 )
 
-// The key binding of docs/specs/08-data-model.md §4, and R1-36's refusal.
+// The key binding of dev/specs/08-data-model.md §4, and R1-36's refusal.
 //
 // It lives here rather than in internal/secret because it needs both halves:
 // the keyring, and audit's installation row, which is where the identifier is
@@ -66,7 +66,7 @@ func CheckKey(ctx context.Context, q Querier, k *secret.Key) error {
 // difference is not cosmetic: a *sql.Tx is obtainable by anything in the
 // package, so the old signature let a future caller bind a key with no record
 // of it, which is exactly the conventional-rather-than-structural guarantee
-// docs/tasks/README.md forbids.
+// dev/tasks/README.md forbids.
 func BindKey(ctx context.Context, m audit.Mutation, now time.Time, k *secret.Key) error {
 	tx := m.Tx()
 	if err := CheckKey(ctx, tx, k); err != nil {

@@ -8,7 +8,7 @@ import (
 	"github.com/nodarynet/nodary/internal/fleet"
 )
 
-// R4-11, docs/specs/03-agent.md §4: an agent outside the supported range stops
+// R4-11, dev/specs/03-agent.md §4: an agent outside the supported range stops
 // reconciling, keeps running what is up, and reports `incompatible`.
 //
 // The control plane used to refuse the heartbeat outright, and the consequence

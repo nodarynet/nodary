@@ -55,7 +55,7 @@ func (u *upgrader) record(target, failure string) {
 
 // selfUpgrade brings this node to the version its control plane targets.
 //
-// **A node has no egress** (docs/specs/03-agent.md §1), so the binary comes
+// **A node has no egress** (dev/specs/03-agent.md §1), so the binary comes
 // from the mirror it already fetches components from, and the only thing that
 // makes that safe is the signature: it is verified against the release key
 // compiled into *this* binary, which arrived through a channel the control
@@ -64,7 +64,7 @@ func (u *upgrader) record(target, failure string) {
 // **Nothing is torn down on failure.** Every step happens beside the running
 // install — a new versioned directory, then one symlink flip — so an upgrade
 // that cannot complete leaves a node serving the version it already had. That
-// is docs/specs/01-install.md §9's requirement and the reason the order is
+// is dev/specs/01-install.md §9's requirement and the reason the order is
 // fetch, verify, place, flip, restart rather than anything shorter.
 func (d *Daemon) selfUpgrade(ctx context.Context, target string) {
 	if target == "" || target == buildinfo.Version {

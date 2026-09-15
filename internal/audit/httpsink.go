@@ -17,7 +17,7 @@ import (
 )
 
 // httpSink posts committed records to an NDJSON endpoint — a SIEM's ingest
-// path, or a log shipper in front of one (docs/tasks/R2-control-plane.md
+// path, or a log shipper in front of one (dev/tasks/R2-control-plane.md
 // R2-41).
 //
 // **Asynchronous, and that is the load-bearing decision.** Delivery.Emit runs
@@ -30,7 +30,7 @@ import (
 // **A full queue drops rather than blocks**, which is the same reasoning
 // followed to its end: blocking would reintroduce exactly what going
 // asynchronous removed. A drop is reported like any other delivery failure, and
-// docs/tasks/R2-control-plane.md R2-41 already names the recovery — `audit
+// dev/tasks/R2-control-plane.md R2-41 already names the recovery — `audit
 // export --from-seq` re-syncs a destination that fell behind, which is why
 // there is no durable spool here to go wrong in its own right.
 type httpSink struct {

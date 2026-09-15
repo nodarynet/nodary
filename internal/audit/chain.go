@@ -19,7 +19,7 @@ import (
 //
 // It carries no sequence, predecessor, installation or hash, so a caller cannot
 // choose them even by mistake: those are assigned inside the transaction that
-// writes the row, which is what makes docs/tasks/R1-core-audit-identity.md
+// writes the row, which is what makes dev/tasks/R1-core-audit-identity.md
 // R1-07's guarantee hold across processes rather than only across goroutines.
 type Entry struct {
 	TS            time.Time
@@ -183,7 +183,7 @@ func installID(tx *sql.Tx, now time.Time) (string, error) {
 // row does not exist yet.
 //
 // Exported for one caller: the key binding of
-// docs/specs/08-data-model.md §4 lives on the same singleton row, and it is
+// dev/specs/08-data-model.md §4 lives on the same singleton row, and it is
 // written inside the mutation that performs the first seal -- which runs before
 // AppendTx and so before this row would otherwise exist. Two minting paths for
 // one identifier would be worse than one exported function, because the id is

@@ -19,7 +19,7 @@ func profile(t *testing.T, name string) policy.Profile {
 	return p
 }
 
-// docs/specs/07-identity-audit.md §4: default asks for no ceremony, so an
+// dev/specs/07-identity-audit.md §4: default asks for no ceremony, so an
 // operator restarting a model types the command and nothing else.
 func TestDefaultDemandsNothing(t *testing.T) {
 	if err := Require(profile(t, "default"), Ceremony{Interactive: true}); err != nil {
@@ -66,7 +66,7 @@ func TestLengthCountsCharactersNotBytes(t *testing.T) {
 	}
 }
 
-// The table in docs/plans/R1e-attestation.md, asserted directly.
+// The table in dev/plans/R1e-attestation.md, asserted directly.
 func TestWhoMustReAuthenticate(t *testing.T) {
 	def, reg := profile(t, "default"), profile(t, "regulated")
 	for _, tc := range []struct {
@@ -130,7 +130,7 @@ func TestHashBindsTheRenderedChangeNotItsArguments(t *testing.T) {
 
 // R1-14, at the mechanism: the render is run again and the result must still
 // hash to what was approved. A render whose answer moved is exactly the window
-// docs/specs/07-identity-audit.md §3 closes.
+// dev/specs/07-identity-audit.md §3 closes.
 func TestBindRefusesWhenTheRenderedChangeMoved(t *testing.T) {
 	state := "active"
 	render := func(context.Context, *sql.Tx) (any, error) {

@@ -72,7 +72,7 @@ func TestANodeRenewsItsOwnCertificateOverMTLS(t *testing.T) {
 	}
 }
 
-// docs/specs/02-enrollment.md §3: issuing supersedes the previous certificate
+// dev/specs/02-enrollment.md §3: issuing supersedes the previous certificate
 // immediately, so it stops working at the next request rather than when it
 // eventually expires.
 func TestRenewalSupersedesThePreviousCertificateAtOnce(t *testing.T) {

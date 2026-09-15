@@ -11,8 +11,8 @@ import (
 
 // practices are the categories a nodary install produces evidence for.
 //
-// **No practice identifiers.** docs/specs/13-evidence.md §4 and
-// docs/plans/pivot-cmmc.md §5 both say the same thing: a mapping table is the
+// **No practice identifiers.** dev/specs/13-evidence.md §4 and
+// dev/plans/pivot-cmmc.md §5 both say the same thing: a mapping table is the
 // one artifact in this product where being approximately right is worse than
 // being absent, because a customer pastes it into an SSP. The identifiers must
 // be transcribed from the publication, which is R9-19 and needs the publication
