@@ -190,5 +190,31 @@ release:
 changelog:
   use: github
   sort: asc
+  # **The filters matched nothing, which is the failure this file's own CI job
+  # exists for.** They were written for Conventional Commits — `docs:`, `test:`
+  # — and this repository has always used `[docs]`, `[test]`. So every commit
+  # landed in the notes, including the 117 documentation commits between
+  # v0.0.1-rc1 and v0.0.1, and the exclusion read as though it were working.
+  # Declared, unverified, wrong: the same thing `goreleaser check` was added to
+  # catch, in the one part of the config a schema check cannot see.
   filters:
-    exclude: ["^docs:", "^test:", "^chore:"]
+    exclude: ['^\[docs\]', '^\[test\]', '^\[misc\]']
+  # Grouped, because a first release covers 440 commits and an ungrouped list
+  # of them is not something anybody reads. The titles are the tags this
+  # repository actually uses; a commit matching none of them still appears,
+  # under Other, rather than being dropped by a pattern nobody noticed.
+  groups:
+    - title: Features
+      regexp: '^\[feat\]'
+      order: 0
+    - title: Fixes
+      regexp: '^\[fix\]'
+      order: 1
+    - title: Improvements
+      regexp: '^\[impr\]'
+      order: 2
+    - title: Build, packaging and dependencies
+      regexp: '^\[(devops|devsecops|deps)\]'
+      order: 3
+    - title: Other
+      order: 99
