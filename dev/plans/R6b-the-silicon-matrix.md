@@ -1,7 +1,8 @@
 # R6b — Which backend runs on which silicon, and who gets offered what
 
 **Slice of:** [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) ·
-**Follows:** [R6a](R6a-a-second-gpu-vendor.md) · **Status:** measured, not yet designed
+**Follows:** [R6a](R6a-a-second-gpu-vendor.md) · **Status:** scoped — NVIDIA is served
+natively, everything else is llama.cpp on Vulkan
 
 [R6a §8](R6a-a-second-gpu-vendor.md#8-what-this-slice-deliberately-does-not-do) ends by saying
 "the README should say which backends run on which silicon rather than leaving a reader to
@@ -17,78 +18,99 @@ registry fact (`ggml-org` publishes no `server-rocm`, and that inverted the desi
 | | |
 | :--- | :--- |
 | `vllm/vllm-openai` tags containing `rocm` | **none.** The upstream image is CUDA-only — `cu129`, `cu13.0.1` |
+| `vllm/vllm-openai` tags containing `xpu` or `intel` | **none**, for the same reason |
 | vLLM on ROCm is published by | **`rocm/vllm`** — AMD's namespace, not the vLLM project's |
+| vLLM on Intel is published by | **`intel/vllm`** — a third namespace again |
 | `rocm/vllm` variants | `..._rdna_...` **and** `..._cdna_...`, plus `gfx120X-all`, `gfx1152` |
-| `lmsysorg/sglang` ROCm tags | `v0.5.19-rocm{10,700,720,724}-mi{30,35}x` — **Instinct only** |
+| `lmsysorg/sglang` ROCm tags | `v0.5.19-rocm{10,700,720,724}-mi{30,35}x` — **Instinct only**, no RDNA build |
 | `rocm/sgl-dev` | same shape: `mi35x`, `mi45x` |
 | ROCm image sizes | **10–33 GB**, against roughly 5–9 GB for the CUDA images |
 | `ggml-org/llama.cpp` variants | `server`, `server-cuda`, `server-vulkan`, `server-intel`, `server-musa`; still no `server-rocm` |
 
-Three of those rows change the matrix that was asked for.
+## 1. Decided: no ROCm, no XPU. AMD and Intel are Vulkan
 
-## 1. The matrix, corrected by what is published
+**Decided.** Native vendor backends are offered on NVIDIA only. AMD and Intel are served by
+llama.cpp on Vulkan, which [R6a](R6a-a-second-gpu-vendor.md) already built.
 
-Asked for, and why each row moved:
+**Why.** The measurements above describe a support burden out of proportion to the hardware it
+reaches:
 
-| Silicon | Offer | Recommend | |
-| :--- | :--- | :--- | :--- |
-| NVIDIA / CUDA | sglang, vllm, llama-cpp | **sglang** | as asked |
-| AMD with ROCm, **CDNA** (Instinct) | vllm, sglang, llama-cpp | **sglang** | as asked |
-| AMD with ROCm, **RDNA** (Radeon) | vllm, llama-cpp | **vllm** | **corrected.** SGLang publishes no RDNA build — `mi30x`/`mi35x`/`mi45x` are Instinct parts. On the Radeon workstation an SMB is likelier to own, "sglang recommended" names an image that does not exist |
-| AMD, Vulkan only | llama-cpp | llama-cpp | as asked. This is also every AMD host where ROCm is not installed |
-| Intel integrated | llama-cpp | llama-cpp | **arrives at pri 1 already** — R6a's argument for Vulkan was that Intel iGPU comes with it |
-| Intel Arc / Max discrete | vllm | vllm | pri 2, and narrower than written: pri 1 already covers Intel iGPU. `server-intel` is a shorter path to the same silicon than vLLM's XPU build |
-| TensorRT-LLM | — | — | **absent from the matrix as asked for.** It is pinned, has a descriptor, and is the only backend exercising `prepare`. Dropping it is a decision this plan does not take; see §5 |
+- **Fragmentation.** There is no "sglang on AMD" image — there is `mi30x`, `mi35x`, `mi45x`,
+  each against four ROCm versions. There is no "vLLM on AMD" image either — there is `rdna`,
+  `cdna`, `gfx120X-all`, `gfx1152`. Every one of those is a pin to choose, verify and move.
+- **Size.** 10–33 GB against 5–9 GB, on a product whose offline bundle does not carry images at
+  all ([R5-05](../tasks/R5-install.md)).
+- **A third and fourth publisher.** The CUDA images come from the projects that write the
+  software. The ROCm and XPU images come from `rocm/*` and `intel/*`. For a product sold on
+  provenance, each additional organization in the supply chain is a claim to stand behind.
+- **It does not reach the buyer anyway.** SGLang publishes no RDNA build at all, so on the
+  Radeon workstation a small site is likeliest to own, the "recommended" backend has no image.
+  ROCm's advantage is throughput on datacentre Instinct parts — which is
+  [R6a §8](R6a-a-second-gpu-vendor.md#8-what-this-slice-deliberately-does-not-do)'s sentence
+  exactly: "not this product's first customer."
 
-## 2. `amd` is not enough to choose an artifact
+**This re-converges on R6a.** That slice chose Vulkan over ROCm for the same reasons and said
+so; the measurements here are what a second look at the question cost, and they came back with
+the same answer and more evidence for it.
 
-[`manifest.go`](../../internal/components/manifest.go)'s vendor axis assumes the string
-`internal/preflight` detects is the string that selects an image, and today that vocabulary is
-`nvidia`, `amd`, `intel`. The measurements say it is not sufficient on two counts:
+**Rejected — ROCm behind a flag, or as an operator-registered descriptor.** The second is
+already possible and costs this plan nothing: [04 §9](../specs/04-backends.md#9-registering-a-backend)
+lets a site register its own descriptor, so an Instinct owner can run SGLang on ROCm without
+nodary pinning a single one of those images. That is the right home for it — the site that has
+the hardware carries the pin.
 
-- **ROCm or not.** The same AMD card runs sglang (ROCm image) or llama-cpp (Vulkan image)
-  depending on whether ROCm is installed on the host. `gpuvendor.go` declines to ask on
-  purpose — "rocm-smi is not asked either: it ships with ROCm, and a node serving Vulkan need
-  not have ROCm installed at all" — and this slice is the reason that has to change.
-- **RDNA or CDNA.** `rocm/vllm` ships them as different images. One `amd` key cannot name both.
+## 2. What that removes
 
-There is an existing ruling to respect: an `Artifact`'s own `Vendors` map "is refused by
-Validate: nothing reads one", so the answer is not nesting. The vocabulary itself is the thing
-to widen, and it lives in `internal/preflight` where the machine is detected — which keeps
-`ForVendor`'s "a missing override is a refusal rather than a fall back" exactly as it is, and
-that refusal is what stops a CUDA image being pinned onto a Radeon.
+The previous draft of this plan argued that `amd` was not enough to choose an artifact, and
+that [`manifest.go`](../../internal/components/manifest.go)'s vendor vocabulary had to widen.
+**That gap closes with §1.** It existed for two reasons and both were ROCm's:
 
-## 3. A descriptor should declare its own silicon
+- *ROCm or not* — a question only worth asking if a ROCm image could be chosen. It cannot.
+- *RDNA or CDNA* — a split that exists only inside `rocm/vllm`.
 
-[04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugins) chose descriptors over
-plugins so that what varies between backends is data a backend declares. Which silicon a
-backend runs on is exactly that, and putting it anywhere else — a table in the CLI, a map in
-the manifest — means an operator's own registered descriptor cannot participate in the matrix.
+So `nvidia`, `amd`, `intel` — what `internal/preflight` already detects and what
+`Artifact.ForVendor` already keys on — is sufficient. No new probe, no wider vocabulary, no
+change to the manifest schema, and `ForVendor`'s "a missing override is a refusal rather than a
+fall back" keeps doing the job it was written for.
 
-## 4. A new publisher enters the trust surface
+## 3. The matrix
 
-The ROCm artifacts come from `rocm/*`, which is AMD, not from the projects that publish the
-CUDA ones. [ADR 0004](../adr/0004-release-artifacts-and-channels.md) pins by digest and
-[ADR 0007](../adr/0007-independent-component-manifest.md) makes the manifest independently
-verifiable, so the mechanism copes — but "who publishes what nodary runs" grew by one
-organization, and for a product sold on provenance that is a decision to write down rather
-than a manifest entry to add quietly.
+| Silicon | Offer | Recommend |
+| :--- | :--- | :--- |
+| NVIDIA | sglang, vllm, llama-cpp | **sglang** |
+| AMD — discrete, APU | llama-cpp (Vulkan) | llama-cpp |
+| Intel — integrated, Arc | llama-cpp (Vulkan) | llama-cpp |
+| anything else with a DRM render node | llama-cpp (Vulkan) | llama-cpp |
 
-The sizes matter too: 10–33 GB against 5–9 GB. [R5-05](../tasks/R5-install.md) leaves images
-out of the offline bundle, and a 33 GB pull is a different install experience from a 6 GB one.
+`server-intel` is measured as existing and is **not** adopted here: Vulkan already reaches that
+silicon, and a second Intel-specific pin is the fragmentation this plan just declined.
+
+## 4. What is left to build
+
+R6a built the hard half — vendor-aware preflight and enumeration, `server-vulkan` pinned beside
+`server-cuda`, a `/dev/dri` render node handed to the container instead of a CDI device. What
+remains is the offer:
+
+- **A descriptor declares its own silicon.**
+  [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugins) chose descriptors over
+  plugins so that what varies between backends is data a backend declares. Which silicon a
+  backend runs on is exactly that — and putting it in a table in the CLI instead would mean an
+  operator's own descriptor could not participate in the matrix, which is the case §1's
+  "rejected" paragraph depends on.
+- **`model register` offers what the node can run**, refuses what it cannot with the vendor
+  named, and recommends one. Today `--backend` defaults to `vllm` for every node including a
+  Radeon one, where it cannot work.
+- **The install wizard's model step** offers the same set for the node being installed.
+- **The matrix is published** — `README.md` and `docs/administering.md`. This is
+  [R6a §8](R6a-a-second-gpu-vendor.md#8-what-this-slice-deliberately-does-not-do)'s actual
+  request, and it is the part a buyer reads before they buy the wrong card.
 
 ## 5. Open questions
 
 - **TensorRT-LLM.** In or out? It is built, pinned, the only user of `prepare`, and carries a
-  live hardware claim in [status.md](../status.md). If the matrix is the supported set, an
-  absent backend is a deprecation, and `prepare` loses its only exercise.
-- **How fine does the silicon key go?** `amd-rocm-rdna` and `amd-rocm-cdna` cover `rocm/vllm`;
-  `mi30x`/`mi35x`/`mi45x` is finer still, and `gfx1152` finer again. The key has to be as
-  specific as the *worst* backend needs, or the vocabulary is per backend rather than per host —
-  which would be a different design.
-- **Detecting RDNA from CDNA.** Vendor comes from a PCI id; the architecture does not.
-  `/sys/class/drm/card*/device/device` gives a device id, and mapping those to families is a
-  table that ages.
+  live hardware claim in [status.md](../status.md). NVIDIA-only either way, so it does not
+  complicate the matrix — but if the matrix is the supported set, an absent backend is a
+  deprecation and `prepare` loses its only exercise.
 - **Nothing here has run on an AMD or Intel card.** As with R6a, the design is measured against
   registries and sysfs documentation, and the development fleet is a single NVIDIA host under
   WSL2 where `/sys/class/drm` holds no cards at all.

@@ -55,7 +55,7 @@ A plan carries three things the tracker cannot:
 | [R5c — The privileged install](R5c-the-privileged-install.md) | [R5](../tasks/R5-install.md) | R5-09, R5-10 | built, unverified on a privileged host |
 | [R6a — A second GPU vendor](R6a-a-second-gpu-vendor.md) | [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) | R4-41, R4-42, R6-13, R6-14 | built and the image pinned; real AMD hardware remains |
 | [R3b — A second data plane, Bifrost as the default](R3b-a-second-data-plane.md) | [R3](../tasks/R3-gateway.md) | R3-17 – R3-25 | nothing built; [the spike](../spike-bifrost.md) has run gates 1 and 2 and settled the shape |
-| [R6b — Which backend runs on which silicon](R6b-the-silicon-matrix.md) | [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) | — | measured, not yet designed |
+| [R6b — Which backend runs on which silicon](R6b-the-silicon-matrix.md) | [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) | — | scoped: NVIDIA native, everything else Vulkan; the offer is unbuilt |
 
 ## Not a slice
 
