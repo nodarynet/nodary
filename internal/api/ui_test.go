@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -168,5 +169,66 @@ func TestTheConsoleScriptsParse(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Error("no scripts were checked; the console has scripts and this found none")
+	}
+}
+
+// Every endpoint the console fetches, against the real handlers.
+//
+// **The console holds no business logic, so what it can get wrong is which
+// door it knocks on.** A browser test would need a browser; what is worth
+// pinning without one is that every path app.js names is a path this server
+// serves, and that a screen added later cannot quietly call something that
+// answers 404 — the table below is checked against the script, so a new fetch
+// with no entry fails here rather than in somebody's browser.
+func TestEveryEndpointTheConsoleCallsIsServed(t *testing.T) {
+	f := newFixture(t)
+	n := f.join("gpu-01")
+	f.place("gpu-01", "dep_one", 0)
+	f.setPassword("alice", "correct horse battery staple")
+	cookie := f.loginCookie("alice", "correct horse battery staple")
+
+	// A report, so the node has deployments and staging to render.
+	if status, raw := n.call(t, f, http.MethodPost, "/agent/status", api.StatusReport{
+		Protocol: api.Protocol, AgentVersion: "0.0.0-test",
+		Inventory:   api.Inventory{Arch: "amd64", OS: "linux"},
+		Deployments: []api.StatusUnit{{ID: "dep_one", State: "failed", Health: "unknown", Error: "boom"}},
+	}); status != http.StatusOK {
+		t.Fatalf("status: %d %s", status, raw)
+	}
+
+	// The literal each api() call starts with, and a concrete path for it.
+	called := map[string]string{
+		"/auth/whoami":     "/auth/whoami",
+		"/policy":          "/policy",
+		"/nodes":           "/nodes",
+		"/nodes/":          "/nodes/gpu-01",
+		"/models":          "/models",
+		"/usage?group_by=": "/usage?group_by=model",
+		"/audit":           "/audit",
+		"/audit/verify":    "/audit/verify",
+		"/deployments/":    "/deployments/dep_one/logs",
+	}
+
+	script := mustAsset(t, f, "app.js")
+	for _, m := range regexp.MustCompile(`api\("([^"]*)"`).FindAllStringSubmatch(script, -1) {
+		if _, ok := called[m[1]]; !ok {
+			t.Errorf("app.js fetches %q and this test does not cover it", m[1])
+		}
+	}
+
+	for literal, path := range called {
+		req, err := http.NewRequest(http.MethodGet, f.srv.URL+api.Prefix+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.AddCookie(cookie)
+		resp, err := f.client.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("the console calls %s (from %q) and it answers %d", path, literal, resp.StatusCode)
+		}
 	}
 }

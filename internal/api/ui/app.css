@@ -61,3 +61,7 @@ body.centred { display: grid; place-items: center; min-height: 100vh; background
 label { display: block; margin: 1rem 0 .25rem; font-weight: 600; }
 input, select { width: 100%; padding: .45rem; font: inherit; border: 1px solid var(--line); }
 button { margin-top: 1.25rem; padding: .5rem 1.1rem; font: inherit; cursor: pointer; }
+
+/* The filter row on the audit browser: the same fields `audit list` takes. */
+.filters { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 1rem; color: var(--dim); }
+.filters input { width: auto; flex: 0 1 12rem; }

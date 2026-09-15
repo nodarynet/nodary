@@ -182,3 +182,256 @@ views.push({
         : null);
   },
 });
+
+// --- R7-04: the catalog, and what is staged where --------------------------
+
+/** bytes is a size a person reads rather than a number they count digits in. */
+function bytes(n) {
+  if (!n) return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+
+/** staged renders 05 §3's progress. `corrupt` is terminal and coloured as the
+ *  fault it is: restaging is an operator's decision, not something that
+ *  happens on its own. */
+function staged(s) {
+  if (s.state === "staged") return pill("staged", "ok");
+  if (s.state === "corrupt") return pill("corrupt", "bad");
+  if (s.state === "staging" || s.state === "verifying") {
+    const done = s.bytes_total ? Math.floor((s.bytes_done / s.bytes_total) * 100) : 0;
+    return pill(`${s.state} ${done}%`, "warn");
+  }
+  return pill(s.state || "absent", "");
+}
+
+views.push({
+  route: "catalog",
+  title: "Catalog",
+  async render() {
+    const [models, fleet] = await Promise.all([api("/models"), api("/nodes")]);
+    // Staging lives against a node, so the catalog asks every node what it
+    // holds. One request per node rather than a join the API does not offer —
+    // and the fleet this is sold into is tens of machines, not thousands.
+    const details = await Promise.all((fleet.nodes || [])
+      .map((n) => api("/nodes/" + encodeURIComponent(n.name))));
+
+    const byModel = new Map();
+    for (const node of details) {
+      for (const s of node.staging || []) {
+        if (!byModel.has(s.model_id)) byModel.set(s.model_id, []);
+        byModel.get(s.model_id).push({ node: node.name, ...s });
+      }
+    }
+
+    const rows = (models.models || []).map((m) => {
+      const where = byModel.get(m.id) || [];
+      return el("tr", {},
+        el("td", {}, m.id),
+        el("td", { class: "dim" }, m.backend),
+        el("td", { class: "dim" }, m.source),
+        el("td", { class: "num" }, bytes(m.total_bytes)),
+        el("td", {}, where.length
+          ? where.map((s) => el("div", {}, staged(s), " ",
+              el("span", { class: "dim" }, s.node),
+              s.error ? el("div", { class: "note" }, s.error) : null))
+          : el("span", { class: "dim" }, "nowhere")));
+    });
+
+    show(
+      el("h2", {}, "Models"),
+      table(["Model", "Backend", "Source", "Size", "Staged"], rows,
+        "No model is registered. `nodary model register` places one."),
+      (models.models || []).some((m) => m.origin_country)
+        ? el("p", { class: "note" }, "Origin and licence are recorded per model in the configuration.")
+        : null);
+  },
+});
+
+// --- R7-05: usage ----------------------------------------------------------
+
+views.push({
+  route: "usage",
+  title: "Usage",
+  async render() {
+    const group = window.sessionStorage.getItem("usage.group") || "model";
+    const doc = await api("/usage?group_by=" + encodeURIComponent(group));
+    const rows = (doc.usage || []).map((r) => el("tr", {},
+      el("td", {}, r.subject || el("span", { class: "dim" }, "—")),
+      el("td", { class: "num" }, r.requests.toLocaleString()),
+      el("td", { class: "num" }, r.prompt_tokens.toLocaleString()),
+      el("td", { class: "num" }, r.completion_tokens.toLocaleString())));
+
+    const picker = el("select", {},
+      ["model", "user", "node", "route"].map((g) =>
+        el("option", { value: g, selected: g === group }, "by " + g)));
+    picker.addEventListener("change", () => {
+      window.sessionStorage.setItem("usage.group", picker.value);
+      route();
+    });
+
+    show(
+      el("h2", {}, "Usage ", picker),
+      table(["Subject", "Requests", "Prompt tokens", "Completion tokens"], rows,
+        "Nothing has been served yet."),
+      // ADR 0006, said on the screen that reports requests: this is a count of
+      // what happened, and there is nowhere for what was said.
+      el("p", { class: "note" },
+        "Counts only. nodary records that a request happened and never what it said — "
+        + "the metering schema has no field to write a body into."));
+  },
+});
+
+// --- R7-06: the audit browser ----------------------------------------------
+
+views.push({
+  route: "audit",
+  title: "Audit",
+  async render() {
+    const filters = {
+      actor: window.sessionStorage.getItem("audit.actor") || "",
+      action: window.sessionStorage.getItem("audit.action") || "",
+    };
+    const query = Object.entries(filters)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join("&");
+
+    // The chain's verification status, shown rather than assumed. A browser
+    // that displayed records without saying whether they still hash together
+    // would be presenting an audit trail as trustworthy on no evidence, which
+    // is the one thing this screen must not do.
+    const [doc, verified] = await Promise.all([
+      api("/audit" + (query ? "?" + query : "")),
+      api("/audit/verify"),
+    ]);
+
+    const rows = (doc.audit || []).map((r) => el("tr", {},
+      el("td", { class: "num dim" }, r.seq),
+      el("td", { class: "dim" }, since(r.ts)),
+      el("td", {}, r.actor && r.actor.id, el("span", { class: "dim" },
+        r.actor && r.actor.method ? " · " + r.actor.method : "")),
+      el("td", {}, el("code", {}, r.action)),
+      el("td", {}, r.target ? `${r.target.kind}/${r.target.id}` : el("span", { class: "dim" }, "—")),
+      el("td", {}, r.outcome === "ok" ? pill("ok", "ok") : pill(r.outcome || "?", "bad")),
+      el("td", {}, r.justification || el("span", { class: "dim" }, "—"))));
+
+    const inputs = ["actor", "action"].map((field) => {
+      const box = el("input", { id: "f-" + field, value: filters[field], placeholder: field });
+      box.addEventListener("change", () => {
+        window.sessionStorage.setItem("audit." + field, box.value.trim());
+        route();
+      });
+      return el("span", {}, box);
+    });
+
+    show(
+      el("h2", {}, "Audit"),
+      verified.ok
+        ? el("p", {}, pill(`chain verified · ${verified.records} records`, "ok"))
+        : el("p", { class: "problem" },
+            "The chain does not verify: " + (verified.break || "a record does not follow the one before it")),
+      el("div", { class: "filters" }, "Filter by ", ...inputs),
+      table(["Seq", "When", "Actor", "Action", "Target", "Outcome", "Justification"], rows,
+        "No record matches."),
+      doc.next_cursor ? el("p", { class: "note" }, "Older records are not shown.") : null);
+  },
+});
+
+// --- R7-08: what is not compliant, first-class -----------------------------
+//
+// Its own screen rather than a column somebody scrolls to. 11 §3 makes a
+// failing egress assertion a critical alert, and 12 §1 makes a refusal the
+// node's answer to a document it would not run — both are the kind of thing an
+// operator has to go looking for in a CLI, and the whole point of a console is
+// that they do not have to.
+
+views.push({
+  route: "attention",
+  title: "Needs attention",
+  async render() {
+    const fleet = await api("/nodes");
+    const details = await Promise.all((fleet.nodes || [])
+      .map((n) => api("/nodes/" + encodeURIComponent(n.name))));
+
+    const refusals = [];
+    const leaking = [];
+    const failed = [];
+    for (const node of details) {
+      for (const r of node.refusals || []) refusals.push({ node: node.name, ...r });
+      for (const d of node.deployments || []) {
+        if (d.egress && d.egress !== "compliant") leaking.push({ node: node.name, ...d });
+        if (d.state === "failed") failed.push({ node: node.name, ...d });
+      }
+    }
+    const pending = (fleet.nodes || []).filter((n) => n.state === "pending");
+
+    const nothing = !refusals.length && !leaking.length && !failed.length && !pending.length;
+    show(
+      el("h2", {}, "Needs attention"),
+      nothing ? el("p", {}, pill("nothing outstanding", "ok")) : null,
+
+      leaking.length ? el("div", {},
+        el("h2", {}, "Deployments that are not isolated"),
+        el("p", { class: "note" },
+          "03 §5 puts a deployment on a network with no route off the box, and the assertion "
+          + "runs on the node after every start. `inconclusive` is not `compliant`: it means "
+          + "nobody could show the control was in force."),
+        table(["Node", "Deployment", "Egress", "Why"],
+          leaking.map((d) => el("tr", {},
+            el("td", {}, d.node), el("td", {}, d.id), el("td", {}, egress(d)),
+            el("td", {}, d.egress_reason || el("span", { class: "dim" }, "—")))), "")) : null,
+
+      refusals.length ? el("div", {},
+        el("h2", {}, "Refused by a node"),
+        el("p", { class: "note" },
+          "`refused` means nothing started. `out_of_policy` means something is still serving "
+          + "and the node will stop it in its maintenance window — they read alike and mean "
+          + "opposite things."),
+        table(["Node", "Deployment", "Kind", "Reason", "Since"],
+          refusals.map((r) => el("tr", {},
+            el("td", {}, r.node), el("td", {}, r.deployment_id),
+            el("td", {}, r.kind === "out_of_policy" ? pill("out of policy", "warn") : pill("refused", "bad")),
+            el("td", {}, r.reason), el("td", { class: "dim" }, since(r.updated_at)))), "")) : null,
+
+      failed.length ? el("div", {},
+        el("h2", {}, "Failed deployments"),
+        table(["Node", "Deployment", "Model", "Since"],
+          failed.map((d) => el("tr", {},
+            el("td", {}, d.node),
+            el("td", {}, el("a", { href: "#logs/" + encodeURIComponent(d.id) }, d.id)),
+            el("td", {}, d.model_id), el("td", { class: "dim" }, since(d.updated_at)))), "")) : null,
+
+      pending.length ? el("div", {},
+        el("h2", {}, "Nodes awaiting approval"),
+        table(["Node", "Seen"], pending.map((n) => el("tr", {},
+          el("td", {}, el("a", { href: "#node/" + encodeURIComponent(n.name) }, n.name)),
+          el("td", { class: "dim" }, since(n.last_seen)))), "")) : null);
+  },
+});
+
+// --- the captured log of a failed deployment (R2-29's endpoint) ------------
+
+views.push({
+  route: "logs",
+  title: "Log",
+  hidden: true,
+  async render(id) {
+    if (!id) return show(el("p", { class: "empty" }, "No deployment named."));
+    const doc = await api("/deployments/" + encodeURIComponent(id) + "/logs");
+    show(
+      el("h1", {}, doc.deployment),
+      el("p", { class: "note" },
+        `on ${doc.node} · ${doc.state} · captured ${since(doc.captured_at)}`),
+      doc.lines
+        ? el("pre", {}, doc.lines)
+        : el("p", { class: "empty" },
+            "Nothing is captured: the last hundred lines are taken when a deployment fails, "
+            + "and this one has not."),
+      el("p", { class: "note" },
+        "What was captured when it failed, not a live tail — 00 §2 makes traffic to a node "
+        + "agent-initiated, so the control plane has no channel to ask for one."));
+  },
+});
