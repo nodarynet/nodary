@@ -2,10 +2,7 @@ package agent
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -14,9 +11,10 @@ import (
 
 // Vendors, as they are written into an offer.
 const (
-	VendorNVIDIA = "nvidia"
-	VendorAMD    = "amd"
-	VendorIntel  = "intel"
+	// internal/preflight's, so one machine cannot be described two ways.
+	VendorNVIDIA = preflight.VendorNVIDIA
+	VendorAMD    = preflight.VendorAMD
+	VendorIntel  = preflight.VendorIntel
 )
 
 // GPU is one card, as whichever source could see it reports it.
@@ -95,69 +93,21 @@ func probeGPUs(ctx context.Context) ([]GPU, string) {
 	return gpus, driver
 }
 
-// drmRoot is where the kernel exposes cards no vendor tool has to be installed
-// to see. A variable so a test can point it at a fixture.
-var drmRoot = "/sys/class/drm"
-
-// pciVendors are the PCI vendor ids this build knows how to enumerate from
-// sysfs. NVIDIA (0x10de) is deliberately absent: probeGPUs already asked its
-// driver, which is the only thing that answers on WSL2, and a card counted from
-// both sources would be offered twice.
-var pciVendors = map[string]string{"0x1002": VendorAMD, "0x8086": VendorIntel}
-
 // probeDRM enumerates the cards nvidia-smi cannot see, numbering them after it.
 //
-// **Second, never instead.** /sys/class/drm holds no cards at all on WSL2 — the
-// only device there is /dev/dxg — so a sysfs enumerator that replaced the
-// driver query would report an empty offer on the one platform this fleet has
-// been proved against (docs/plans/R6a-a-second-gpu-vendor.md §1). It is asked
-// for what the driver query structurally cannot answer, and nothing else.
-//
-// rocm-smi is not asked either: it ships with ROCm, and a node serving Vulkan
-// need not have ROCm installed at all.
+// The enumeration itself is internal/preflight's (DRMCards), so preflight's own
+// GPU checks and the offer this node makes cannot disagree about which cards a
+// machine has or whose they are — the same reason isWSL and RebootPolicy are
+// borrowed rather than reimplemented. What stays here is the numbering, which
+// is an agent concern: the index is the one handle a node has on a card.
 func probeDRM(from int) []GPU {
-	cards, err := filepath.Glob(filepath.Join(drmRoot, "card[0-9]*"))
-	if err != nil {
-		return nil
-	}
-	slices.Sort(cards)
 	var gpus []GPU
-	for _, card := range cards {
-		// card0-DP-1 and friends are connectors on a card, not cards. They sit
-		// in the same directory and match the same glob.
-		if strings.Contains(filepath.Base(card), "-") {
-			continue
-		}
-		dev := filepath.Join(card, "device")
-		vendor, known := pciVendors[sysfsField(dev, "vendor")]
-		if !known {
-			continue
-		}
-		g := GPU{Index: from + len(gpus), Vendor: vendor, Name: sysfsField(dev, "product_name")}
-		if g.Name == "" {
-			// amdgpu publishes product_name and i915 does not, and a card with
-			// no model string is still a card. The PCI device id is what the
-			// kernel does know and is enough to look the part number up.
-			g.Name = strings.ToUpper(vendor) + " " + sysfsField(dev, "device")
-		}
-		// Bytes here, unlike nvidia-smi's MiB.
-		if b, err := strconv.ParseInt(sysfsField(dev, "mem_info_vram_total"), 10, 64); err == nil {
-			g.MemoryMiB = int(b / (1 << 20))
-		}
-		gpus = append(gpus, g)
+	for i, c := range preflight.DRMCards() {
+		gpus = append(gpus, GPU{
+			Index: from + i, Vendor: c.Vendor, Name: c.Name, MemoryMiB: c.MemoryMiB,
+		})
 	}
 	return gpus
-}
-
-// sysfsField reads one attribute, trimmed. Absent reads as empty: these files
-// differ by driver and by kernel version, and a missing one is a fact about
-// this card rather than an error about this host.
-func sysfsField(dir, name string) string {
-	b, err := os.ReadFile(filepath.Join(dir, name))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
 }
 
 // isWSL and RebootPolicy are internal/preflight's, so preflight's check and the

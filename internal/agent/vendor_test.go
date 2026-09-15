@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/nodarynet/nodary/internal/preflight"
 )
 
 // drmFixture builds a /sys/class/drm tree. cards is card name -> attributes.
@@ -23,9 +25,9 @@ func drmFixture(t *testing.T, cards map[string]map[string]string) {
 			}
 		}
 	}
-	old := drmRoot
-	drmRoot = root
-	t.Cleanup(func() { drmRoot = old })
+	old := preflight.DRMRoot
+	preflight.DRMRoot = root
+	t.Cleanup(func() { preflight.DRMRoot = old })
 }
 
 func TestTheSysfsWalkFindsAMDAndIntelAndLeavesNVIDIAToItsDriver(t *testing.T) {
