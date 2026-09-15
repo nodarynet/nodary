@@ -245,10 +245,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { name: dist, path: dist }
+      # **22, not 20, and this is a requirement rather than hygiene.** npm's
+      # Trusted Publishing needs npm >= 11.5.1 on Node >= 22.14.0 (R5-22), and
+      # Node 20 cannot satisfy it. Bumped ahead of the switch so that removing
+      # NPM_TOKEN is a one-line change rather than a change that also moves the
+      # runtime under the publish step.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: https://registry.npmjs.org
+      # Node 22 ships npm 10.x; the OIDC support this needs landed in 11.5.1.
+      - name: npm new enough for trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
 
       # npm assigns `latest` to whatever was published most recently unless a
       # tag is given, so a prerelease would quietly become what `npm i -g
