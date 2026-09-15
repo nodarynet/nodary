@@ -486,10 +486,15 @@ views.push({
       .map((n) => api("/nodes/" + encodeURIComponent(n.name))));
 
     const byModel = new Map();
+    const placed = new Map();
     for (const node of details) {
       for (const s of node.staging || []) {
         if (!byModel.has(s.model_id)) byModel.set(s.model_id, []);
         byModel.get(s.model_id).push({ node: node.name, ...s });
+      }
+      for (const d of node.deployments || []) {
+        if (!placed.has(d.model_id)) placed.set(d.model_id, []);
+        placed.get(d.model_id).push({ node: node.name, ...d });
       }
     }
 
@@ -504,7 +509,7 @@ views.push({
           ? where.map((s) => el("div", {}, staged(s), " ", nodeTag(s.node),
               s.error ? el("div", { class: "note" }, s.error) : null))
           : el("span", { class: "dim" }, "nowhere")),
-        el("td", {}, modelActions(m, where)));
+        el("td", {}, modelActions(m, where, placed.get(m.id) || [])));
     });
 
     show(
@@ -935,32 +940,39 @@ function nodeActions(node) {
  *  specifically: on a screen the two words differ by three letters, and on a
  *  slow link the difference is hours.
  */
-function modelActions(model, staged) {
+function modelActions(model, staged, deployments) {
   const at = "/models/" + encodeURIComponent(model.id);
   const bytes_ = bytes(model.total_bytes);
   const corrupt = staged.some((s) => s.state === "corrupt");
+  // Disable and Enable are opposites, so only one of them is ever the button
+  // an operator wants: nothing placed has nothing to switch off, and a model
+  // whose every deployment is already off wants the other verb. Restage and
+  // Unstage need weights somewhere to act on.
+  const running = deployments.some((d) => !d.disabled);
   return actions(
-    button("Disable", {
-      title: `Disable ${model.id}`, path: at + "/disable", verb: "Disable",
-      cost: "Every deployment of this model stops. The weights stay staged and the GPUs stay "
-        + "claimed — disabling does not free a card, so one freed for something else is "
-        + "still spoken for.",
-    }),
-    button("Enable", {
-      title: `Enable ${model.id}`, path: at + "/enable", verb: "Enable",
-    }),
-    button("Restage", {
+    deployments.length && running
+      ? button("Disable", {
+          title: `Disable ${model.id}`, path: at + "/disable", verb: "Disable",
+          cost: "Every deployment of this model stops. The weights stay staged and the GPUs "
+            + "stay claimed.",
+        })
+      : null,
+    deployments.length && !running
+      ? button("Enable", {
+          title: `Enable ${model.id}`, path: at + "/enable", verb: "Enable",
+        })
+      : null,
+    staged.length ? button("Restage", {
       title: `Restage ${model.id}`, path: at + "/restage", verb: "Restage",
       cost: corrupt
         ? `The weights verified badly and will be fetched again — ${bytes_}.`
         : `The weights are fetched and verified again — ${bytes_}.`,
-    }),
-    button("Unstage", {
+    }) : null,
+    staged.length ? button("Unstage", {
       title: `Unstage ${model.id}`, path: at + "/unstage", verb: "Unstage",
       cost: `The weights are deleted from the node. Serving this model again means `
-        + `downloading ${bytes_} and verifying it, which is the cost this button is `
-        + `asking you to accept.`,
-    }, "danger"));
+        + `downloading ${bytes_} and verifying it.`,
+    }, "danger") : null);
 }
 
 // --- R8-04: routes ---------------------------------------------------------
@@ -1103,10 +1115,12 @@ views.push({
     show(
       el("h2", {}, "People"),
       table(["Name", "Email", "Role", "State", "Second factor", ""], userRows, "Nobody yet."),
-      el("div", { class: "card-inline" },
-        name.node, email.node,
-        el("label", { for: "u-role" }, "Role"), role,
-        el("div", { class: "row" }, add)),
+      el("details", { class: "form" },
+        el("summary", {}, "Add a person"),
+        el("div", { class: "card-inline" },
+          name.node, email.node,
+          el("label", { for: "u-role" }, "Role"), role,
+          el("div", { class: "row" }, add))),
 
       el("h2", {}, "Credentials"),
       table(["Prefix", "Name", "Kind", "State", "Unattended", "Expires", ""], tokenRows,
@@ -1155,10 +1169,12 @@ views.push({
       el("h2", {}, "Limits"),
       table(["Kind", "Subject", "RPM", "TPM", "Daily tokens", "Concurrent"], rows,
         "No limit is set, so nothing is throttled."),
-      el("div", { class: "card-inline" },
-        el("label", { for: "l-kind" }, "Applies to"), kind,
-        id.node, rpm.node, tpm.node, daily.node, conc.node,
-        el("div", { class: "row" }, apply)));
+      el("details", { class: "form" },
+        el("summary", {}, "Set a limit"),
+        el("div", { class: "card-inline" },
+          el("label", { for: "l-kind" }, "Applies to"), kind,
+          id.node, rpm.node, tpm.node, daily.node, conc.node,
+          el("div", { class: "row" }, apply))));
   },
 });
 

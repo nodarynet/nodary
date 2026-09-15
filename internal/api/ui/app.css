@@ -266,6 +266,21 @@ main { padding: 1.6rem 1.75rem 4rem; min-width: 0; }
   border-radius: var(--radius); background: var(--surface);
 }
 
+/* --- a form that is not wanted until it is -------------------------------
+ *
+ * <details> rather than a button and a class toggle: the platform has this.
+ */
+details.form { margin: 1rem 0; }
+details.form > summary {
+  display: inline-block; cursor: pointer; list-style: none;
+  padding: .42rem 1rem; border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); font-weight: 550; color: var(--ink);
+  background: var(--surface);
+}
+details.form > summary::-webkit-details-marker { display: none; }
+details.form > summary:hover { border-color: var(--faint); background: var(--sunken); }
+details.form[open] > summary { color: var(--dim); }
+
 /* --- a machine's name, wherever it appears --------------------------------
  *
  * One treatment everywhere: it was a link on two screens, plain text in four
