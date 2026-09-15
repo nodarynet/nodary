@@ -65,3 +65,20 @@ button { margin-top: 1.25rem; padding: .5rem 1.1rem; font: inherit; cursor: poin
 /* The filter row on the audit browser: the same fields `audit list` takes. */
 .filters { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 1rem; color: var(--dim); }
 .filters input { width: auto; flex: 0 1 12rem; }
+
+/* --- the ceremony dialog (R8) ------------------------------------------- */
+dialog { border: 1px solid var(--line); padding: 1.5rem; width: min(34rem, 92vw); }
+dialog::backdrop { background: rgba(0, 0, 0, .35); }
+dialog ul { margin: .5rem 0; padding-left: 1.2rem; }
+dialog li { margin: .15rem 0; }
+dialog pre { max-height: 14rem; }
+textarea { width: 100%; padding: .45rem; font: inherit; border: 1px solid var(--line); }
+.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.row button { margin-top: 0; }
+button.primary { background: var(--ink); color: #fff; border: 1px solid var(--ink); }
+button.danger { color: var(--bad); border-color: var(--bad); }
+
+/* An inline form beside a table: the console's one editing surface outside the
+   ceremony dialog, and it still goes through the ceremony to apply. */
+.card-inline { border: 1px solid var(--line); padding: 1rem 1.25rem; margin: 1rem 0; background: var(--panel); max-width: 28rem; }
+.card-inline label:first-child { margin-top: 0; }

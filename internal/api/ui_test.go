@@ -207,11 +207,17 @@ func TestEveryEndpointTheConsoleCallsIsServed(t *testing.T) {
 		"/audit":           "/audit",
 		"/audit/verify":    "/audit/verify",
 		"/deployments/":    "/deployments/dep_one/logs",
+		"/deployments":     "/deployments",
+		"/routes":          "/routes",
+		"/users":           "/users",
+		"/tokens":          "/tokens",
+		"/limits":          "/limits",
+		"/revisions":       "/revisions",
 	}
 
 	script := mustAsset(t, f, "app.js")
 	fetched := map[string]bool{}
-	for _, m := range regexp.MustCompile(`api\("([^"]*)"`).FindAllStringSubmatch(script, -1) {
+	for _, m := range regexp.MustCompile(`\bapi(?:Read)?\("([^"]*)"`).FindAllStringSubmatch(script, -1) {
 		fetched[m[1]] = true
 		if _, ok := called[m[1]]; !ok {
 			t.Errorf("app.js fetches %q and this test does not cover it", m[1])
@@ -266,6 +272,10 @@ func TestTheConsoleDeclaresEveryScreenR7Owes(t *testing.T) {
 		{"audit", "R7-06: the audit browser and the chain's verification status"},
 		{"attention", "R7-08: refusals, out_of_policy and deployments that are not isolated"},
 		{"logs", "R2-29: a failed deployment's captured log"},
+		{"routes", "R8-04: route membership"},
+		{"people", "R8-04: users and their credentials"},
+		{"limits", "R8-04: throttling and quota"},
+		{"policy", "R8-04: the active profile and configuration rollback"},
 	} {
 		if !declared[want.route] {
 			t.Errorf("the console declares no %q view — %s", want.route, want.owes)

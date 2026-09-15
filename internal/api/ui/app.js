@@ -299,6 +299,8 @@ views.push({
             + "filesystem is encrypted with no automatic unlock. The agent will not reboot it.")
         : null,
 
+      nodeActions(node),
+
       el("h2", {}, "Deployments"),
       table(["Deployment", "Model", "State", "GPUs", "Egress", "Routes", "Updated"],
         deployments, "Nothing is placed on this node."),
@@ -360,12 +362,13 @@ views.push({
           ? where.map((s) => el("div", {}, staged(s), " ",
               el("span", { class: "dim" }, s.node),
               s.error ? el("div", { class: "note" }, s.error) : null))
-          : el("span", { class: "dim" }, "nowhere")));
+          : el("span", { class: "dim" }, "nowhere")),
+        el("td", {}, modelActions(m, where)));
     });
 
     show(
       el("h2", {}, "Models"),
-      table(["Model", "Backend", "Source", "Size", "Staged"], rows,
+      table(["Model", "Backend", "Source", "Size", "Staged", ""], rows,
         "No model is registered. `nodary model register` places one."),
       (models.models || []).some((m) => m.origin_country)
         ? el("p", { class: "note" }, "Origin and licence are recorded per model in the configuration.")
@@ -556,5 +559,530 @@ views.push({
       el("p", { class: "note" },
         "What was captured when it failed, not a live tail — 00 §2 makes traffic to a node "
         + "agent-initiated, so the control plane has no channel to ask for one."));
+  },
+});
+
+// --- R8: the attestation ceremony, in the browser --------------------------
+//
+// **One driver, and every mutation goes through it.** dev/specs/07-identity-audit.md §2
+// is preview → intent_hash → justify → confirm, and the way to keep a third
+// front end from inventing its own version is to give it exactly one that
+// drives the same `?dry_run=true` endpoints an API client drives. A screen here
+// describes *what* it wants done; none of them decides what ceremony costs.
+
+/** send makes one attested request and reports what came back, refusals
+ *  included — a refusal is an answer this flow acts on, not an exception. */
+async function send(spec, opts) {
+  const headers = { "Content-Type": "application/json" };
+  if (opts.justification) headers["X-Nodary-Justify"] = opts.justification;
+  if (opts.totp) headers["X-Nodary-TOTP"] = opts.totp;
+  if (opts.intent) headers["X-Nodary-Intent"] = opts.intent;
+  // 09 §2: the revision this screen read its object at. Sent only by an act
+  // that read one first — there is nothing for a create to have raced with.
+  if (spec.ifMatch) headers["If-Match"] = spec.ifMatch;
+
+  const path = spec.path + (opts.dryRun
+    ? (spec.path.includes("?") ? "&" : "?") + "dry_run=true"
+    : "");
+  const response = await fetch("/api/v1" + path, {
+    method: spec.method || "POST",
+    headers,
+    body: spec.body === undefined ? "{}" : JSON.stringify(spec.body),
+  });
+  if (response.status === 401) {
+    window.location.assign("/ui/login");
+    throw new Error("unauthenticated");
+  }
+  const doc = await response.json().catch(() => ({}));
+  const error = doc.error || {};
+  return {
+    ok: response.ok, status: response.status, doc,
+    code: error.code || "", message: error.message || "",
+  };
+}
+
+/** modal shows one step and resolves to the button that was pressed, or null
+ *  if the operator backed out. Native <dialog>: no library, and Escape and the
+ *  focus trap come from the platform rather than from code somebody maintains. */
+function modal(title, nodes, buttons) {
+  const box = document.getElementById("ceremony");
+  const form = el("form", { method: "dialog" },
+    el("h2", { style: "margin-top:0" }, title),
+    ...nodes,
+    el("div", { class: "row" }, buttons.map((b) =>
+      el("button", { value: b.value, class: b.kind || "" }, b.label))));
+  box.replaceChildren(form);
+  box.showModal();
+  return new Promise((resolve) => {
+    box.addEventListener("close", () => resolve(box.returnValue || null), { once: true });
+  });
+}
+
+/** changeLines renders what the control plane said it would do. It is the
+ *  control plane's own rendering, never this page's reading of the request —
+ *  what is approved has to be what the machine about to act described. */
+function changeLines(change) {
+  if (!change) return [el("p", { class: "note" }, "This act changes no configuration.")];
+  const changes = change.changes;
+  if (Array.isArray(changes) && changes.length) {
+    return [el("ul", {}, changes.map((c) => el("li", {}, String(c))))];
+  }
+  if (Array.isArray(changes)) {
+    return [el("p", { class: "note" }, "No change: the configuration already says this.")];
+  }
+  return [el("pre", {}, JSON.stringify(change, null, 2))];
+}
+
+/** act runs the whole ceremony for one mutation. Resolves true if it applied. */
+async function act(spec) {
+  let justification = "";
+  let totp = "";
+  let note = null;
+
+  for (;;) {
+    // 1. The justification. R8-02: the length the *profile* requires is
+    //    enforced by the control plane, and this reports its refusal rather
+    //    than second-guessing it — a minimum duplicated here is a second place
+    //    that can disagree with the profile in force.
+    const field = el("textarea", { id: "justify", rows: "3" });
+    field.value = justification;
+    const asked = await modal(spec.title, [
+      note,
+      spec.cost ? el("p", { class: "problem" }, spec.cost) : null,
+      el("label", { for: "justify" }, "Why are you doing this?"),
+      field,
+    ].filter(Boolean), [
+      { value: "", label: "Cancel" },
+      { value: "go", label: "Preview", kind: "primary" },
+    ]);
+    if (asked !== "go") return false;
+    justification = field.value.trim();
+    note = null;
+
+    // 2. The preview, rendered and hashed by the control plane.
+    const preview = await send(spec, { dryRun: true, justification });
+    if (!preview.ok) {
+      note = el("p", { class: "problem" }, preview.message);
+      continue;
+    }
+
+    // 3. What was previewed, and the hash that binds it.
+    const confirmed = await modal(spec.title, [
+      spec.cost ? el("p", { class: "problem" }, spec.cost) : null,
+      el("p", { class: "note" }, "The control plane will apply:"),
+      ...changeLines(preview.doc.change),
+      el("p", { class: "note" }, "intent ", el("code", {}, preview.doc.intent_hash || "—")),
+    ].filter(Boolean), [
+      { value: "", label: "Cancel" },
+      { value: "go", label: spec.verb || "Apply", kind: "primary" },
+    ]);
+    if (confirmed !== "go") return false;
+
+    // 4. The act, carrying the hash that was on the screen.
+    let done = await send(spec, { justification, totp, intent: preview.doc.intent_hash });
+
+    // R8-03: a live session does not satisfy `require_totp`. A cookie proves
+    // somebody logged in at some point; a re-entered code proves a person was
+    // present for *this* act, which is the whole of what 07 §2 asks for.
+    if (!done.ok && done.code === "reauthentication_required") {
+      const code = el("input", { id: "totp", inputmode: "numeric", autocomplete: "one-time-code" });
+      const gave = await modal(spec.title, [
+        el("p", { class: "note" }, done.message),
+        el("label", { for: "totp" }, "Authentication code"),
+        code,
+      ], [
+        { value: "", label: "Cancel" },
+        { value: "go", label: spec.verb || "Apply", kind: "primary" },
+      ]);
+      if (gave !== "go") return false;
+      totp = code.value.trim();
+      done = await send(spec, { justification, totp, intent: preview.doc.intent_hash });
+    }
+
+    if (done.ok) {
+      await modal(spec.title, [
+        el("p", {}, pill("applied", "ok"), " recorded as audit record ",
+          el("code", {}, String(done.doc.audit_seq || "—"))),
+      ], [{ value: "ok", label: "Close", kind: "primary" }]);
+      route();
+      return true;
+    }
+
+    // 5. The two refusals that are not mistakes, and read differently.
+    //
+    // 412: state moved between the preview and the apply, so what would be
+    // applied is not what was approved. 11 §3 makes that a refusal rather than
+    // an overwrite, and the operator re-reads the current diff and re-attests —
+    // which is exactly what looping back to the preview does.
+    if (done.status === 412) {
+      note = el("p", { class: "problem" },
+        "What would be applied is no longer what you approved — something moved while you "
+        + "were reading. The preview below is the current one.");
+      continue;
+    }
+    // 409 revision_changed: another administrator applied a revision since this
+    // screen read its object. A real conflict, surfaced rather than resolved by
+    // silently overwriting them.
+    if (done.code === "revision_changed") {
+      await modal(spec.title, [
+        el("p", { class: "problem" },
+          "Another administrator changed the configuration while this screen was open. "
+          + "Nothing was applied. Reload and look at what they did before acting."),
+        el("p", { class: "note" }, done.message),
+      ], [{ value: "ok", label: "Close" }]);
+      return false;
+    }
+    note = el("p", { class: "problem" }, done.message || `refused with ${done.status}`);
+  }
+}
+
+/** button is one act, wired to the ceremony. */
+function button(label, spec, kind) {
+  const b = el("button", { class: kind || "" }, label);
+  b.addEventListener("click", () => act(spec));
+  return b;
+}
+
+/** actions is a row of them. */
+function actions(...nodes) {
+  return el("div", { class: "row" }, nodes.filter(Boolean));
+}
+
+
+// --- R8-04: the node's own transitions ------------------------------------
+
+/** nodeActions is 02 §2's approval and the two ways out of the fleet.
+ *
+ *  Each one names its cost before asking (R8-05), because these read alike on
+ *  a screen and do not mean alike on a rack.
+ */
+function nodeActions(node) {
+  const at = "/nodes/" + encodeURIComponent(node.name);
+  return actions(
+    node.state === "pending"
+      ? button("Approve", {
+          title: `Approve ${node.name}`, path: at + "/approve", verb: "Approve",
+          cost: "Approving records the inventory this node offered as what you agreed to. "
+            + "Deployments can be placed on it from the moment it is approved.",
+        }, "primary")
+      : null,
+    node.state === "ready" || node.state === "approved"
+      ? button("Drain", {
+          title: `Drain ${node.name}`, path: at + "/drain", verb: "Drain",
+          cost: "Draining takes this node's deployments out of their routes on the next "
+            + "gateway sync. Anything it is serving stops being sent traffic.",
+        })
+      : null,
+    node.state !== "departed"
+      ? button("Revoke", {
+          title: `Revoke ${node.name}`, path: at + "/revoke", verb: "Revoke",
+          cost: "Revoking ends this node's certificate. It cannot report or receive desired "
+            + "state again without enrolling from scratch, and whatever is running on it "
+            + "keeps running with nobody watching.",
+        }, "danger")
+      : null);
+}
+
+
+// --- R8-04/R8-05: what can be done to a model -----------------------------
+
+/** modelActions is dev/specs/05-catalog.md §4's on/off switch and R4-35's
+ *  staging recovery.
+ *
+ *  **`unstage` states the restaging cost before asking**, which R8-05 names
+ *  specifically: on a screen the two words differ by three letters, and on a
+ *  slow link the difference is hours.
+ */
+function modelActions(model, staged) {
+  const at = "/models/" + encodeURIComponent(model.id);
+  const bytes_ = bytes(model.total_bytes);
+  const corrupt = staged.some((s) => s.state === "corrupt");
+  return actions(
+    button("Disable", {
+      title: `Disable ${model.id}`, path: at + "/disable", verb: "Disable",
+      cost: "Every deployment of this model stops. The weights stay staged and the GPUs stay "
+        + "claimed — disabling does not free a card, so one freed for something else is "
+        + "still spoken for.",
+    }),
+    button("Enable", {
+      title: `Enable ${model.id}`, path: at + "/enable", verb: "Enable",
+    }),
+    button("Restage", {
+      title: `Restage ${model.id}`, path: at + "/restage", verb: "Restage",
+      cost: corrupt
+        ? `The weights verified badly and will be fetched again — ${bytes_}.`
+        : `The weights are fetched and verified again — ${bytes_}.`,
+    }),
+    button("Unstage", {
+      title: `Unstage ${model.id}`, path: at + "/unstage", verb: "Unstage",
+      cost: `The weights are deleted from the node. Serving this model again means `
+        + `downloading ${bytes_} and verifying it, which is the cost this button is `
+        + `asking you to accept.`,
+    }, "danger"));
+}
+
+// --- R8-04: routes ---------------------------------------------------------
+
+/** apiRead is api() with the revision the read saw.
+ *
+ *  09 §2 makes `If-Match` how a read-modify-write refuses to overwrite somebody
+ *  else's change. Only the screens that edit a whole object need it, so it is
+ *  a second reader rather than a field on every response.
+ */
+async function apiRead(path) {
+  const response = await fetch("/api/v1" + path, { headers: { Accept: "application/json" } });
+  if (response.status === 401) {
+    window.location.assign("/ui/login");
+    throw new Error("unauthenticated");
+  }
+  const doc = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error((doc.error && doc.error.message) || `${response.status}`);
+  return { doc, etag: response.headers.get("ETag") || "" };
+}
+
+views.push({
+  route: "routes",
+  title: "Routes",
+  async render() {
+    const [routes, deployments] = await Promise.all([apiRead("/routes"), api("/deployments")]);
+    const placed = (deployments.deployments || []).map((d) => d.id);
+
+    const rows = (routes.doc.routes || []).map((rt) => {
+      const members = (rt.members || []).map((m) => m.deployment_id);
+      const picker = el("select", {},
+        el("option", { value: "" }, "add a deployment…"),
+        placed.filter((id) => !members.includes(id)).map((id) => el("option", { value: id }, id)));
+      picker.addEventListener("change", () => {
+        if (!picker.value) return;
+        // The whole route is replaced, which is what PUT /routes/{name} is:
+        // a full replacement, not a merge. Read here, edited here, and sent
+        // with the revision it was read at, so two administrators editing the
+        // same route collide instead of overwriting each other.
+        act({
+          title: `Add ${picker.value} to ${rt.name}`,
+          method: "PUT", path: "/routes/" + encodeURIComponent(rt.name),
+          ifMatch: routes.etag, verb: "Add",
+          body: { ...rt, members: [...(rt.members || []), { deployment_id: picker.value, weight: 1 }] },
+        });
+      });
+
+      return el("tr", {},
+        el("td", {}, rt.name),
+        el("td", { class: "dim" }, rt.strategy || "—"),
+        el("td", {}, members.length
+          ? members.map((id) => el("div", { class: "row" }, id,
+              button("Remove", {
+                title: `Remove ${id} from ${rt.name}`,
+                method: "PUT", path: "/routes/" + encodeURIComponent(rt.name),
+                ifMatch: routes.etag, verb: "Remove",
+                cost: members.length === 1
+                  ? "This is the route's last member. A route with nothing ready answers 503, "
+                    + "so removing it takes this model off the air."
+                  : null,
+                body: { ...rt, members: (rt.members || []).filter((m) => m.deployment_id !== id) },
+              }, "danger")))
+          : el("span", { class: "dim" }, "no member — this route answers 503")),
+        el("td", {}, picker));
+    });
+
+    show(
+      el("h2", {}, "Routes"),
+      el("p", { class: "note" },
+        "A route carries only members that are ready (06 §2). A route with none answers 503 "
+        + "rather than an error from a model server nobody can read."),
+      table(["Route", "Strategy", "Members", ""], rows,
+        "No route is defined. `nodary model register` creates one."));
+  },
+});
+
+// --- R8-04: people, their credentials, and what they may spend ------------
+
+/** field builds a labelled input and hands back both, so a form can read it. */
+function field(id, label, attrs) {
+  const input = el("input", { id, ...(attrs || {}) });
+  return { node: el("div", {}, el("label", { for: id }, label), input), input };
+}
+
+views.push({
+  route: "people",
+  title: "People",
+  async render() {
+    const [users, tokens] = await Promise.all([api("/users"), api("/tokens")]);
+
+    const userRows = (users.users || []).map((u) => el("tr", {},
+      el("td", {}, u.name),
+      el("td", { class: "dim" }, u.email || "—"),
+      el("td", {}, pill(u.role, u.role === "admin" ? "warn" : "")),
+      el("td", {}, u.state === "active" ? pill("active", "ok") : pill(u.state, "bad")),
+      el("td", {}, u.totp_enrolled ? pill("TOTP", "ok") : el("span", { class: "dim" }, "—")),
+      el("td", {}, actions(
+        u.state === "active"
+          ? button("Suspend", {
+              title: `Suspend ${u.name}`, method: "PATCH",
+              path: "/users/" + encodeURIComponent(u.name), body: { state: "suspended" },
+              verb: "Suspend",
+              cost: "Every token this person holds stops working immediately, including any "
+                + "unattended one a script is using.",
+            })
+          : null,
+        button("Delete", {
+          title: `Delete ${u.name}`, method: "DELETE",
+          path: "/users/" + encodeURIComponent(u.name), verb: "Delete",
+          cost: "The account goes. The audit chain keeps every act they took — 07 §3 makes "
+            + "the record append-only, so deleting a person does not delete what they did.",
+        }, "danger")))));
+
+    const tokenRows = (tokens.tokens || []).map((t) => el("tr", {},
+      el("td", {}, el("code", {}, t.prefix || t.id)),
+      el("td", {}, t.name || el("span", { class: "dim" }, "—")),
+      el("td", { class: "dim" }, t.kind),
+      el("td", {}, t.state === "active" ? pill("active", "ok") : pill(t.state, "bad")),
+      el("td", {}, t.unattended ? pill("unattended", "warn") : el("span", { class: "dim" }, "—")),
+      el("td", { class: "dim" }, t.expires_at ? since(t.expires_at) : "never"),
+      el("td", {}, t.state === "active"
+        ? button("Revoke", {
+            title: `Revoke ${t.prefix || t.id}`, method: "DELETE",
+            path: "/tokens/" + encodeURIComponent(t.id), verb: "Revoke",
+            cost: "Whatever is using this credential stops working the moment this is applied.",
+          }, "danger")
+        : el("span", { class: "dim" }, "—"))));
+
+    const name = field("u-name", "Username", { autocomplete: "off" });
+    const email = field("u-email", "Email", { type: "email", autocomplete: "off" });
+    const role = el("select", { id: "u-role" },
+      ["viewer", "user", "operator", "admin"].map((r) => el("option", { value: r }, r)));
+    const add = el("button", { class: "primary" }, "Add person");
+    add.addEventListener("click", () => act({
+      title: "Add " + (name.input.value || "a person"),
+      path: "/users", verb: "Add",
+      body: { name: name.input.value.trim(), email: email.input.value.trim(), role: role.value },
+      cost: role.value === "admin"
+        ? "An admin can change configuration, register backends, approve nodes and manage "
+          + "every other account. 07 §1 gives that role everything."
+        : null,
+    }));
+
+    show(
+      el("h2", {}, "People"),
+      table(["Name", "Email", "Role", "State", "Second factor", ""], userRows, "Nobody yet."),
+      el("div", { class: "card-inline" },
+        name.node, email.node,
+        el("label", { for: "u-role" }, "Role"), role,
+        el("div", { class: "row" }, add)),
+
+      el("h2", {}, "Credentials"),
+      el("p", { class: "note" },
+        "A token is shown once, when it is created. nodary keeps a hash and a prefix — there "
+        + "is nothing here to read it back from."),
+      table(["Prefix", "Name", "Kind", "State", "Unattended", "Expires", ""], tokenRows,
+        "No credential has been issued."));
+  },
+});
+
+// --- R8-04: limits ---------------------------------------------------------
+
+views.push({
+  route: "limits",
+  title: "Limits",
+  async render() {
+    const limits = await apiRead("/limits");
+    const rows = (limits.doc.limits || []).map((l) => el("tr", {},
+      el("td", { class: "dim" }, l.subject_kind),
+      el("td", {}, l.subject_id || el("span", { class: "dim" }, "everyone")),
+      el("td", { class: "num" }, l.rpm || "—"),
+      el("td", { class: "num" }, l.tpm || "—"),
+      el("td", { class: "num" }, l.daily_tokens || "—"),
+      el("td", { class: "num" }, l.max_concurrent || "—")));
+
+    const kind = el("select", { id: "l-kind" },
+      ["user", "model", "route", "global"].map((k) => el("option", { value: k }, k)));
+    const id = field("l-id", "Subject (blank for all)", { autocomplete: "off" });
+    const rpm = field("l-rpm", "Requests per minute", { inputmode: "numeric" });
+    const tpm = field("l-tpm", "Tokens per minute", { inputmode: "numeric" });
+    const daily = field("l-daily", "Tokens per day", { inputmode: "numeric" });
+    const conc = field("l-conc", "Concurrent requests", { inputmode: "numeric" });
+
+    const apply = el("button", { class: "primary" }, "Set limit");
+    apply.addEventListener("click", () => act({
+      title: `Set the ${kind.value} limit`,
+      method: "PUT",
+      path: `/limits/${encodeURIComponent(kind.value)}/${encodeURIComponent(id.input.value.trim() || "-")}`,
+      ifMatch: limits.etag, verb: "Set",
+      body: {
+        subject_kind: kind.value, subject_id: id.input.value.trim(),
+        rpm: Number(rpm.input.value) || 0, tpm: Number(tpm.input.value) || 0,
+        daily_tokens: Number(daily.input.value) || 0,
+        max_concurrent: Number(conc.input.value) || 0,
+      },
+    }));
+
+    show(
+      el("h2", {}, "Limits"),
+      el("p", { class: "note" },
+        "06 §4: a request over a limit is refused with 429 and a Retry-After, and is not "
+        + "metered as served. Zero means no limit of that kind."),
+      table(["Kind", "Subject", "RPM", "TPM", "Daily tokens", "Concurrent"], rows,
+        "No limit is set, so nothing is throttled."),
+      el("div", { class: "card-inline" },
+        el("label", { for: "l-kind" }, "Applies to"), kind,
+        id.node, rpm.node, tpm.node, daily.node, conc.node,
+        el("div", { class: "row" }, apply)));
+  },
+});
+
+// --- R8-04: the policy profile, and the configuration's history -----------
+
+views.push({
+  route: "policy",
+  title: "Policy",
+  async render() {
+    const [policy, revisions] = await Promise.all([api("/policy"), api("/revisions")]);
+
+    const settings = Object.entries(policy)
+      .filter(([k]) => k !== "name")
+      .map(([k, v]) => el("tr", {},
+        el("td", {}, el("code", {}, k)),
+        el("td", {}, typeof v === "boolean"
+          ? pill(v ? "on" : "off", v ? "ok" : "")
+          : String(v))));
+
+    const rows = (revisions.revisions || []).map((rev) => el("tr", {},
+      el("td", { class: "num dim" }, rev.seq),
+      el("td", { class: "dim" }, since(rev.applied_at || rev.ts)),
+      el("td", {}, rev.applied_by || el("span", { class: "dim" }, "—")),
+      el("td", {}, rev.justification || el("span", { class: "dim" }, "—")),
+      el("td", {}, button("Roll back to this", {
+        title: `Roll the configuration back to revision ${rev.seq}`,
+        path: `/revisions/${rev.seq}/rollback`, verb: "Roll back",
+        cost: "Every object the fleet holds moves to what this revision recorded. Nodes "
+          + "converge on it on their next poll, which can stop what is serving now.",
+      }, "danger"))));
+
+    show(
+      el("h2", {}, "Policy"),
+      el("p", {}, "Profile in force: ",
+        pill(policy.name, policy.name === "default" ? "" : "warn")),
+      el("p", { class: "note" },
+        "07 §4: the profile decides what an act costs — whether a justification is "
+        + "required and how long it must be, whether a code is re-entered, and what may be "
+        + "registered at all."),
+      table(["Setting", "Value"], settings, "The profile carries no settings."),
+      actions(...["default", "regulated"]
+        .filter((p) => p !== policy.name)
+        .map((p) => button(`Move to ${p}`, {
+          title: `Apply the ${p} profile`, path: "/policy/apply", body: { profile: p },
+          verb: "Apply",
+          cost: p === "default"
+            ? "Loosening. Every act that needed a justification, a code or a pinned recipe "
+              + "stops needing one, and the chain will record that this is when it changed."
+            : "Tightening. Acts that were free start requiring a justification and a code, "
+              + "and a recipe that is not pinned can no longer be built.",
+        }, p === "default" ? "danger" : "primary"))),
+
+      el("h2", {}, "Configuration history"),
+      el("p", { class: "note" },
+        "Each revision carries a complete snapshot and its hash. `nodary config verify` walks "
+        + "the chain; this is what it walks."),
+      table(["Seq", "Applied", "By", "Why", ""], rows, "No revision has been applied."));
   },
 });
