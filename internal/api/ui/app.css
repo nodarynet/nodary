@@ -385,8 +385,13 @@ dialog::backdrop { background: rgba(10, 12, 16, .45); }
 dialog ul { margin: .5rem 0; padding-left: 1.1rem; }
 dialog li { margin: .15rem 0; }
 dialog pre { max-height: 14rem; }
+/* A horizontal group of controls. The top margin is for a group that follows
+   something — the dialog's buttons, a form's submit — and a table cell is not
+   that: there the group *is* the cell's content and starts where the pill in
+   the cell beside it starts. Without the exception every action column sat a
+   line below the row it belonged to. */
 .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: 1.25rem; }
-.row button { margin-top: 0; }
+td > .row { margin-top: 0; }
 
 /* An inline form beside a table: the console's one editing surface outside the
    ceremony dialog, and it still goes through the ceremony to apply. */
