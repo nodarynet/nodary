@@ -299,7 +299,7 @@ func (s *session) deps() core.Deps {
 // touch records the use of the credential that authorized an act, inside that
 // act. Nothing outside internal/audit may write on its own.
 func (s *session) touch(m audit.Mutation) error {
-	if s.who.Local() {
+	if !s.who.HasToken() {
 		return nil
 	}
 	return identity.Touch(context.Background(), m, s.now, s.who.Token.ID)

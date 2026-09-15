@@ -25,7 +25,28 @@ type Principal struct {
 }
 
 // Local reports whether this is the local-root principal.
-func (p Principal) Local() bool { return p.Token.ID == "" }
+// Local reports whether this is the local-root principal: somebody invoking the
+// CLI on the control-plane host, with the filesystem access LocalRoot's comment
+// below argues from. It is the actor method, and not the absence of a token.
+//
+// **It was `p.Token.ID == ""`, and a browser session has no token.** So every
+// session-authenticated act read as local root: dev/specs/07-identity-audit.md
+// §2's `require_totp` was silently not enforced in the web console — the one
+// place [R8-03](../../dev/tasks/R8-ui-mutating.md) says a live cookie must not
+// satisfy it — and internal/core wrote `totp_exempt: "local"` into the audit
+// chain about a request that arrived over the network. A false statement in the
+// record an assessor reads is worse than the missing prompt.
+//
+// The other question that expression was answering — "is there a credential
+// whose use should be recorded" — is HasToken, below. They were one expression
+// because until the console existed no principal had one answer and not the
+// other.
+func (p Principal) Local() bool { return p.Actor.Method == "local" }
+
+// HasToken reports whether a credential with a use record authorized this act.
+// A session cookie is a credential and has none: 07 §1 makes it short-lived and
+// server-side, so there is no row to stamp.
+func (p Principal) HasToken() bool { return p.Token.ID != "" }
 
 // LocalRoot is the principal for a local invocation by root.
 //

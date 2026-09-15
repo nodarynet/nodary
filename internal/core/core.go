@@ -185,7 +185,7 @@ func preview(ctx context.Context, db *store.DB, r attest.Render) (any, error) {
 // touch records the use of the credential that authorized an act, inside that
 // act, because nothing outside internal/audit may write on its own.
 func touch(ctx context.Context, m audit.Mutation, now time.Time, p identity.Principal) error {
-	if p.Local() {
+	if !p.HasToken() {
 		return nil
 	}
 	return identity.Touch(ctx, m, now, p.Token.ID)
