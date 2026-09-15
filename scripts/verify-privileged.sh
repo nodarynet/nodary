@@ -22,7 +22,20 @@
 #   nftables            a table named `nodary` (nodary's own; nothing else is edited)
 #   a system user       `nodary`, no shell, no home
 #
-# It does NOT pull any model weights and does NOT need a GPU for most of it.
+# It does NOT pull any model weights and does NOT need a GPU for most of it —
+# unless you set NODARY_SERVE_MODEL, which turns on the last check: register a
+# model, wait for the agent to start it, and call it through the gateway. That
+# one pulls a backend image measured in tens of gigabytes and does need a GPU.
+# It is off by default for the same reason the install wizard makes "stage and
+# register a model" the one question that defaults to no.
+#
+#   sudo env NODARY_SERVE_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
+#            NODARY_SERVE_WEIGHTS=/path/to/models--Qwen--Qwen2.5-0.5B-Instruct \
+#            ./scripts/verify-privileged.sh
+#
+# NODARY_SERVE_WEIGHTS is optional and is a directory already staged by
+# scripts/stage-model.sh; giving it copies rather than re-downloads. Without it
+# the weights are fetched.
 #
 # TO UNDO: run with `cleanup` as the first argument. That removes everything
 # above except the component binaries it *placed* — those are listed at the end
@@ -37,7 +50,17 @@ set -uo pipefail
 PASS=0; FAIL=0; SKIP=0
 BIN="${NODARY_BIN:-/tmp/nodary-verify}"
 PORT="${NODARY_PORT:-18443}"
-GWPORT="${NODARY_GWPORT:-18080}"
+GWPORT="${NODARY_GWPORT:-8086}"   # `nodary gateway`'s own default bind
+# NODARY_SERVE_MODEL turns on the last check: register a model and call it.
+# Off by default because it pulls a backend image measured in tens of
+# gigabytes and needs weights on disk — the same reason the wizard makes
+# "stage and register a model" the one question that defaults to no.
+SERVE_MODEL="${NODARY_SERVE_MODEL:-}"
+SERVE_WEIGHTS="${NODARY_SERVE_WEIGHTS:-}"
+# The agent has to pull the backend image before anything starts, and SGLang's
+# is 14 GB compressed. Measured on this fleet: ~50s to load a 0.5B model once
+# the image is local, and the pull is everything else.
+SERVE_TIMEOUT="${NODARY_SERVE_TIMEOUT:-1800}"
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok()   { PASS=$((PASS+1)); printf '  \033[32m✔\033[0m %s\n' "$*"; }
@@ -412,7 +435,103 @@ else
   fi
 fi
 
-say "15. doctor, as the node"
+say "15. Registering a model and calling it"
+# **The one thing every other check leaves unproved.** Steps 1-14 prove a host
+# can run a container and see a GPU; none of them proves that what
+# `model register` writes is something the agent will actually start, or that a
+# request reaches it. Three fatal defects lived below this line until 2026-09-15
+# — SGLang's image needs a command nodary did not render, SGLang and llama.cpp
+# both bind the container's own loopback, and `model register` wrote a parameter
+# neither declared — and every one of them was invisible to a test that stopped
+# at the document.
+#
+# No --backend is passed on purpose: the default is whatever this node's GPU
+# vendor can run, so this exercises the offer as well as the serving.
+NODE="$(hostname -s)"
+if [ -z "$SERVE_MODEL" ]; then
+  skip "set NODARY_SERVE_MODEL=org/name to register a model and call it (pulls a large image)"
+else
+  MODELS=/var/lib/nodary/models
+  # stage-model.sh's own spelling: `models--org--name`, the slash doubled.
+  # Not `tr` then a first-dash substitution, which an org with a dash in its
+  # name — ggml-org, say — would get wrong.
+  FLAT="$MODELS/hub/models--$(printf '%s' "$SERVE_MODEL" | sed 's|/|--|g')"
+  if [ -n "$SERVE_WEIGHTS" ] && [ ! -d "$FLAT" ]; then
+    # Weights already staged elsewhere on this box — copied rather than
+    # re-downloaded, which is the difference between a minute and an hour.
+    install -d -o nodary -g nodary -m 2750 "$MODELS/hub"
+    cp -a "$SERVE_WEIGHTS" "$FLAT" && chown -R nodary:nodary "$FLAT"
+  fi
+  if [ ! -d "$FLAT" ]; then
+    "$(dirname "$0")/stage-model.sh" "$SERVE_MODEL" --models-dir "$MODELS" 2>&1 | tail -3 | sed 's/^/  /'
+    chown -R nodary:nodary "$MODELS" 2>/dev/null
+  fi
+
+  if [ ! -d "$FLAT" ]; then
+    bad "no weights at $FLAT and none could be staged"
+  else
+    "$BIN" user add verifier --role operator --yes --justify "privileged verification" >/dev/null 2>&1
+    REG=$("$BIN" model register "$SERVE_MODEL" --node "$NODE" --gpu 0 --port 8001 \
+            --grant verifier --yes --justify "privileged verification" 2>&1)
+    if printf '%s' "$REG" | grep -q 'deployment'; then
+      ok "registered: $(printf '%s' "$REG" | grep -i 'backend' | head -1 | sed 's/^[^a-z]*//')"
+    else
+      bad "model register failed"
+      printf '%s\n' "$REG" | tail -5 | sed 's/^/    /'
+    fi
+
+    # The agent has to fetch the image before anything can start, and a backend
+    # image is tens of gigabytes. Poll rather than guess.
+    ROUTE=$(printf '%s' "$SERVE_MODEL" | sed 's|.*/||' | tr 'A-Z' 'a-z')
+    STATE=""
+    DEADLINE=$(( $(date +%s) + SERVE_TIMEOUT ))
+    while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+      STATE=$("$BIN" node show "$NODE" --format json 2>/dev/null |
+              python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print(""); raise SystemExit
+for x in d.get("deployments") or []:
+    print(x.get("state",""), x.get("health",""))' | head -1)
+      case "$STATE" in
+        "ready healthy") break ;;
+        failed*) break ;;
+      esac
+      sleep 10
+    done
+    if [ "$STATE" = "ready healthy" ]; then
+      ok "the deployment reached ready/healthy"
+    else
+      bad "the deployment never became ready (last: ${STATE:-nothing reported})"
+      journalctl -u "nodary-model@*" -n 25 --no-pager 2>/dev/null | sed 's/^/    /'
+    fi
+
+    # And the whole point: a request, through the gateway, answered by the
+    # container the agent started.
+    KEY=$("$BIN" token create --user verifier --kind sk --yes \
+            --justify "privileged verification" 2>/dev/null | grep -o 'nodary_sk_[A-Za-z0-9_-]*' | head -1)
+    if [ -z "$KEY" ]; then
+      bad "could not mint a service key"
+    else
+      BODY=$(curl -fsS --max-time 120 "http://127.0.0.1:$GWPORT/v1/chat/completions" \
+               -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+               -d "{\"model\":\"$ROUTE\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":16}" 2>&1)
+      if printf '%s' "$BODY" | grep -q '"content"'; then
+        ok "the gateway served a completion: $(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"][:60])' 2>/dev/null)"
+      else
+        bad "the gateway did not serve a completion"
+        printf '%s\n' "$BODY" | tail -4 | sed 's/^/    /'
+      fi
+      # Metered, and with no prompt text anywhere in it.
+      if "$BIN" usage show --format json 2>/dev/null | grep -q '"requests"'; then
+        ok "the request was metered"
+      else
+        skip "no usage row yet; metering may lag the response"
+      fi
+    fi
+  fi
+fi
+
+say "16. doctor, as the node"
 "$BIN" doctor 2>&1 | sed 's/^/  /'
 
 # --- summary ------------------------------------------------------------------
