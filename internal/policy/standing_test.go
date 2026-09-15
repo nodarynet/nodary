@@ -111,7 +111,7 @@ func TestTheMarkingSurvivesEveryRendering(t *testing.T) {
 // rather than in the guide's own package because this is where the number is
 // decided.
 func TestTheGuideSaysHowManySettingsAreUnmarked(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "site", "administering.md"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "administering.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
