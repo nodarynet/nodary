@@ -138,7 +138,12 @@ check_mode() {
   local got; got=$(stat -c '%a' "$path")
   if [ "$got" = "$want" ]; then ok "$path is $got"; else bad "$path is $got, want $want"; fi
 }
-check_mode /var/lib/nodary 700
+# 710, not 700, and internal/paths/paths.go says why at length: group execute
+# only, so a member of the service account's group can traverse in and reach
+# models/ — which 05 §3 means an operator to write into directly — without
+# being able to list the directory or open anything else in it. This assertion
+# said 700 and had been failing against a correct install.
+check_mode /var/lib/nodary 710
 check_mode /etc/nodary 755
 check_mode /etc/nodary/pki 700
 check_mode /var/log/nodary 700

@@ -24,10 +24,41 @@ func TestInstallScriptOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// **A host that already has nodary installed makes the first case's premise
+	// false.** install.sh's offline branch falls back to `command -v nodary`,
+	// which is right — an air-gapped install should use the binary already on
+	// the box — so on a developer machine that has run
+	// scripts/verify-privileged.sh it hands over instead of refusing, and this
+	// test fails for a reason that has nothing to do with install.sh.
+	//
+	// The directory holding it is dropped from PATH rather than the test being
+	// skipped: "refuses when nothing is placed" is worth checking on every host,
+	// not only on ones that happen to be clean.
+	path := os.Getenv("PATH")
+	for {
+		found, err := exec.LookPath("nodary")
+		if err != nil {
+			break
+		}
+		var kept []string
+		drop := filepath.Dir(found)
+		for _, dir := range filepath.SplitList(path) {
+			if dir != drop {
+				kept = append(kept, dir)
+			}
+		}
+		if len(kept) == len(filepath.SplitList(path)) {
+			break // LookPath found it somewhere PATH does not name; stop rather than spin
+		}
+		path = strings.Join(kept, string(filepath.ListSeparator))
+		t.Setenv("PATH", path)
+	}
+
 	run := func(t *testing.T, prefix string, args ...string) (string, error) {
 		t.Helper()
 		cmd := exec.Command("sh", append([]string{script}, args...)...)
-		cmd.Env = append(os.Environ(), "NODARY_PREFIX="+prefix, "NODARY_BIN_DIR="+prefix+"/bin")
+		cmd.Env = append(os.Environ(), "NODARY_PREFIX="+prefix,
+			"NODARY_BIN_DIR="+prefix+"/bin", "PATH="+path)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
