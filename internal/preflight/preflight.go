@@ -173,6 +173,8 @@ func Run(ctx context.Context, o Options) Report {
 	add(checkFreeVRAM(ctx, o))
 	add(checkEncryptedRoot())
 	add(checkWSLLogonTask(ctx))
+	add(checkWSLModelsDir(o, hostFS{}))
+	add(checkWSLMemory(hostFS{}))
 	add(checkNFT(o))
 
 	sort.SliceStable(r.Checks, func(i, j int) bool {

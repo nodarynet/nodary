@@ -104,3 +104,73 @@ func firstLoaderPath(listing, soname string) (string, bool) {
 	}
 	return "", false
 }
+
+// The two performance traps dev/specs/01-install.md §8 names, as warnings.
+//
+// Both are slow rather than broken, which is exactly why they are worth saying
+// at install: a node that works and is inexplicably slow costs more of an
+// operator's time than one that refuses.
+
+// checkWSLModelsDir catches weights on the Windows filesystem.
+//
+// Anything under /mnt is 9p, where staging a model is pathologically slow —
+// and the symptom is a download that crawls on a machine whose network is
+// fine, which reads as a problem with the mirror.
+func checkWSLModelsDir(o Options, h hostFS) Check {
+	c := Check{Name: "wsl models dir", Level: LevelSkip}
+	if !isWSLIn(h) {
+		c.Detail = "not a WSL2 host"
+		return c
+	}
+	if o.ModelsDir == "" {
+		c.Detail = "no models directory to check"
+		return c
+	}
+	if !strings.HasPrefix(filepath.Clean(o.ModelsDir)+string(filepath.Separator), "/mnt/") {
+		c.Level, c.Detail = LevelOK, o.ModelsDir+" is on the distribution's own filesystem"
+		return c
+	}
+	c.Level = LevelWarn
+	c.Detail = o.ModelsDir + " is on the Windows filesystem, reached over 9p, where staging\n" +
+		"    a model is pathologically slow. Put it on the distribution's own disk."
+	return c
+}
+
+// wslConfigGlob is where Windows keeps the file that sizes the WSL2 VM. A glob
+// rather than the invoking user's profile, because reading %USERPROFILE% costs
+// a second of Windows interop to answer a question a directory listing answers.
+const wslConfigGlob = "/mnt/c/Users/*/.wslconfig"
+
+// checkWSLMemory catches a VM sized at half the host.
+//
+// WSL2 caps the virtual machine near 50% of the host's RAM unless `.wslconfig`
+// says otherwise, which on a 64GB workstation is 32GB — enough to look fine
+// and not enough for the model somebody sized against the machine they bought.
+func checkWSLMemory(h hostFS) Check {
+	c := Check{Name: "wsl memory", Level: LevelSkip}
+	if !isWSLIn(h) {
+		c.Detail = "not a WSL2 host"
+		return c
+	}
+	found, _ := filepath.Glob(h.path(wslConfigGlob))
+	for _, path := range found {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(body), "\n") {
+			// `memory=` and not `memory =`: both are accepted by WSL, so the
+			// space is stripped before the compare rather than being a second
+			// pattern that can be forgotten.
+			if strings.HasPrefix(strings.ReplaceAll(strings.TrimSpace(line), " ", ""), "memory=") {
+				c.Level = LevelOK
+				c.Detail = ".wslconfig sizes this VM explicitly"
+				return c
+			}
+		}
+	}
+	c.Level = LevelWarn
+	c.Detail = "no .wslconfig sets `memory=`, so WSL2 caps this VM near half the host's RAM.\n" +
+		"    A model sized against the machine's specification will not fit."
+	return c
+}
