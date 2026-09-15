@@ -448,6 +448,23 @@ say "15. Registering a model and calling it"
 # No --backend is passed on purpose: the default is whatever this node's GPU
 # vendor can run, so this exercises the offer as well as the serving.
 NODE="$(hostname -s)"
+# **Approve first.** A pending node receives no desired state at all (02 §1), so
+# every check below would fail on a node that is working perfectly. It is done
+# here rather than after `node install` on purpose: steps 11-14 are worth
+# running against a pending node, because "the agent is up and has been given
+# nothing" is the state an operator sees between enrolling and approving.
+if [ -n "$SERVE_MODEL" ]; then
+  if "$BIN" node approve "$NODE" --yes --justify "privileged verification" >/dev/null 2>&1; then
+    ok "node $NODE approved"
+  else
+    # Already approved is not a failure; anything else is.
+    case "$("$BIN" node list --format json 2>/dev/null)" in
+      *'"state": "approved"'*) ok "node $NODE was already approved" ;;
+      *) bad "could not approve $NODE"; "$BIN" node approve "$NODE" --yes \
+           --justify "privileged verification" 2>&1 | tail -3 | sed 's/^/    /' ;;
+    esac
+  fi
+fi
 if [ -z "$SERVE_MODEL" ]; then
   skip "set NODARY_SERVE_MODEL=org/name to register a model and call it (pulls a large image)"
 else
@@ -471,17 +488,28 @@ else
     bad "no weights at $FLAT and none could be staged"
   else
     "$BIN" user add verifier --role operator --yes --justify "privileged verification" >/dev/null 2>&1
-    REG=$("$BIN" model register "$SERVE_MODEL" --node "$NODE" --gpu 0 --port 8001 \
-            --grant verifier --yes --justify "privileged verification" 2>&1)
-    if printf '%s' "$REG" | grep -q 'deployment'; then
-      ok "registered: $(printf '%s' "$REG" | grep -i 'backend' | head -1 | sed 's/^[^a-z]*//')"
+    REGOK=0
+    if REG=$("$BIN" model register "$SERVE_MODEL" --node "$NODE" --gpu 0 --port 8001 \
+               --grant verifier --yes --justify "privileged verification" 2>&1); then
+      REGOK=1
+      ok "registered: $(printf '%s' "$REG" | grep -i 'backend ' | head -1 | sed 's/^[^a-z]*//')"
     else
+      # The whole output, not a tail: this is the one command whose refusal
+      # explains every check below it, and a grep for a word in it is how the
+      # first run of this step reported success on a registration that failed.
       bad "model register failed"
-      printf '%s\n' "$REG" | tail -5 | sed 's/^/    /'
+      printf '%s\n' "$REG" | sed 's/^/    /'
     fi
 
     # The agent has to fetch the image before anything can start, and a backend
-    # image is tens of gigabytes. Poll rather than guess.
+    # image is tens of gigabytes. Poll rather than guess — but only if there is
+    # something to wait for: a failed registration wrote no deployment, and
+    # waiting half an hour to rediscover that is the opposite of a useful test.
+    if [ "$REGOK" -eq 0 ]; then
+      skip "nothing to wait for; the registration above is the failure to read"
+      STATE="skipped"
+    fi
+    if [ "$REGOK" -eq 1 ]; then   # --- everything below needs a deployment ---
     ROUTE=$(printf '%s' "$SERVE_MODEL" | sed 's|.*/||' | tr 'A-Z' 'a-z')
     STATE=""
     DEADLINE=$(( $(date +%s) + SERVE_TIMEOUT ))
@@ -502,6 +530,10 @@ for x in d.get("deployments") or []:
       ok "the deployment reached ready/healthy"
     else
       bad "the deployment never became ready (last: ${STATE:-nothing reported})"
+      "$BIN" node show "$NODE" 2>&1 | sed 's/^/    /'
+      # Both journals: the agent says why it refused to build a unit, and the
+      # unit says why the container it did build would not start.
+      journalctl -u nodary-agent.service -n 20 --no-pager 2>/dev/null | sed 's/^/    /'
       journalctl -u "nodary-model@*" -n 25 --no-pager 2>/dev/null | sed 's/^/    /'
     fi
 
@@ -528,6 +560,7 @@ for x in d.get("deployments") or []:
         skip "no usage row yet; metering may lag the response"
       fi
     fi
+    fi                           # --- end: needs a deployment ---
   fi
 fi
 
