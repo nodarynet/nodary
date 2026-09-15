@@ -10,14 +10,18 @@ import (
 	"testing"
 )
 
-// The README's milestone table is a claim about what this product does, on the
-// front page, in the place a reader looks first — the same kind of statement
+// docs/status.md's milestone table is a claim about what this product does, in
+// the place a reader is sent to find out — the same kind of statement
 // [docs/plans/pilot.md]'s Tier 0 is about. It is maintained by hand against ten
 // tracker files, and it had drifted on three rows before this test existed:
 // work that landed and rows that were added both moved the denominators and the
-// README kept the old numbers.
+// page kept the old numbers.
 //
 // A number that is merely stale reads exactly like a number that is current.
+//
+// It lived on the front page until the table moved here; the test moved with it
+// rather than being deleted, because the hazard follows the table and not the
+// file it sits in.
 
 var (
 	// The `a`/`b` suffix is a sub-task split out of a numbered one after the
@@ -25,8 +29,8 @@ var (
 	// other; a pattern that missed them would quietly report a smaller
 	// milestone than the tracker holds.
 	taskRow   = regexp.MustCompile(`(?m)^- \[([ x])\] \*\*(R\d+)-\d+[a-z]?\*\*`)
-	readmeRow = regexp.MustCompile(`(?m)^\| \*\*(R\d+)\*\* [^|]*\| (\d+) of (\d+) \|`)
-	// The tracker's own index counts what is *open*, where the front page counts
+	statusRow = regexp.MustCompile(`(?m)^\| \*\*(R\d+)\*\* [^|]*\| (\d+) of (\d+) \|`)
+	// The tracker's own index counts what is *open*, where the status page counts
 	// what is done. Both are "N of M" over the same M, which is the only reason
 	// one test can hold both.
 	indexRow   = regexp.MustCompile(`(?m)^\| \*\*\[(R\d+)\]\([^)]*\)\*\*(?:[^|]*\|){4}\s*\*{0,2}(\d+) of (\d+)\*{0,2}\s*\|`)
@@ -66,16 +70,17 @@ func countTrackers(t *testing.T) map[string]counted {
 	return out
 }
 
-func TestTheReadmeMilestoneCountsMatchTheTrackers(t *testing.T) {
+func TestTheStatusPageMilestoneCountsMatchTheTrackers(t *testing.T) {
 	tracked := countTrackers(t)
 
-	body, err := os.ReadFile(filepath.Join("..", "README.md"))
+	body, err := os.ReadFile(filepath.Join("..", "docs", "status.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := readmeRow.FindAllStringSubmatch(string(body), -1)
+	rows := statusRow.FindAllStringSubmatch(string(body), -1)
 	if len(rows) == 0 {
-		t.Fatal("no milestone rows found in README.md; has the table's shape changed?")
+		t.Fatal("no milestone rows found in docs/status.md; has the table's shape changed, " +
+			"or moved again? A count nothing checks is the one that goes stale.")
 	}
 
 	claimed := map[string]bool{}
@@ -84,13 +89,13 @@ func TestTheReadmeMilestoneCountsMatchTheTrackers(t *testing.T) {
 		claimed[milestone] = true
 		got, ok := tracked[milestone]
 		if !ok {
-			t.Errorf("README claims %s is %d of %d, and no tracker has any %s row",
+			t.Errorf("docs/status.md claims %s is %d of %d, and no tracker has any %s row",
 				milestone, done, total, milestone)
 			continue
 		}
 		if done != got.done || total != got.total {
-			t.Errorf("README claims %s is %d of %d; the tracker says %d of %d.\n"+
-				"  The front page is where a reader looks first, and a stale number reads "+
+			t.Errorf("docs/status.md claims %s is %d of %d; the tracker says %d of %d.\n"+
+				"  This page is where a reader is sent to find out, and a stale number reads "+
 				"exactly like a current one.", milestone, done, total, got.done, got.total)
 		}
 	}
@@ -105,7 +110,7 @@ func TestTheReadmeMilestoneCountsMatchTheTrackers(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Errorf("the README's table omits milestones that have landed work: %v", missing)
+		t.Errorf("the status page's table omits milestones that have landed work: %v", missing)
 	}
 }
 

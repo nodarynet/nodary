@@ -1,0 +1,80 @@
+# Where the implementation stands
+
+**Derived from [`docs/tasks/`](tasks/), which is derived from [`docs/specs/`](specs/).**
+The specifications are authoritative; a number here that disagrees with a tracker
+is a bug in this page, and two tests in [`scripts/`](../scripts/) fail when one does.
+
+## The route that is proved
+
+**The MVP route is complete and verified as root on real hardware**, not only in
+tests: a control plane and a GPU node install end to end, a node enrolls and is
+approved, weights are staged and verified, a model is deployed onto an isolated
+network with no route off the box, and served through the gateway — metered, with one
+usage row recording counts and no prompt text anywhere in the database. `nodary
+doctor` diagnoses a host in one pass, including a live re-run of the egress
+assertion. The route is [docs/plans/mvp.md](docs/plans/mvp.md).
+
+## What is not built
+
+Every policy setting and node guardrail this build displays is enforced. What
+remains below is not built at all rather than half-built, which is the distinction
+worth publishing: a half-built control is the one that gets written into a System
+Security Plan by mistake.
+
+| Not built | Lands in |
+| :--- | :--- |
+| A UI of any kind | [R7](tasks/R7-ui-readonly.md), [R8](tasks/R8-ui-mutating.md) |
+| OIDC. [07 §1](specs/07-identity-audit.md) makes local accounts the initial mechanism deliberately rather than by omission | — |
+| SSP narratives — parameterized text per practice, filled with this install's values | [R9-11/20](tasks/R9-evidence-remediation.md) |
+| The HTTP surface for backends, derived images and deployment listing. The CLI verbs are built and audited; the API does not carry them yet | [R2-03/27/29](tasks/R2-control-plane.md) |
+| npm's `latest` tag still resolves to the release candidate, and only publishing `0.0.1` moves it | [R5-24](tasks/R5-install.md) |
+
+## Built, and not yet proved on hardware
+
+Separated from the list above on purpose. These are written, tested and shipped —
+and nobody has watched them work on the machine they were written for, which is a
+different claim from either "done" or "not built".
+
+| Built | Never run on |
+| :--- | :--- |
+| The AMD and Intel GPU path — vendor-aware preflight and enumeration, `server-vulkan` pinned beside `server-cuda`, and a `/dev/dri` render node handed to the container instead of a CDI device | a non-NVIDIA card. The development fleet is WSL2, where `/sys/class/drm` holds no cards at all. [R6a](plans/R6a-a-second-gpu-vendor.md) |
+| A node upgrading itself from the control plane's mirror against a signature it verifies | a real fleet. The fetch, verify, place, flip and restart sequence is exercised by [`hack/test-selfupgrade.sh`](../hack/test-selfupgrade.sh) against a throwaway key, not by a node in the field |
+| TensorRT-LLM's stage → prepare → serve lifecycle | an engine build on a real GPU |
+
+## Two claims worth stating precisely
+
+**FIPS.** Every channel ships a binary built against Go's validated FIPS 140-3
+cryptographic module. **nodary itself is not a validated product and will not
+become one** — the validation belongs to the module, and a page that blurs the two
+is exactly the kind of statement this project exists to avoid making.
+[ADR 0006](adr/0006-cui-boundary-and-fips.md)
+
+**Remote administration.** Every administrative verb — fleet, models and staging,
+routing, limits, accounts, records, configuration, policy and `backup create` —
+acts on a control plane over the network as the person holding the credential.
+What still needs root on a host is what is *about* that host: `server install`,
+`node install`, `doctor`, `gateway`, and `backup restore`. That is a boundary
+rather than a gap, and a verb that has not been converted refuses `--server`
+rather than quietly acting locally.
+
+## Milestones
+
+| | | |
+| :--- | :--- | :--- |
+| **R0** Release pipeline | 26 of 26 | one signed binary through four channels, tamper rejection tested |
+| **R1** Core, audit, identity | 38 of 38 | the hash chain, attestation, policy profiles, roles, TOTP |
+| **R2** Control plane | 41 of 44 | schema, revisions, HTTP API, shared core, TLS/PKI, fleet reads (`node list`/`show`), `model register` |
+| **R3** Gateway | 16 of 16 | the OpenAI surface, service keys, route allowlist, metering attributed to the deployment, node and GPU that served each request, throttling and quota, routes that carry only ready members and a `503` when none is, LiteLLM kept in sync automatically |
+| **R4** Agent | 44 of 44 | enrollment, pinning, mTLS, desired state, heartbeat, node guardrails enforced without killing what is already serving, local and remote staging with restage/unstage, reconcile, health-gated ready, egress isolation, the GPU vendor detected into the offer |
+| **R5** Install | 32 of 33 | both installs end to end, `nodary install` (the interactive route), layout and ownership, the setup link, `--with-node`, preflight, `doctor`, `upgrade` for the control-plane host, the offline bundle an air-gapped site installs from, an unsupported platform refused by name in every channel, a separately signed component manifest a site can take a fix from without waiting for a release, a shipped binary built against Go's validated FIPS 140-3 module, and nodes that upgrade themselves from the control plane's mirror against a signature they verify without trusting it |
+| **R6** Backends | 17 of 17 | descriptor schema, argument translation, container environment (incl. WSL2), capability and layout validation at enable time; vLLM, SGLang and llama.cpp, an operator's own descriptor registered into the configuration snapshot and carried to the nodes that use it, the `api` dialect governing what may join a route, the stage → prepare → serve lifecycle for backends that compile an engine before they can answer, TensorRT-LLM, and derived images — a base image corrected for this site, built on the control plane behind an egress allowlist, recorded with the digest it produced, required to be reproducible under a regulated profile, and served to the nodes that run it; an image resolved for the platform and GPU vendor of the node it is placed on rather than of the control plane it was typed at, and a device argument rendered for that vendor — CDI and `--gpus` on NVIDIA, a `/dev/dri` render node the kernel named on everything else |
+| **R9** Evidence | 18 of 20 | the signed bundle, verifiable with `sha256sum` and `minisign` alone; the advisory feed's format and `advisory check`, the offline route a site with no network receives revisions by, the decision clock that makes an undecided advisory a POA&M item, and the decision itself as an audited act |
+
+## Checks
+
+```sh
+make check           # gofmt, vet, tests
+make packages        # cross-compile, then build wheels and npm packages
+make test-install    # install.sh end to end, including tamper rejection
+make test-packages   # the built wheels and npm packages install and run
+```
