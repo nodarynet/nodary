@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/components"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 )
 
 // R3-04's real risk is not that the configuration is wrong in principle — it is
@@ -42,15 +42,15 @@ func TestTheRealLiteLLMAcceptsTheGeneratedConfiguration(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	conf := gateway.LiteLLMConfig{
+	conf := dataplane.Config{
 		MasterKey: "sk-nodary-test-master",
-		Models: []gateway.LiteLLMModel{
+		Members: []dataplane.Member{
 			{Name: "acme/tiny", Model: "acme/tiny", APIBase: "http://127.0.0.1:9/v1"},
 		},
 	}
-	body := conf.Render()
+	body := dataplane.LiteLLM.Render(conf)
 	// The same assertion the gateway makes before using a configuration.
-	if err := gateway.AssertLoggingOff(body); err != nil {
+	if err := dataplane.LiteLLM.Assert(body); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "litellm.yaml")
@@ -226,17 +226,17 @@ func TestLiteLLMReturnsTheDeploymentIdWeGaveIt(t *testing.T) {
 		t.Skipf("cannot run the stand-in upstream: %v\n%s", err, out)
 	}
 
-	conf := gateway.LiteLLMConfig{
+	conf := dataplane.Config{
 		MasterKey: "sk-nodary-test-master",
-		Models: []gateway.LiteLLMModel{{
+		Members: []dataplane.Member{{
 			Name: "acme/tiny", Model: "acme/tiny", ID: deployment,
 			APIBase: "http://" + upstream + ":8000/v1",
 		}},
 	}
-	body := conf.Render()
+	body := dataplane.LiteLLM.Render(conf)
 	// The same assertion the gateway makes before using a configuration: a
 	// model_info block must not have cost us the logging pins.
-	if err := gateway.AssertLoggingOff(body); err != nil {
+	if err := dataplane.LiteLLM.Assert(body); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()

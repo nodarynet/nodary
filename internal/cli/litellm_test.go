@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/nodarynet/nodary/internal/components"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/install"
 )
 
@@ -78,7 +78,7 @@ func TestTheDataPlaneConfigurationPinsLoggingOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := gateway.AssertLoggingOff(body); err != nil {
+	if err := dataplane.LiteLLM.Assert(body); err != nil {
 		t.Errorf("the installed configuration does not pin logging off: %v", err)
 	}
 	// A fresh control plane has no deployments, and that is an ordinary state
@@ -173,8 +173,8 @@ func TestServerStatusReportsTheFingerprintTheInstallPrinted(t *testing.T) {
 // later cannot quietly go unstarted.
 func TestEveryUnitTheInstallWritesIsAlsoStarted(t *testing.T) {
 	for _, role := range []string{"server", "node"} {
-		written := install.Units(role)
-		started := startedUnits(role)
+		written := install.Units(role, dataplane.LiteLLM)
+		started := startedUnits(role, dataplane.LiteLLM)
 		for name := range written {
 			// A oneshot triggered by a timer is started — by the timer. The
 			// invariant is that nothing written is left inert, not that

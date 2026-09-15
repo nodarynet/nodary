@@ -9,6 +9,7 @@ import (
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/preflight"
 )
@@ -206,7 +207,7 @@ func cmdNodeInstall(e env, args []string) int {
 	// a unit written and never started is installed and listening nowhere.
 	// containerd is first because nodary-model@.service requires it, and the
 	// agent will try to start a deployment as soon as it has one.
-	for _, unit := range startedUnits("node") {
+	for _, unit := range startedUnits("node", dataplane.Plane{}) {
 		step, err := install.Start(ctx, unit, o)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary node install: %v\n", err)

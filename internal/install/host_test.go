@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
@@ -20,7 +21,7 @@ import (
 // is what dev/specs/01-install.md §12 fixes at /opt/nodary/current/nodary.
 func TestUnitsInvokeTheStablePathAndNotWhereverTheBinaryIs(t *testing.T) {
 	for role, units := range map[string]map[string]string{
-		"server": Units("server"), "node": Units("node"),
+		"server": Units("server", dataplane.Plane{}), "node": Units("node", dataplane.Plane{}),
 	} {
 		for name, tmpl := range units {
 			if !strings.Contains(tmpl, "%[1]s") {

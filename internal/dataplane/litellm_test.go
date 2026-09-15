@@ -1,4 +1,4 @@
-package gateway
+package dataplane
 
 import (
 	"strings"
@@ -15,9 +15,9 @@ import (
 // Pinned explicitly for the reason pinnedOff gives: a setting this product
 // depends on must not be whatever a future LiteLLM release defaults it to.
 func TestTheRouterSettingsThatMakeMembershipLiveArePinned(t *testing.T) {
-	body := string(LiteLLMConfig{MasterKey: "k", Models: []LiteLLMModel{
+	body := string(LiteLLM.Render(Config{MasterKey: "k", Members: []Member{
 		{Name: "tiny", Model: "tiny", APIBase: "http://127.0.0.1:8001/v1"},
-	}}.Render())
+	}}))
 
 	for _, want := range []string{
 		"router_settings:",
@@ -37,18 +37,18 @@ func TestTheRouterSettingsThatMakeMembershipLiveArePinned(t *testing.T) {
 // A configuration field an operator can set and the product ignores is worse
 // than one that does not exist.
 func TestAMembersWeightReachesTheRouter(t *testing.T) {
-	weighted := string(LiteLLMConfig{MasterKey: "k", Models: []LiteLLMModel{
+	weighted := string(LiteLLM.Render(Config{MasterKey: "k", Members: []Member{
 		{Name: "tiny", Model: "tiny", APIBase: "http://127.0.0.1:8001/v1", Weight: 3},
-	}}.Render())
+	}}))
 	if !strings.Contains(weighted, "weight: 3") {
 		t.Errorf("the weight did not reach the router:\n%s", weighted)
 	}
 
 	// Zero is "not stated", not "no share": writing 0 would take the member out
 	// of the rotation entirely, which is not what an unset field means.
-	unset := string(LiteLLMConfig{MasterKey: "k", Models: []LiteLLMModel{
+	unset := string(LiteLLM.Render(Config{MasterKey: "k", Members: []Member{
 		{Name: "tiny", Model: "tiny", APIBase: "http://127.0.0.1:8001/v1"},
-	}}.Render())
+	}}))
 	if strings.Contains(unset, "weight:") {
 		t.Errorf("an unset weight was rendered:\n%s", unset)
 	}

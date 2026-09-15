@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/install"
 )
 
@@ -49,7 +50,7 @@ func installedTree(t *testing.T, roles ...string) string {
 			write(filepath.Join(etc, "agent.toml"), "server = \"https://127.0.0.1:8443\"\n"+
 				"name = \"fractal\"\nca_fingerprint = \"sha256:"+strings.Repeat("a", 64)+"\"\n")
 		}
-		for name, body := range install.Units(role) {
+		for name, body := range install.Units(role, dataplane.LiteLLM) {
 			write(filepath.Join(units, name), body)
 		}
 	}

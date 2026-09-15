@@ -150,14 +150,14 @@ func (s *Server) proxyInference(w http.ResponseWriter, r *http.Request) {
 	rec.usage.Latency = s.now().Sub(started)
 
 	// Which deployment served it, and therefore which node and which GPUs
-	// (deployment_gpu joins from here). LiteLLM load-balances the members of a
-	// route, so this is knowable only from the component that chose — and the
-	// id it returns is the one `gateway sync` wrote into model_info.
+	// (deployment_gpu joins from here). The data plane load-balances the
+	// members of a route, so this is knowable only from the component that
+	// chose — and the id it returns is the one `gateway sync` rendered.
 	//
 	// Silent when the header is absent: a usage row with no deployment is a
 	// row that does not claim one, and guessing the route's first member would
 	// put a number against a GPU that may not have run anything.
-	if id := mw.Header().Get(litellmModelHeader); id != "" {
+	if id := mw.Header().Get(s.plane.ServedHeader); s.plane.ServedHeader != "" && id != "" {
 		rec.usage.DeploymentID = id
 		if model, node, err := s.servedBy(r.Context(), id); err == nil {
 			rec.usage.ModelID, rec.usage.NodeName = model, node

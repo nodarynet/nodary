@@ -36,12 +36,12 @@ func cmdGatewayStart(e env, args []string) int {
 	fs := newFlagSet(e, "gateway start")
 	dbPath := dbFlag(fs)
 	bind := fs.String("bind", "127.0.0.1:8086", "address to serve the inference API on")
-	upstream := fs.String("upstream", "http://127.0.0.1:4000", "the LiteLLM proxy")
+	upstream := fs.String("upstream", "http://127.0.0.1:4000", "the data plane to proxy to")
 	// Read from the environment and never from an argument. The unit already
 	// loads /etc/nodary/gateway.env, and a credential interpolated into
 	// ExecStart= lands in the process's argv, where /proc/<pid>/cmdline hands it
-	// to any local account — for the one credential LiteLLM accepts, which
-	// grants its whole administrative API. /proc/<pid>/environ is readable only
+	// to any local account — for the one credential the data plane accepts,
+	// which grants its whole administrative API. /proc/<pid>/environ is readable only
 	// by the same user and root.
 	//
 	// The flag stays defined so that the old invocation is refused with the
@@ -58,11 +58,11 @@ func cmdGatewayStart(e env, args []string) int {
 	}
 	masterKey := os.Getenv("NODARY_MASTER_KEY")
 	if masterKey == "" {
-		// Refused rather than defaulted. dev/specs/06-gateway.md §1 has LiteLLM
-		// stateless behind a single key; a built-in default would be the same
-		// key on every install, which is no key at all.
+		// Refused rather than defaulted. dev/specs/06-gateway.md §1 has the data
+		// plane stateless behind a single key; a built-in default would be the
+		// same key on every install, which is no key at all.
 		fmt.Fprintf(e.stderr, "nodary gateway start: NODARY_MASTER_KEY is required; it is the credential "+
-			"LiteLLM accepts and it must not be a default\n")
+			"the data plane accepts and it must not be a default\n")
 		return ExitUsage
 	}
 
@@ -77,8 +77,12 @@ func cmdGatewayStart(e env, args []string) int {
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	// The plane, for the one thing the gateway reads from it: the header naming
+	// the member that served a request, which is what a usage row is attributed
+	// by. Pointed at something else with --upstream, the zero plane means no
+	// attribution rather than a header read from the wrong protocol.
 	g, gerr := gateway.New(gateway.Options{DB: db, Upstream: *upstream,
-		MasterKey: masterKey, Log: log})
+		MasterKey: masterKey, Plane: selectedPlane(configDir), Log: log})
 	if err := gerr; err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway start: %v\n", err)
 		return exitFor(err)

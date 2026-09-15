@@ -238,11 +238,13 @@ rather than a property of whichever plane happens to speak more dialects.
 
 | | |
 | :--- | :--- |
-| `internal/gateway/plane.go` | `Plane`, the two values, `Select(serverConfig)` |
-| `internal/gateway/litellm.go` | unchanged in output; `LiteLLMModel` becomes `Member` |
-| `internal/gateway/bifrost.go` | the JSON renderer, its pinned table, its assertion |
-| `internal/gateway/bifrost_docker_test.go` | the pinned image on the generated file — R3-04's test for the second plane |
-| `internal/install/units.go` | `bifrostUnit`; `Units("server")` takes the plane |
+| `internal/dataplane/plane.go` | `Plane`, `Config`, `Member`, the values, `Select`, `Default`, `All` |
+| `internal/dataplane/litellm.go` | unchanged in output; the unit, the header and the renderer together |
+| `internal/dataplane/bifrost.go` | the JSON renderer, its unit, its pinned table, its assertion |
+| `internal/dataplane/bifrost_docker_test.go` | the pinned image on the generated file — R3-04's test for the second plane |
+| `internal/install/units.go` | `Units(role, plane)` places `plane.Unit` |
+
+**Built as `internal/dataplane`, not `internal/gateway/plane.go`.** R3-17's containment test is what decided it: the systemd unit is the last plane-specific string outside the renderer, and leaving it in `units.go` would make the allowlist two files that grows by one per plane. A package with no nodary dependencies is also a cheaper import for `internal/install` than `internal/gateway`, which carries the store, the audit chain and identity.
 | `internal/cli/server.go`, `gatewaysync.go`, `upgrade.go`, `status.go`, `doctor.go` | read the plane; name it |
 | `internal/components/components.json`, `hack/update-manifest.py` | the `bifrost` image row |
 | `scripts/verify-privileged.sh`, `scripts/dev-reset.sh` | §13 and the unit list per plane |
@@ -251,7 +253,7 @@ rather than a property of whichever plane happens to speak more dialects.
 
 - [ ] The spike (§2): three gates measured against the pinned image, written up beside the FIPS spike, ADR 0009's status line updated with the result
   - part of gate 2 is measured and written up in [the spike](../spike-bifrost.md): the vendor round trip, and the cold start that fails without it. Gates 1 and 3 remain
-- [ ] R3-17 — the seam, LiteLLM alone behind it, no behavior change, every test green
+- [x] R3-17 — the seam, LiteLLM alone behind it, no behavior change, every test green
 - [ ] R3-18 — `bifrost` in the manifest by digest, generated, moved by `upgrade`
 - [ ] R3-19 — the renderer in **shape P** (§3.3, settled by the spike), the pinned table, the assertion — **two files**: `bifrost.json` and the stub datasheet its `file://` URLs name ([the spike](../spike-bifrost.md#3-file-works-and-the-content-is-almost-free))
 - [ ] R3-20 — the credential, the locked admin surface, the unit, no secret on argv

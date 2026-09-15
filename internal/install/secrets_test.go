@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/nodarynet/nodary/internal/dataplane"
 )
 
 // publishable is every environment variable a unit may interpolate into
@@ -28,7 +30,7 @@ var interpolation = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 func TestNoUnitPutsASecretOnACommandLine(t *testing.T) {
 	for _, role := range []string{"server", "node"} {
-		for name, body := range Units(role) {
+		for name, body := range Units(role, dataplane.Plane{}) {
 			for _, line := range strings.Split(body, "\n") {
 				if !strings.HasPrefix(line, "ExecStart") {
 					continue

@@ -22,7 +22,7 @@ import (
 	"github.com/nodarynet/nodary/internal/buildinfo"
 	"github.com/nodarynet/nodary/internal/bundle"
 	"github.com/nodarynet/nodary/internal/components"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -218,7 +218,12 @@ func cmdServerInstall(e env, args []string) int {
 		return ExitFailure
 	}
 
-	c := api.ServerConfig{Bind: *bind, DataDir: filepath.Dir(s.db.Path())}
+	// The plane before the file is rewritten, and carried into it. A re-run
+	// renders server.toml from flag defaults (which is why `nodary upgrade`
+	// exists as a separate verb), and without this a second `server install`
+	// would silently move a host off the data plane its operator chose.
+	plane := selectedPlane(dir)
+	c := api.ServerConfig{Bind: *bind, DataDir: filepath.Dir(s.db.Path()), DataPlane: plane.Name}
 	c.TLS.Certificate, c.TLS.Key = cert, tlsKey
 	if err := os.WriteFile(conf, api.RenderServerConfig(c), 0o640); err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
@@ -247,7 +252,7 @@ func cmdServerInstall(e env, args []string) int {
 		fetched = fetchIntoMirror(e, ctx, "server install", filepath.Dir(s.db.Path()), false)
 	}
 
-	// The control plane runs LiteLLM as a container ([00 §2](../specs/00-overview.md#2-topology),
+	// The control plane runs the data plane as a container ([00 §2](../specs/00-overview.md#2-topology),
 	// [00 §7](../specs/00-overview.md#7-why-litellm-stays)), so it needs a
 	// runtime of its own — the manifest gave containerd, nerdctl and runc to
 	// nodes only, which left the control-plane host with no way to run the data
@@ -269,6 +274,7 @@ func cmdServerInstall(e env, args []string) int {
 
 	// The units, so `systemctl enable --now nodary-server` works. Written
 	// after server.toml, because the unit's ExecStart reads it at startup.
+	o.Plane = plane
 	units, err := install.WriteUnits(ctx, "server", o)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
@@ -281,7 +287,7 @@ func cmdServerInstall(e env, args []string) int {
 	// (dev/specs/06-gateway.md §1).
 	//
 	// Read back when it already exists, because the same key has to appear in
-	// two places — the gateway's environment and LiteLLM's configuration — and
+	// two places — the gateway's environment and the plane's configuration — and
 	// a re-run that regenerated it would leave the two disagreeing, which
 	// presents as every inference request failing to authenticate upstream.
 	master, code := ensureGatewayKey(e, dir)
@@ -293,11 +299,11 @@ func cmdServerInstall(e env, args []string) int {
 	//
 	// **Render() had no caller.** It has been able to produce this file since
 	// R3-16 asserted the logging settings inside it, and nothing ever wrote one
-	// — so LiteLLM was configured in principle and absent in practice, which is
-	// the other half of why no model could be served. An empty `model_list` is
-	// the ordinary state of a fresh control plane and Render says so; routes
-	// fill it in as deployments become ready.
-	if code := writeLiteLLM(e, dir, master); code != ExitOK {
+	// — so the plane was configured in principle and absent in practice, which
+	// is the other half of why no model could be served. An empty member list is
+	// the ordinary state of a fresh control plane and the renderer says so;
+	// routes fill it in as deployments become ready.
+	if code := writeDataPlane(e, dir, plane, master); code != ExitOK {
 		return code
 	}
 
@@ -367,11 +373,11 @@ func cmdServerInstall(e env, args []string) int {
 	// and there is no reason to have two writers on it while the install is
 	// still minting credentials into it.
 	// containerd before the data plane, and the data plane before the control
-	// plane: nodary-litellm.service Requires=containerd.service, and the
-	// gateway proxies to LiteLLM. systemd would order these itself; starting
+	// plane: its unit Requires=containerd.service, and the gateway proxies to
+	// it. systemd would order these itself; starting
 	// them in this order means a failure is reported against the thing that
 	// actually failed rather than against whatever depended on it.
-	for _, unit := range startedUnits("server") {
+	for _, unit := range startedUnits("server", plane) {
 		step, err := install.Start(ctx, unit, o)
 		if err != nil {
 			// Not fatal. Everything is written and correct; what failed is the
@@ -626,7 +632,7 @@ func firstHost(hosts []string, bind string) string {
 // randomToken is 256 bits of randomness for the gateway's master key.
 //
 // It is generated per install and written to a file only root and the service
-// account can read. dev/specs/06-gateway.md §1 has LiteLLM stateless behind a
+// account can read. dev/specs/06-gateway.md §1 has the data plane stateless behind a
 // single key that is never exposed to clients; a built-in default would be that
 // key on every install in the world.
 func randomToken() string {
@@ -651,7 +657,7 @@ func randomToken() string {
 //
 // 01 §4 step 2 also has the operator choose the server's own stack, `minimal`
 // or `all`. That is **not implemented, deliberately**: every server-role
-// component in the manifest is an `image` — LiteLLM, Prometheus and Grafana are
+// component in the manifest is an `image` — the data plane, Prometheus and Grafana are
 // pulled by a container runtime from a registry by digest, not staged into a
 // file cache — and no unit in this slice runs one. A `--components` flag today
 // would offer a choice between two sets the install cannot act on, which is
@@ -809,21 +815,21 @@ func ensureGatewayKey(e env, dir string) (string, int) {
 	return key, ExitOK
 }
 
-// writeLiteLLM writes the data plane's configuration and pins the image that
+// writeDataPlane writes the data plane's configuration and pins the image that
 // reads it.
 //
-// The configuration is checked with the gateway's own assertion before it is
-// written, not after. dev/plans/pivot-cmmc.md makes LiteLLM a compliance
+// The configuration is checked with the plane's own assertion before it is
+// written, not after. dev/plans/pivot-cmmc.md makes the data plane a compliance
 // surface: inside a CUI boundary a configuration that failed to pin request
 // logging off is an incident, and one that reached the disk would be in force
 // the moment systemd started the unit.
-func writeLiteLLM(e env, dir, master string) int {
-	body := gateway.LiteLLMConfig{MasterKey: master}.Render()
-	if err := gateway.AssertLoggingOff(body); err != nil {
+func writeDataPlane(e env, dir string, plane dataplane.Plane, master string) int {
+	body := plane.Render(dataplane.Config{MasterKey: master})
+	if err := plane.Assert(body); err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
 	}
-	step, err := writeLiteLLMConfig(dir, body)
+	step, err := writePlaneConfig(dir, plane, body)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
@@ -834,15 +840,15 @@ func writeLiteLLM(e env, dir, master string) int {
 	if !ok {
 		return ExitFailure
 	}
-	image, err := imageFor(m, "litellm", resolvePlatform("host"), "")
+	image, err := imageFor(m, plane.Component, resolvePlatform("host"), "")
 	if err != nil {
 		// Not fatal: everything else is installed and correct, and the unit
 		// will refuse to start with a message naming the missing value rather
 		// than running an unpinned image.
-		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "litellm image", err)
+		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), plane.Name+" image", err)
 		return ExitOK
 	}
-	step, err = writeLiteLLMImage(dir, image)
+	step, err = writePlaneImage(dir, plane, image)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary server install: %v\n", err)
 		return ExitFailure
@@ -851,13 +857,13 @@ func writeLiteLLM(e env, dir, master string) int {
 	return ExitOK
 }
 
-// writeLiteLLMConfig writes litellm.yaml.
+// writePlaneConfig writes the data plane's configuration file.
 //
 // One writer, shared with `gateway sync`, because the file holds the master key
 // in the clear and two writers is two chances to give it the wrong mode — which
 // is how it sat at 0640 through every release so far.
-func writeLiteLLMConfig(dir string, body []byte) (install.Step, error) {
-	path := filepath.Join(dir, "litellm.yaml")
+func writePlaneConfig(dir string, plane dataplane.Plane, body []byte) (install.Step, error) {
+	path := filepath.Join(dir, plane.ConfigFile)
 	existing, _ := os.ReadFile(path)
 	changed := !bytes.Equal(existing, body)
 	if changed {
@@ -869,11 +875,11 @@ func writeLiteLLMConfig(dir string, body []byte) (install.Step, error) {
 	if err := os.Chmod(path, paths.ModeMasterKey); err != nil {
 		return install.Step{}, err
 	}
-	return install.Step{Name: "litellm config", Changed: changed, Detail: path}, nil
+	return install.Step{Name: plane.Name + " config", Changed: changed, Detail: path}, nil
 }
 
-// restrictConfigSecrets puts the mode back on the two files that hold the
-// LiteLLM master key in the clear.
+// restrictConfigSecrets puts the mode back on the two files that hold the data
+// plane's credential in the clear.
 //
 // Unconditional, and separate from writing them. os.WriteFile does not chmod a
 // file that already exists, and both writers skip the write when the content
@@ -881,12 +887,20 @@ func writeLiteLLMConfig(dir string, body []byte) (install.Step, error) {
 // for the life of the install. This is what carries the tightening onto a host
 // that is already running, through `server install` and `nodary upgrade`.
 //
-// Named files rather than a sweep of the directory: litellm.env is a public
-// image digest and pki/*.crt are certificates, and an install that quietly
-// narrowed everything it found would be deciding for the operator about files
-// it does not own.
+// Named files rather than a sweep of the directory: the image pin is a public
+// digest and pki/*.crt are certificates, and an install that quietly narrowed
+// everything it found would be deciding for the operator about files it does
+// not own.
+//
+// Every plane's configuration, not only the selected one: a host that switched
+// planes still has the other file on disk with a credential in it, and the mode
+// on a file nothing reads any more is exactly the one nobody notices.
 func restrictConfigSecrets(e env, dir string) {
-	for _, name := range []string{"gateway.env", "litellm.yaml"} {
+	names := []string{"gateway.env"}
+	for _, p := range dataplane.All() {
+		names = append(names, p.ConfigFile)
+	}
+	for _, name := range names {
 		path := filepath.Join(dir, name)
 		info, err := os.Stat(path)
 		if err != nil {
@@ -904,20 +918,20 @@ func restrictConfigSecrets(e env, dir string) {
 	}
 }
 
-// writeLiteLLMImage pins the data plane's image in litellm.env.
+// writePlaneImage pins the data plane's image in its environment file.
 //
-// Split out of writeLiteLLM because `nodary upgrade` needs this half and must
-// not have the other: litellm.yaml is `gateway sync`'s file, and rendering a
-// fresh one here would replace a control plane's routes with the empty
-// model_list a first install starts from.
-func writeLiteLLMImage(dir, image string) (install.Step, error) {
-	path := filepath.Join(dir, "litellm.env")
-	body := []byte("NODARY_LITELLM_IMAGE=" + image + "\n")
+// Split out of writeDataPlane because `nodary upgrade` needs this half and must
+// not have the other: the configuration is `gateway sync`'s file, and rendering
+// a fresh one here would replace a control plane's routes with the empty member
+// list a first install starts from.
+func writePlaneImage(dir string, plane dataplane.Plane, image string) (install.Step, error) {
+	path := filepath.Join(dir, plane.EnvFile)
+	body := []byte(plane.ImageVar + "=" + image + "\n")
 	prior, _ := os.ReadFile(path)
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return install.Step{}, err
 	}
-	return install.Step{Name: "litellm image",
+	return install.Step{Name: plane.Name + " image",
 		Changed: !bytes.Equal(prior, body), Detail: image}, nil
 }
 
@@ -984,10 +998,13 @@ func trimEnvValue(body, key string) string {
 // the data plane before the gateway that proxies to it. systemd would order
 // these itself; doing it here means a failure is reported against the thing
 // that actually failed rather than against whatever waited on it.
-func startedUnits(role string) []string {
+func startedUnits(role string, plane dataplane.Plane) []string {
+	if plane.Unit == "" {
+		plane = dataplane.Default()
+	}
 	switch role {
 	case "server":
-		return []string{"containerd.service", "nodary-litellm.service",
+		return []string{"containerd.service", plane.Unit,
 			"nodary-server.service", "nodary-gateway.service",
 			// The timer, not the oneshot it triggers: enabling a Type=oneshot
 			// directly runs it now and never again, which is the opposite of

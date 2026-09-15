@@ -9,6 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
@@ -16,8 +17,17 @@ import (
 type ServerConfig struct {
 	Bind    string `toml:"bind"`
 	DataDir string `toml:"data_dir"`
-	TLS     TLS    `toml:"tls"`
-	Audit   Audit  `toml:"audit"`
+	// DataPlane names the OpenAI-compatible process the gateway proxies to
+	// (dev/specs/06-gateway.md §7). Empty reads as dataplane.Default.
+	//
+	// Here and not in a configuration revision, deliberately. Which software
+	// runs on this host beside the gateway is a fact about the host, like the
+	// bind address and the certificate paths, and 00 §1 puts those in this
+	// file. It is still attributable: `nodary status` names it, the manifest
+	// pins it, and switching it is an act performed as root on the host.
+	DataPlane string `toml:"data_plane"`
+	TLS       TLS    `toml:"tls"`
+	Audit     Audit  `toml:"audit"`
 }
 
 // Audit is where committed records are delivered (R2-41).
@@ -90,6 +100,12 @@ func (c ServerConfig) Validate() error {
 	if _, _, err := net.SplitHostPort(c.Bind); err != nil {
 		return fmt.Errorf("%w: bind %q is not host:port", ErrBadServerConfig, c.Bind)
 	}
+	// A plane this build does not have is refused here rather than falling
+	// back, because falling back would start the wrong data plane on a host
+	// whose operator wrote down which one they wanted.
+	if _, err := dataplane.Select(c.DataPlane); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadServerConfig, err)
+	}
 	// A certificate without its key, or the reverse, is a configuration that
 	// starts and then fails at the first connection.
 	if (c.TLS.Certificate == "") != (c.TLS.Key == "") {
@@ -112,6 +128,13 @@ func RenderServerConfig(c ServerConfig) []byte {
 
 `)
 	fmt.Fprintf(&b, "bind = %q\ndata_dir = %q\n", c.Bind, c.DataDir)
+	// Written explicitly rather than left to the default, so a host says which
+	// plane it runs instead of a reader having to know what an absent key
+	// means. `nodary upgrade` never writes it; an operator switching planes
+	// edits this line.
+	if c.DataPlane != "" {
+		fmt.Fprintf(&b, "data_plane = %q\n", c.DataPlane)
+	}
 	if c.TLS.Certificate != "" {
 		fmt.Fprintf(&b, "\n[tls]\ncertificate = %q\nkey = %q\n", c.TLS.Certificate, c.TLS.Key)
 	}

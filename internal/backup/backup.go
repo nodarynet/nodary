@@ -90,7 +90,7 @@ func CheckDestination(out string) error {
 		return err
 	}
 	if mode := info.Mode().Perm(); mode&0o007 != 0 {
-		return fmt.Errorf("%w: %s is mode %04o — every TOTP seed, the LiteLLM master key "+
+		return fmt.Errorf("%w: %s is mode %04o — every TOTP seed, the data plane's credential "+
 			"and the agent CA private key are sealed under /etc/nodary/secret.key, which this "+
 			"archive contains (dev/specs/08-data-model.md §4). Write somewhere only root can "+
 			"reach: sudo install -d -m 0700 /var/backups/nodary", ErrExposedDestination, dir, mode)

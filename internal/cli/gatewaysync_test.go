@@ -9,7 +9,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/config"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 )
 
 // TestOnlyDeploymentsThisHostCanReachAreServed is the honest half of a design
@@ -285,7 +285,7 @@ func TestARouteWithNoReadyMemberIsNotRendered(t *testing.T) {
 	if len(models) != 0 {
 		t.Fatalf("served %+v, want nothing", models)
 	}
-	body := gateway.LiteLLMConfig{Models: models, MasterKey: "k"}.Render()
+	body := dataplane.LiteLLM.Render(dataplane.Config{Members: models, MasterKey: "k"})
 	if !strings.Contains(string(body), "model_list:\n  []") {
 		t.Errorf("an empty model_list was not rendered as one:\n%s", body)
 	}

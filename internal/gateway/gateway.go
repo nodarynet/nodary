@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/observed"
 	"github.com/nodarynet/nodary/internal/store"
@@ -38,11 +39,16 @@ type Server struct {
 	now  func() time.Time
 	up   *url.URL
 	prox *httputil.ReverseProxy
-	// masterKey authenticates the gateway to LiteLLM. It never reaches a
-	// client: dev/specs/06-gateway.md §1 has LiteLLM stateless behind a single
-	// key, which is what lets it hold no database and no identities.
+	// masterKey authenticates the gateway to the data plane. It never reaches
+	// a client: dev/specs/06-gateway.md §1 has the plane stateless behind a
+	// single key, which is what lets it hold no database and no identities.
 	masterKey string
 	throttle  *throttle
+	// plane is which data plane is running, and the gateway reads exactly one
+	// thing from it: the header naming the member that served a request.
+	// Everything else about the plane is the installer's and `gateway sync`'s
+	// business, which is why this is a value and not a dependency.
+	plane dataplane.Plane
 }
 
 // Options configure a gateway.
@@ -50,11 +56,15 @@ type Options struct {
 	DB        *store.DB
 	Upstream  string
 	MasterKey string
-	Log       *slog.Logger
-	Now       func() time.Time
+	// Plane is the data plane behind Upstream. Zero means no attribution
+	// header is read, which is the honest behavior for a gateway pointed at
+	// something that is not a plane at all — a stub in a test, say.
+	Plane dataplane.Plane
+	Log   *slog.Logger
+	Now   func() time.Time
 }
 
-// New builds a gateway pointed at LiteLLM.
+// New builds a gateway pointed at a data plane.
 func New(o Options) (*Server, error) {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -68,11 +78,11 @@ func New(o Options) (*Server, error) {
 	}
 
 	s := &Server{db: o.DB, log: o.Log, now: o.Now, up: up, masterKey: o.MasterKey,
-		throttle: newThrottle()}
+		plane: o.Plane, throttle: newThrottle()}
 	s.prox = &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(up)
-			// The client's own Authorization never reaches LiteLLM. It
+			// The client's own Authorization never reaches the plane. It
 			// identifies a person to nodary and means nothing upstream, and
 			// forwarding a credential past the component that consumed it is
 			// how a stateless proxy acquires an identity it should not have.
@@ -100,9 +110,9 @@ var ErrBadConfig = errors.New("invalid gateway configuration")
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// The OpenAI surface, and nothing else. A path not listed here is a 404
-	// rather than something proxied blind: LiteLLM has an administrative API of
-	// its own, and exposing it through a credential nodary issued would hand a
-	// client the master key's authority.
+	// rather than something proxied blind: a data plane has an administrative
+	// API of its own, and exposing it through a credential nodary issued would
+	// hand a client the master key's authority.
 	mux.HandleFunc("POST /v1/chat/completions", s.proxyInference)
 	mux.HandleFunc("POST /v1/completions", s.proxyInference)
 	mux.HandleFunc("POST /v1/embeddings", s.proxyInference)
@@ -194,17 +204,7 @@ func (s *Server) routesFor(ctx context.Context, p identity.Principal) (map[strin
 	return out, rows.Err()
 }
 
-// litellmModelHeader is what LiteLLM returns on every response, carrying the
-// model_info.id of the deployment it actually routed to.
-//
-// Verified against the pinned image rather than assumed — a third-party header
-// is a contract nobody promised us, and TestLiteLLMReturnsTheDeploymentIdWeGaveIt
-// fails the build if a version bump drops it. When it is absent the usage row
-// carries no deployment, which is the honest answer: nothing else in the
-// request says which member of a route served it.
-const litellmModelHeader = "X-Litellm-Model-Id"
-
-// servedBy resolves the deployment LiteLLM chose into the columns a usage row
+// servedBy resolves the deployment the data plane chose into the columns a usage row
 // is attributed by. One indexed read on the primary key, per request.
 //
 // The model id comes from here too. It used to be set to the route name, which

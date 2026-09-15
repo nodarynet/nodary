@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/fleet"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
@@ -54,7 +55,7 @@ func cmdStatus(e env, args []string) int {
 	doc := map[string]any{"version": versionString(), "roles": roles}
 
 	var units []install.UnitStatus
-	for _, u := range hostUnits(roles) {
+	for _, u := range hostUnits(roles, selectedPlane(configDir)) {
 		st, err := install.UnitState(ctx, u, o)
 		if err != nil {
 			// Reported in the row rather than fatal: a host where systemd
@@ -122,10 +123,10 @@ func cmdStatus(e env, args []string) int {
 // hostUnits is every unit this host's roles own, in the order an install starts
 // them — the reverse of what `uninstall` stops, and the same list, so a unit
 // that arrives in one place cannot be missing from the other.
-func hostUnits(roles []string) []string {
+func hostUnits(roles []string, plane dataplane.Plane) []string {
 	var out []string
 	for _, role := range roles {
-		for _, u := range startedUnits(role) {
+		for _, u := range startedUnits(role, plane) {
 			if !slices.Contains(out, u) {
 				out = append(out, u)
 			}
@@ -244,8 +245,9 @@ func cmdRestart(e env, args []string) int {
 	// nodary's to bounce and in what order, so the set lives in one place
 	// rather than being filtered here and filtered again there.
 	want := map[string]bool{}
+	plane := selectedPlane(configDir)
 	for _, role := range roles {
-		for _, u := range startedUnits(role) {
+		for _, u := range startedUnits(role, plane) {
 			want[u] = true
 		}
 	}

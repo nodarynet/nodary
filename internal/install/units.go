@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nodarynet/nodary/internal/dataplane"
+
 	"github.com/nodarynet/nodary/internal/paths"
 )
 
@@ -54,6 +56,11 @@ type Options struct {
 	// single-box `--with-node` install does because the agent needs it anyway.
 	User string
 	Run  Runner
+	// Plane is the data plane this host runs, read from server.toml by the
+	// caller. Zero means what an absent `data_plane` key means — see
+	// dataplane.Default — so an Options that predates the selector, or one a
+	// test builds for something unrelated, still writes a working server.
+	Plane dataplane.Plane
 }
 
 // The defaults setDefaults applies, named so an uninstall removes from the same
@@ -139,7 +146,7 @@ WantedBy=multi-user.target
 //
 // The master key reaches it through EnvironmentFile= and never through
 // ExecStart=. Interpolating it into the command line published the one
-// credential LiteLLM accepts to every local account via /proc/<pid>/cmdline.
+// credential the data plane accepts to every local account via /proc/<pid>/cmdline.
 const gatewayUnit = `# Written by nodary. Edits are overwritten.
 [Unit]
 Description=nodary inference gateway
@@ -231,41 +238,6 @@ OOMScoreAdjust=-999
 WantedBy=multi-user.target
 `
 
-// litellmUnit runs the OpenAI-compatible data plane.
-//
-// [00 §7](../specs/00-overview.md#7-why-litellm-stays): nodary owns identity,
-// quota, metering and audit; LiteLLM owns OpenAI compatibility, routing,
-// retries and fallbacks. It runs stateless behind one master key and needs no
-// database, which is why this unit mounts a configuration and nothing else.
-//
-// **`--network host`, and that is not laziness.** A deployment publishes its
-// port on the host's loopback (03 §5, `-p 127.0.0.1:…`), and a container on a
-// bridge cannot reach the host's 127.0.0.1. Sharing the host namespace is what
-// lets the data plane reach the models; it binds 127.0.0.1:4000 itself, so
-// nothing it serves is reachable off-box either.
-//
-// The image comes from an environment file rather than being written into the
-// unit, for the reason a deployment's image does: an upgrade rewrites one value
-// instead of rewriting a unit systemd has to be told about.
-const litellmUnit = `# Written by nodary. Edits are overwritten.
-[Unit]
-Description=LiteLLM, the OpenAI-compatible data plane for nodary
-After=containerd.service
-Requires=containerd.service
-
-[Service]
-Type=exec
-EnvironmentFile=/etc/nodary/litellm.env
-ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-litellm
-ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-litellm     --network host     -v /etc/nodary/litellm.yaml:/etc/litellm/config.yaml:ro     ${NODARY_LITELLM_IMAGE}     --config /etc/litellm/config.yaml --host 127.0.0.1 --port 4000
-ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-litellm
-Restart=always
-RestartSec=10s
-
-[Install]
-WantedBy=multi-user.target
-`
-
 // pruneUnit applies dev/specs/08-data-model.md §3's retention windows once.
 //
 // Type=oneshot and triggered by pruneTimer, never enabled on its own: the work
@@ -323,8 +295,8 @@ WantedBy=timers.target
 // command (R3-14).
 //
 // **It runs as root, and that is the whole reason it is a separate unit.**
-// `gateway sync` writes /etc/nodary/litellm.yaml and restarts
-// nodary-litellm.service. nodary-server holds the routes and deliberately
+// `gateway sync` writes the data plane's configuration and restarts its unit.
+// nodary-server holds the routes and deliberately
 // cannot do either — `ProtectSystem=strict` with `ReadOnlyPaths=/etc/nodary` —
 // because widening the network-facing process until it could rewrite the data
 // plane's configuration and restart services is exactly the capability worth
@@ -335,7 +307,7 @@ WantedBy=timers.target
 // /etc does not, because /etc/nodary is what this writes.
 //
 // It is cheap when nothing moved. `gateway sync` compares the rendered file
-// against what the running LiteLLM was started with and restarts only when they
+// against what the running process was started with and restarts only when they
 // differ, so the ordinary tick writes nothing and restarts nothing.
 const gatewaySyncUnit = `# Written by nodary. Edits are overwritten.
 [Unit]
@@ -363,7 +335,7 @@ ProtectSystem=full
 // restarts, which drop live requests.
 //
 // No Persistent=: this catches up with the present rather than running a pass
-// it missed, and a boot starts LiteLLM from the current file anyway.
+// it missed, and a boot starts the data plane from the current file anyway.
 const gatewaySyncTimer = `# Written by nodary. Edits are overwritten.
 [Unit]
 Description=nodary data plane sync
@@ -377,18 +349,25 @@ WantedBy=timers.target
 `
 
 // Units are what an install writes, by role.
-func Units(role string) map[string]string {
+//
+// The data plane's unit comes from the plane rather than from a constant here,
+// because which one a host runs is a choice `server.toml` records. A zero plane
+// means what an absent `data_plane` key means — see dataplane.Default.
+func Units(role string, plane dataplane.Plane) map[string]string {
+	if plane.Unit == "" {
+		plane = dataplane.Default()
+	}
 	switch role {
 	case "server":
 		return map[string]string{
-			// containerd here too: the control plane runs LiteLLM as a
+			// containerd here too: the control plane runs the data plane as a
 			// container, so the runtime is not a node-only concern. Its unit is
 			// upstream's, placed by nodary, because the release tarball ships
 			// none — see containerdUnit.
 			"containerd.service":          containerdUnit,
 			"nodary-server.service":       serverUnit,
 			"nodary-gateway.service":      gatewayUnit,
-			"nodary-litellm.service":      litellmUnit,
+			plane.Unit:                    plane.UnitBody,
 			"nodary-prune.service":        pruneUnit,
 			"nodary-prune.timer":          pruneTimer,
 			"nodary-gateway-sync.service": gatewaySyncUnit,
@@ -420,7 +399,7 @@ func WriteUnits(ctx context.Context, role string, o Options) ([]Step, error) {
 
 	var steps []Step
 	var changed bool
-	for name, tmpl := range Units(role) {
+	for name, tmpl := range Units(role, o.Plane) {
 		// containerd's unit is upstream's text and takes no substitutions;
 		// running it through Sprintf would be a no-op today and a corruption the
 		// moment upstream's file contains a percent sign.

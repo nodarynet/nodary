@@ -25,8 +25,8 @@ import (
 // replace the binary, then move everything the new release pins. install.sh is
 // already the first half — it downloads a release, verifies its signature and
 // its digest, and unpacks it beside the old one. Nothing did the second half,
-// and that is where a CVE response actually lands: the LiteLLM image a control
-// plane runs is written into /etc/nodary/litellm.env once, at install time,
+// and that is where a CVE response actually lands: the data plane image a
+// control plane runs is written into its environment file once, at install time,
 // from the manifest embedded in the binary of the day. A release that moves
 // that pin leaves the file alone, so the fixed digest sits in the new binary's
 // manifest and the vulnerable image keeps starting.
@@ -91,7 +91,7 @@ func cmdUpgrade(e env, args []string) int {
 		return reportMoves(e, *format, moves)
 	}
 
-	// A GPU node has no database to attest into and no LiteLLM to repin, and
+	// A GPU node has no database to attest into and no data plane to repin, and
 	// its half of §9 is an agent that upgrades itself from the control plane's
 	// mirror — R5-16, which is not built. Saying so is better than opening a
 	// control-plane database here, which store.Open would happily create.
@@ -185,10 +185,16 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 	if fileExists(filepath.Join(o.Root, agent.ConfigPath())) {
 		roles = append(roles, "node")
 	}
+	// The plane this host runs, so the upgrade rewrites its unit and repins its
+	// image rather than whichever one this release happens to prefer. `upgrade`
+	// never writes `data_plane`; it honors what an operator put there.
+	plane := selectedPlane(confDir)
+	o.Plane = plane
+
 	restart := map[string]bool{}
 	ours := map[string]bool{}
 	for _, role := range roles {
-		for name := range install.Units(role) {
+		for name := range install.Units(role, plane) {
 			ours[name] = true
 		}
 		units, err := install.WriteUnits(ctx, role, o)
@@ -236,15 +242,15 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 		buildinfo.Version, strings.ReplaceAll(plat, "/", "-"))})
 
 	// The data plane's pin. The whole reason this verb exists.
-	if image, err := imageFor(m, "litellm", plat, ""); err == nil {
-		step, err := writeLiteLLMImage(confDir, image)
+	if image, err := imageFor(m, plane.Component, plat, ""); err == nil {
+		step, err := writePlaneImage(confDir, plane, image)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "nodary upgrade: %v\n", err)
 			return ExitFailure
 		}
 		report(e, []install.Step{step})
 		if step.Changed {
-			restart["nodary-litellm.service"] = true
+			restart[plane.Unit] = true
 		}
 	}
 
@@ -291,8 +297,8 @@ func applyUpgrade(e env, s *session, m *components.Manifest, moves []move,
 // a duller reason: a timer holds no configuration to reload. Anyone who has
 // decided containerd is the problem has `systemctl restart containerd`.
 func restartUnits(e env, ctx context.Context, want map[string]bool, o install.Options) int {
-	order := []string{"nodary-litellm.service", "nodary-server.service",
-		"nodary-gateway.service", "nodary-agent.service"}
+	order := append(dataPlaneUnits(), "nodary-server.service",
+		"nodary-gateway.service", "nodary-agent.service")
 	for _, u := range order {
 		if !want[u] {
 			continue
@@ -318,21 +324,22 @@ func restartUnits(e env, ctx context.Context, want map[string]bool, o install.Op
 // WriteUnits already reports which ones changed, so listing them would be a
 // second and worse answer to a question something else already answers.
 func plannedMoves(m *components.Manifest, confDir, optDir, plat string) ([]move, error) {
+	plane := selectedPlane(confDir)
 	var out []move
 	if was := installedRelease(optDir); was != buildinfo.Version {
 		out = append(out, move{"nodary", orElse(was, "not installed"), buildinfo.Version})
 	}
-	if image, err := imageFor(m, "litellm", plat, ""); err == nil {
+	if image, err := imageFor(m, plane.Component, plat, ""); err == nil {
 		// A read that failed for any reason other than absence is not a pin
 		// that moved. Swallowing it would report an upgrade as available, or a
 		// host as current, on the strength of a file nobody could open —
 		// which is the one answer this verb must never guess at.
-		body, err := os.ReadFile(filepath.Join(confDir, "litellm.env"))
+		body, err := os.ReadFile(filepath.Join(confDir, plane.EnvFile))
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
-		if was := trimEnvValue(string(body), "NODARY_LITELLM_IMAGE"); was != image {
-			out = append(out, move{"litellm", orElse(was, "not pinned"), image})
+		if was := trimEnvValue(string(body), plane.ImageVar); was != image {
+			out = append(out, move{plane.Name, orElse(was, "not pinned"), image})
 		}
 	}
 

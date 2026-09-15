@@ -13,14 +13,14 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/nodarynet/nodary/internal/config"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/preflight"
 )
 
 // cmdGatewaySync re-renders the data plane's configuration from current routes.
 //
-// `server install` writes litellm.yaml once, with an empty model_list, because
+// `server install` writes it once, with an empty member list, because
 // a fresh control plane has no deployments. Something has to write it again
 // when one appears, and this is that something until R3-14 makes route
 // membership live.
@@ -36,7 +36,7 @@ import (
 func cmdGatewaySync(e env, args []string) int {
 	fs := newFlagSet(e, "gateway sync")
 	dbPath := dbFlag(fs)
-	confDir := fs.String("config-dir", "", "where litellm.yaml lives (default /etc/nodary)")
+	confDir := fs.String("config-dir", "", "where the data plane's configuration lives (default /etc/nodary)")
 	root := fs.String("root", "", "operate under this prefix instead of / (for testing; nothing is restarted)")
 	dryRun := fs.Bool("dry-run", false, "print what would change and write nothing")
 	if code := parseFlags(e, fs, args); code >= 0 {
@@ -80,31 +80,32 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
 		return ExitFailure
 	}
-	models, skipped := routeModels(e, snap, ready, dir)
+	plane := selectedPlane(dir)
+	members, skipped := routeModels(e, snap, ready, dir)
 
 	// Named, not counted. "3 route(s) would be served" leaves an operator
 	// unable to answer the one question they have after applying a
 	// configuration — what may a client ask for, and by what name — and the
-	// answer is not guessable: LiteLLM routes on the *route* name, not the
+	// answer is not guessable: the plane routes on the *route* name, not the
 	// model id, so a client sending the weights path gets a 404 from a fleet
 	// that is working perfectly.
-	for _, m := range models {
+	for _, m := range members {
 		fmt.Fprintf(e.stdout, "%s %-18s %s -> %s\n",
 			mark(preflight.LevelOK), "route", m.Name, m.APIBase)
 	}
 
-	body := gateway.LiteLLMConfig{Models: models, MasterKey: master}.Render()
-	if err := gateway.AssertLoggingOff(body); err != nil {
+	body := plane.Render(dataplane.Config{Members: members, MasterKey: master})
+	if err := plane.Assert(body); err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
 		return ExitFailure
 	}
 
-	conf := filepath.Join(dir, "litellm.yaml")
+	conf := filepath.Join(dir, plane.ConfigFile)
 	existing, _ := os.ReadFile(conf)
 	changed := !bytes.Equal(existing, body)
 
 	if dryRun {
-		fmt.Fprintf(e.stdout, "%d route(s) would be served", len(models))
+		fmt.Fprintf(e.stdout, "%d route(s) would be served", len(members))
 		if skipped > 0 {
 			fmt.Fprintf(e.stdout, ", %d skipped", skipped)
 		}
@@ -116,38 +117,38 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 		return ExitOK
 	}
 
-	step, err := writeLiteLLMConfig(dir, body)
+	step, err := writePlaneConfig(dir, plane, body)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "nodary gateway sync: %v\n", err)
 		return ExitFailure
 	}
-	step.Detail = fmt.Sprintf("%s, %d route(s)", conf, len(models))
+	step.Detail = fmt.Sprintf("%s, %d route(s)", conf, len(members))
 	report(e, []install.Step{step})
 
-	// **Not "only when the file changed".** LiteLLM reads its configuration at
-	// startup, so what matters is whether the *running process* has this one —
-	// and those come apart exactly when it matters: the file was written while
-	// LiteLLM was already up, so a later sync found it correct, restarted
+	// **Not "only when the file changed".** A data plane reads its
+	// configuration at startup, so what matters is whether the *running
+	// process* has this one — and those come apart exactly when it matters: the
+	// file was written while the plane was already up, so a later sync found it correct, restarted
 	// nothing, and left the data plane serving an empty model list with a
 	// perfectly good file on disk beside it. `gateway sync` reported success
 	// and changed nothing that mattered.
 	//
 	// So the digest of what the running process was started with is recorded in
-	// /run, which the boot clears — and a boot starts LiteLLM from the current
+	// /run, which the boot clears — and a boot starts the plane from the current
 	// file anyway, so a missing marker means "unknown", which restarts. The
 	// alternative, restarting unconditionally, would drop live requests every
 	// time somebody ran this to check.
-	applied := appliedMarker(root)
+	applied := appliedMarker(root, plane)
 	if !changed {
 		if prior, err := os.ReadFile(applied); err == nil &&
 			strings.TrimSpace(string(prior)) == digestOf(body) {
 			return ExitOK
 		}
 	}
-	step, err = install.Restart(ctx, "nodary-litellm.service", install.Options{Root: root})
+	step, err = install.Restart(ctx, plane.Unit, install.Options{Root: root})
 	if err != nil {
 		fmt.Fprintf(e.stdout, "%s %-18s %v\n", mark(preflight.LevelWarn), "restart", err)
-		fmt.Fprintf(e.stderr, "\nThe configuration is written. `systemctl restart nodary-litellm` applies it.\n")
+		fmt.Fprintf(e.stderr, "\nThe configuration is written. `systemctl restart %s` applies it.\n", plane.Unit)
 		return ExitOK
 	}
 	report(e, []install.Step{step})
@@ -161,8 +162,8 @@ func syncGateway(e env, dbPath, confDir, root string, dryRun bool) int {
 
 // appliedMarker records the configuration the running data plane was started
 // with. In /run because that is state about a process, not about the install.
-func appliedMarker(root string) string {
-	return filepath.Join(root, "/run/nodary/litellm.applied")
+func appliedMarker(root string, plane dataplane.Plane) string {
+	return filepath.Join(root, "/run/nodary", plane.AppliedName)
 }
 
 func digestOf(b []byte) string {
@@ -170,8 +171,8 @@ func digestOf(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// routeModels turns routes into what LiteLLM proxies to, and says what it left
-// out.
+// routeModels turns routes into what the data plane proxies to, and says what
+// it left out.
 //
 // **Only deployments on this host.** dev/specs/03-agent.md publishes a
 // deployment's port on `127.0.0.1` *"so the container is reachable by the
@@ -208,7 +209,7 @@ func readyDeployments(ctx context.Context, q config.Querier) (map[string]bool, e
 	return out, rows.Err()
 }
 
-func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string) ([]gateway.LiteLLMModel, int) {
+func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string) ([]dataplane.Member, int) {
 	byID := map[string]config.Deployment{}
 	for _, d := range snap.Deployments {
 		byID[d.ID] = d
@@ -233,7 +234,7 @@ func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string
 		return !known || s == "approved" || s == "ready"
 	}
 
-	var models []gateway.LiteLLMModel
+	var members []dataplane.Member
 	var skipped int
 	for _, r := range snap.Routes {
 		for _, m := range r.Members {
@@ -287,7 +288,7 @@ func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string
 					mark(preflight.LevelWarn), "route", r.Name, d.ID, d.NodeName)
 				continue
 			}
-			models = append(models, gateway.LiteLLMModel{
+			members = append(members, dataplane.Member{
 				Name:    r.Name,
 				Model:   r.Name,
 				APIBase: fmt.Sprintf("http://127.0.0.1:%d/v1", d.Port),
@@ -298,8 +299,8 @@ func routeModels(e env, snap *config.Snapshot, ready map[string]bool, dir string
 			})
 		}
 	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Name < models[j].Name })
-	return models, skipped
+	sort.Slice(members, func(i, j int) bool { return members[i].Name < members[j].Name })
+	return members, skipped
 }
 
 // localNodeName reads which node this host enrolled as, or "" when it is not
@@ -324,7 +325,7 @@ func localNodeName(dir string) string {
 	return conf.Name
 }
 
-// readMasterKey reads the credential LiteLLM accepts.
+// readMasterKey reads the credential the data plane accepts.
 //
 // It is never generated here. `server install` owns it, and a verb that minted
 // one when the file was unreadable would write a configuration the gateway

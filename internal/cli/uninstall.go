@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/nodarynet/nodary/internal/agent"
 	"github.com/nodarynet/nodary/internal/components"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/install"
 	"github.com/nodarynet/nodary/internal/paths"
 	"github.com/nodarynet/nodary/internal/preflight"
@@ -97,7 +99,7 @@ func cmdUninstall(e env, args []string) int {
 			"nodary uninstall: this host holds a control-plane database, so it needs --purge.\n"+
 				"  %s is removed either way and %s is in it, so keeping\n"+
 				"  %s would leave a database nothing can ever unseal again:\n"+
-				"  every TOTP seed, the agent CA private key and the LiteLLM master key with it.\n"+
+				"  every TOTP seed, the agent CA private key and the data plane's credential with it.\n"+
 				"  Take a backup first if you want any of it: nodary backup create FILE\n",
 			paths.ConfigDir, paths.SecretKey(), paths.Database())
 		return ExitFailure
@@ -123,7 +125,7 @@ func cmdUninstall(e env, args []string) int {
 			u.stop(ctx, agent.UnitName(id))
 		}
 	}
-	for _, unit := range stoppableUnits(roles) {
+	for _, unit := range stoppableUnits(roles, selectedPlane(configDir)) {
 		u.stop(ctx, unit)
 	}
 	u.removeUnitFiles(roles)
@@ -180,10 +182,10 @@ func rolesOn(root, configDir string) []string {
 // the data plane it proxies to and the agent before containerd — systemd would
 // order this itself, but a failure then names the thing that failed rather than
 // whatever was waiting on it.
-func stoppableUnits(roles []string) []string {
+func stoppableUnits(roles []string, plane dataplane.Plane) []string {
 	var out []string
 	for _, role := range roles {
-		for _, u := range slices.Backward(startedUnits(role)) {
+		for _, u := range slices.Backward(startedUnits(role, plane)) {
 			if !slices.Contains(out, u) {
 				out = append(out, u)
 			}
@@ -243,25 +245,35 @@ func (t *teardown) remove(name, path string) {
 }
 
 // removeUnitFiles deletes only units carrying nodary's own marker.
+//
+// Every plane's unit, not only the selected one: a host that switched planes
+// has the other unit on disk, and an uninstall that left it behind would leave
+// systemd holding a unit for a product that is gone.
 func (t *teardown) removeUnitFiles(roles []string) {
 	dir := filepath.Join(t.root, install.DefaultUnitDir)
+	names := map[string]bool{}
 	for _, role := range roles {
-		for name := range install.Units(role) {
-			path := filepath.Join(dir, name)
-			body, err := os.ReadFile(path)
-			switch {
-			case os.IsNotExist(err):
-				continue
-			case err != nil:
-				t.failed("unit: "+name, err.Error())
-				continue
-			case !bytes.HasPrefix(body, []byte(unitMarker)):
-				t.steps = append(t.steps, leaveStep{Step: install.Step{
-					Name: "unit: " + name, Detail: path + " was not written by nodary; left alone"}})
-				continue
+		for _, plane := range dataplane.All() {
+			for name := range install.Units(role, plane) {
+				names[name] = true
 			}
-			t.remove("unit: "+name, path)
 		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		path := filepath.Join(dir, name)
+		body, err := os.ReadFile(path)
+		switch {
+		case os.IsNotExist(err):
+			continue
+		case err != nil:
+			t.failed("unit: "+name, err.Error())
+			continue
+		case !bytes.HasPrefix(body, []byte(unitMarker)):
+			t.steps = append(t.steps, leaveStep{Step: install.Step{
+				Name: "unit: " + name, Detail: path + " was not written by nodary; left alone"}})
+			continue
+		}
+		t.remove("unit: "+name, path)
 	}
 }
 

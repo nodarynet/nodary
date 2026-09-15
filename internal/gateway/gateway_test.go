@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
+	"github.com/nodarynet/nodary/internal/dataplane"
 	"github.com/nodarynet/nodary/internal/gateway"
 	"github.com/nodarynet/nodary/internal/identity"
 	"github.com/nodarynet/nodary/internal/store"
@@ -115,7 +116,13 @@ func newFixture(t *testing.T, upstream http.HandlerFunc) *fixture {
 
 	g, err := gateway.New(gateway.Options{
 		DB: db, Upstream: f.upstream.URL, MasterKey: "sk-nodary-master",
-		Log: slogTo(f.logs), Now: time.Now,
+		// The fixture's stub upstream answers with LiteLLM's header, so the
+		// gateway is told that is the plane behind it. Without a plane the
+		// gateway reads no attribution header at all, which is the right
+		// behavior for something that is not a data plane and the wrong one
+		// for a test about attribution.
+		Plane: dataplane.LiteLLM,
+		Log:   slogTo(f.logs), Now: time.Now,
 	})
 	if err != nil {
 		t.Fatal(err)

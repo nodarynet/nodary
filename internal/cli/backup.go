@@ -145,7 +145,7 @@ func reportBackup(e env, rep backup.Report, remote bool) {
 	}
 	fmt.Fprintf(e.stderr,
 		"\nThis file is as sensitive as /etc/nodary/secret.key, because it contains it.\n"+
-			"Anyone holding it can read every TOTP seed, the LiteLLM master key and the\n"+
+			"Anyone holding it can read every TOTP seed, the data plane's credential and the\n"+
 			"agent CA private key. Store it where you would store the key itself.\n")
 	if remote {
 		fmt.Fprintf(e.stderr,
@@ -271,7 +271,7 @@ func readBackup(path string) (backup.Info, []string, error) {
 	if !slices.Contains(members, backup.Config+"/secret.key") {
 		return backup.Info{}, nil, fmt.Errorf(
 			"%s holds a database but no config/secret.key.\n"+
-				"  Every TOTP seed, the LiteLLM master key and the agent CA private key in that\n"+
+				"  Every TOTP seed, the data plane's credential and the agent CA private key in that\n"+
 				"  database are sealed under it, so restoring this would produce a control plane\n"+
 				"  that starts and cannot read its own secrets", path)
 	}

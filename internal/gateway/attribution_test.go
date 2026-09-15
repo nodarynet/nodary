@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/nodarynet/nodary/internal/audit"
-	"github.com/nodarynet/nodary/internal/gateway"
+	"github.com/nodarynet/nodary/internal/dataplane"
 )
 
 // addDeployment stands up the fleet rows a usage row is attributed through: a
@@ -165,9 +165,9 @@ func TestAnUnknownDeploymentIsRecordedAndNotResolved(t *testing.T) {
 // halves are pinned together: a model_list entry without model_info gets an id
 // LiteLLM invents, which resolves to no deployment here.
 func TestTheRenderedConfigurationNamesEachDeployment(t *testing.T) {
-	body := string(gateway.LiteLLMConfig{MasterKey: "sk-test", Models: []gateway.LiteLLMModel{
+	body := string(dataplane.LiteLLM.Render(dataplane.Config{MasterKey: "sk-test", Members: []dataplane.Member{
 		{Name: "tiny", Model: "tiny", APIBase: "http://127.0.0.1:8000/v1", ID: "dep_tiny_gpu01"},
-	}}.Render())
+	}}))
 	if !strings.Contains(body, "model_info:") || !strings.Contains(body, `id: "dep_tiny_gpu01"`) {
 		t.Errorf("no model_info id in:\n%s", body)
 	}
@@ -175,9 +175,9 @@ func TestTheRenderedConfigurationNamesEachDeployment(t *testing.T) {
 	// And omitted rather than written empty when there is no id: LiteLLM
 	// rejects a model_info with no id, and a configuration it refuses is a
 	// control plane that serves nothing.
-	body = string(gateway.LiteLLMConfig{MasterKey: "sk-test", Models: []gateway.LiteLLMModel{
+	body = string(dataplane.LiteLLM.Render(dataplane.Config{MasterKey: "sk-test", Members: []dataplane.Member{
 		{Name: "tiny", Model: "tiny", APIBase: "http://127.0.0.1:8000/v1"},
-	}}.Render())
+	}}))
 	if strings.Contains(body, "model_info") {
 		t.Errorf("model_info written with no id:\n%s", body)
 	}

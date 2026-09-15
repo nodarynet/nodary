@@ -1,4 +1,4 @@
-package gateway
+package dataplane
 
 import (
 	"fmt"
@@ -6,39 +6,65 @@ import (
 	"strings"
 )
 
-// LiteLLMConfig is the file the gateway renders and LiteLLM reads.
+// LiteLLM is the plane every install before dev/plans/R3b-a-second-data-plane.md
+// runs, and the one a server.toml with no `data_plane` key means.
 //
-// It is generated from routes and deployments rather than maintained by hand,
-// because the two would drift and the drift would be invisible: a route whose
-// deployment moved would keep proxying to an address nothing serves.
-type LiteLLMConfig struct {
-	Models    []LiteLLMModel
-	MasterKey string
+// dev/specs/00-overview.md §7: it owns OpenAI compatibility, routing, retries
+// and fallbacks, stateless behind one master key with no database of its own,
+// because identity, quota, metering and audit live in nodary.
+var LiteLLM = Plane{
+	Name:         "litellm",
+	Component:    "litellm",
+	Unit:         "nodary-litellm.service",
+	UnitBody:     litellmUnit,
+	ConfigFile:   "litellm.yaml",
+	EnvFile:      "litellm.env",
+	ImageVar:     "NODARY_LITELLM_IMAGE",
+	AppliedName:  "litellm.applied",
+	ServedHeader: litellmModelHeader,
+	Render:       renderLiteLLM,
+	Assert:       assertLiteLLMLoggingOff,
 }
 
-// LiteLLMModel is one route, pointed at one deployment.
-type LiteLLMModel struct {
-	Name    string
-	APIBase string
-	Model   string
-	// Weight is the route member's share of the traffic across a route's
-	// members. Zero means "not stated", and LiteLLM's own default applies.
-	//
-	// config.RouteMember has carried this since routes existed and nothing
-	// rendered it, so `nodary route set --add` wrote a weight that changed
-	// nothing — a configuration field an operator can set and the product
-	// ignores is worse than one that does not exist.
-	Weight int
-	// ID is the deployment's id, written into model_info so that LiteLLM
-	// hands it back on every response as x-litellm-model-id.
-	//
-	// A route may have several members and LiteLLM picks between them, so
-	// nothing in a request says which deployment served it — and without that
-	// a usage row cannot be attributed to a node or a GPU, which is most of
-	// what metering is for at this size. Naming our own id here is what makes
-	// the one component that made the choice tell us what it chose.
-	ID string
-}
+// litellmModelHeader is what LiteLLM returns on every response, carrying the
+// model_info.id of the deployment it actually routed to.
+//
+// Verified against the pinned image rather than assumed — a third-party header
+// is a contract nobody promised us, and TestLiteLLMReturnsTheDeploymentIdWeGaveIt
+// fails the build if a version bump drops it. When it is absent the usage row
+// carries no deployment, which is the honest answer: nothing else in the
+// request says which member of a route served it.
+const litellmModelHeader = "X-Litellm-Model-Id"
+
+// litellmUnit runs the OpenAI-compatible data plane.
+//
+// **`--network host`, and that is not laziness.** A deployment publishes its
+// port on the host's loopback (03 §5, `-p 127.0.0.1:…`), and a container on a
+// bridge cannot reach the host's 127.0.0.1. Sharing the host namespace is what
+// lets the data plane reach the models; it binds 127.0.0.1:4000 itself, so
+// nothing it serves is reachable off-box either.
+//
+// The image comes from an environment file rather than being written into the
+// unit, for the reason a deployment's image does: an upgrade rewrites one value
+// instead of rewriting a unit systemd has to be told about.
+const litellmUnit = `# Written by nodary. Edits are overwritten.
+[Unit]
+Description=LiteLLM, the OpenAI-compatible data plane for nodary
+After=containerd.service
+Requires=containerd.service
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/nodary/litellm.env
+ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-litellm
+ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-litellm     --network host     -v /etc/nodary/litellm.yaml:/etc/litellm/config.yaml:ro     ${NODARY_LITELLM_IMAGE}     --config /etc/litellm/config.yaml --host 127.0.0.1 --port 4000
+ExecStop=/usr/local/bin/nerdctl stop --time 30 nodary-litellm
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+`
 
 // pinnedOff are the settings that must appear, set to these values, in every
 // configuration this renders.
@@ -50,7 +76,7 @@ type LiteLLMModel struct {
 // default is.
 //
 // So each of these is written explicitly even where it is already the default,
-// and AssertLoggingOff checks the rendered output rather than trusting this
+// and the assertion checks the rendered output rather than trusting this
 // list. That is the same principle as egress verification
 // (dev/specs/03-agent.md §5), and it is here for the same reason: a control
 // whose failure looks exactly like success.
@@ -67,12 +93,12 @@ var pinnedOff = []struct {
 	{"disable_error_logs", "true", "an error log carries the request that caused it"},
 }
 
-// Render writes litellm.yaml.
+// renderLiteLLM writes litellm.yaml.
 //
 // The proxy is given exactly one credential — the master key — and no database.
 // dev/specs/06-gateway.md §1: because identity lives in nodary, LiteLLM runs
 // stateless behind a single key that is never exposed to clients.
-func (c LiteLLMConfig) Render() []byte {
+func renderLiteLLM(c Config) []byte {
 	var b strings.Builder
 	b.WriteString(`# Written by nodary. Edits are overwritten.
 #
@@ -83,9 +109,9 @@ func (c LiteLLMConfig) Render() []byte {
 
 model_list:
 `)
-	models := append([]LiteLLMModel(nil), c.Models...)
-	sort.Slice(models, func(i, j int) bool { return models[i].Name < models[j].Name })
-	for _, m := range models {
+	members := append([]Member(nil), c.Members...)
+	sort.Slice(members, func(i, j int) bool { return members[i].Name < members[j].Name })
+	for _, m := range members {
 		fmt.Fprintf(&b, "  - model_name: %q\n", m.Name)
 		b.WriteString("    litellm_params:\n")
 		fmt.Fprintf(&b, "      model: %q\n", "openai/"+m.Model)
@@ -102,7 +128,7 @@ model_list:
 			fmt.Fprintf(&b, "      id: %q\n", m.ID)
 		}
 	}
-	if len(models) == 0 {
+	if len(members) == 0 {
 		// An empty list rather than an absent key: LiteLLM refuses a
 		// configuration with no model_list, and a control plane with no ready
 		// deployments is an ordinary state, not a broken one.
@@ -174,12 +200,12 @@ func isGeneral(key string) bool {
 // content reach a log or a database.
 var ErrLoggingNotPinned = fmt.Errorf("litellm configuration does not pin request logging off")
 
-// AssertLoggingOff checks the rendered bytes, not the renderer.
+// assertLiteLLMLoggingOff checks the rendered bytes, not the renderer.
 //
 // R3-16 requires this to be asserted continuously rather than configured once.
 // The gateway calls it before it uses a configuration, so a change to Render
 // that dropped a setting fails at startup rather than at an assessment.
-func AssertLoggingOff(rendered []byte) error {
+func assertLiteLLMLoggingOff(rendered []byte) error {
 	body := string(rendered)
 	var missing []string
 	for _, p := range pinnedOff {
