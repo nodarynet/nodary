@@ -35,7 +35,7 @@ after R6 is a complete outcome, and R7–R8 are polish.
 | **[R4](R4-agent.md)** | Agent | Nodes run without an orchestrator | deliverable | 0 of 45 |
 | **[R5](R5-install.md)** | Installation | One-command install — the goal is met | deliverable | 1 of 33 |
 | **[R6](R6-backends.md)** | Backends | Pluggability is real, not theoretical | deliverable | 0 of 17 |
-| **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | deliverable | 8 of 8 |
+| **[R7](R7-ui-readonly.md)** | Read-only UI | Zero mutation, zero risk | task | 0 of 8 |
 | **[R8](R8-ui-mutating.md)** | Mutating UI | Parity with the CLI | deliverable | 6 of 6 |
 | **[R9](R9-evidence-remediation.md)** | Evidence and remediation | Records become a deliverable an assessor consumes | task | 2 of 20 |
 

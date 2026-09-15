@@ -33,6 +33,10 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - `/proc/driver/nvidia/version` is the unambiguous half: WSL2 binds the GPU through dxgkrnl, so that file exists only where somebody installed a kernel driver that cannot work here
   - a host that is not WSL2 is **skipped, not passed**, and an unreadable `ldconfig` is skipped too — R5-01's rule that a check which cannot run is not a check that passed
 - [x] **R5-04** Warnings that do not block: no swap, SELinux or AppArmor enforcing, low RAM per GPU, encrypted root without automatic unlock, no WSL logon task, a models directory under `/mnt/c`, a low `.wslconfig` memory cap
+  - **three of the seven were not built, and this row claimed them anyway.** Found while building [R7-02](R7-ui-readonly.md), which needs the logon task to display it: `nodary doctor` ran `swap`, `lsm`, `ram per gpu`, `free vram` and `reboot policy`, and there was no check named for the WSL logon task, the models directory or the memory cap. A ticked row describing warnings a customer never sees is the same class of thing as a half-built control — it reads as assurance and is not
+  - *done:* all three now exist. The logon task asks Windows through WSL interop, because the task lives in the host's scheduler and there is nothing inside Linux to read; `absent` and `unknown` are kept apart, since "no task" is a claim and "interop is off" is not
+  - the query is a **package variable in tests**: `Run` is called seven times across the preflight package's own tests and a real `schtasks /query /v` takes about two seconds, which turned a 0.2s package into a 30s one — a cost every `make check` would pay for a fact no test there is about
+  - the memory check globs `/mnt/c/Users/*/.wslconfig` rather than reading `%USERPROFILE%`, because a directory listing answers the question a second of Windows interop would
 
 ## Install
 
