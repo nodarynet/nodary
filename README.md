@@ -96,7 +96,7 @@ every mutating call passes through the audit layer.
   certificates, and a `pending` hold until an administrator approves — a leaked
   token alone cannot place a machine into the serving fleet.
 - **Runs model servers as systemd units** against containerd, through declarative
-  backend descriptors — vLLM, SGLang, llama.cpp and TensorRT-LLM today; adding
+  backend descriptors — vLLM, SGLang and llama.cpp today; adding
   another is a TOML file, not a code change. llama.cpp serves GGUF and runs where VRAM is short.
 - **Stages weights with verified transfers** — resumable, including a fully offline
   path for air-gapped sites.

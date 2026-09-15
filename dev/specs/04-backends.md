@@ -1,6 +1,6 @@
 # 04 — Backends
 
-A **backend** is a model server: vLLM, SGLang, llama.cpp, TensorRT-LLM. nodary treats them as
+A **backend** is a model server: vLLM, SGLang, llama.cpp. nodary treats them as
 data, not code. Each is described by a TOML descriptor; adding one is a file, not a patch.
 
 ## 1. Why descriptors rather than plugins
@@ -27,7 +27,7 @@ policy flag `allow_custom_backends` — default **false** under a regulated prof
 | Image | Every backend ships its own |
 | Argument vocabulary | `--tensor-parallel-size` (vLLM) vs `--tp-size` (SGLang) vs `--tensor-split` (llama.cpp) |
 | Weight layout | HF cache dir, single GGUF file, or a compiled engine directory |
-| Preparation | TensorRT-LLM must compile an engine before it can serve |
+| Preparation | a backend may have to compile an engine before it can serve |
 | Health endpoint | Path and readiness semantics differ |
 | API dialect | OpenAI-native, Triton, or something else |
 | Metrics | Endpoint path and metric names |
@@ -54,9 +54,15 @@ control plane does not interpret `extra_args`, and says so.
 
 ## 4. The `prepare` phase
 
-The naive lifecycle is *stage weights → serve*. That is true for vLLM and SGLang and false for
-TensorRT-LLM, which must compile a per-GPU-architecture engine before it can serve — hours of
-work producing a new artifact that itself has to be cached and verified.
+The naive lifecycle is *stage weights → serve*. That is true of every backend nodary ships,
+and false of any backend that must compile a per-GPU-architecture engine before it can serve —
+hours of work producing a new artifact that itself has to be cached and verified.
+
+**No built-in descriptor declares `prepare` today.** It was written for TensorRT-LLM 0.x, which
+served an engine directory; 1.x compiles in-process and needed none, and TensorRT-LLM is no
+longer shipped at all. The phase stays because the shape is real and a site can reach it
+through §9: an operator who registers a descriptor for a backend whose build genuinely
+swallows a parameter gets this lifecycle without nodary pinning the image.
 
 The lifecycle is therefore **stage → prepare → serve**. `prepare` is absent for most backends;
 where present it declares its own image, command, output artifact, and whether that artifact is
@@ -255,22 +261,27 @@ port        = "--port {v}"
 gpu_layers = "-ngl {v}"            # backend-specific, surfaced as a named option
 ```
 
-**TensorRT-LLM** — needs `prepare`:
+**A backend that compiles before it serves** — the shape `prepare` exists for. Illustrative:
+nothing built in declares one, and this is what an operator's own descriptor (§9) would carry:
 
 ```toml
 [backend]
-name = "tensorrt-llm"
-api  = "openai"                    # via trtllm-serve; "triton" if fronted by Triton
+name = "an-engine-backend"
+api  = "openai"
 weights_layout = "engine-dir"
 
 [backend.prepare]
 required          = true
-image             = "nvcr.io/nvidia/tensorrt-llm:<pinned>"
-command           = "trtllm-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"
+image             = "registry.example/builder:<pinned>"   # the builder, not the server
+command           = "build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"
 artifact          = "engine-dir"
-gpu_arch_specific = true           # engine is not portable across GPU models
+gpu_arch_specific = true           # the engine is not portable across GPU models
 timeout_s         = 21600
 ```
+
+`{tp}` here is the point of the phase and its trap: a parameter consumed by the build is a
+parameter the serving argv must not also carry. A descriptor that gets this backwards starts,
+serves, and quietly runs on one GPU.
 
 ## 7. Validation
 

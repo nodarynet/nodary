@@ -221,8 +221,6 @@ IMAGES = [
      "backend descriptor: sglang"),
     ("llama-cpp", "ghcr.io/ggml-org/llama.cpp:server-cuda-b4738", ["node"], "backend",
      "backend descriptor: llama-cpp"),
-    ("tensorrt-llm", "nvcr.io/nvidia/tensorrt-llm/release:1.2.1", ["node"], "backend",
-     "backend descriptor: tensorrt-llm"),
 ]
 
 # Variants of an image for a GPU vendor other than NVIDIA, keyed by the vendor

@@ -1,6 +1,6 @@
 # R6 — Backends
 
-**Deliverable:** backend descriptors beyond vLLM — SGLang, llama.cpp, TensorRT-LLM.
+**Deliverable:** backend descriptors beyond vLLM — SGLang, llama.cpp.
 **Proves:** pluggability is real, not theoretical.
 · [00 §8](../specs/00-overview.md#8-milestones)
 
@@ -18,6 +18,7 @@ closes. · [04 §1](../specs/04-backends.md#1-why-descriptors-rather-than-plugin
   - `[backend.derive]` is **refused**, not ignored: an operator who writes one and sees it accepted believes an image will be built. It becomes a feature in R6-08 without an intervening lie. `[backend.prepare]` was in that position until R6-06
   - taken early because the agent cannot render an argv without it · [R4b §1](../plans/R4b-backends-and-the-plan.md)
 - [x] **R6-02** Embed the built-in descriptors — vLLM, SGLang, llama.cpp, TensorRT-LLM; `/etc/nodary/backends/` holds only operator-added ones · [01 §12](../specs/01-install.md#12-filesystem-layout)
+  - **withdrawn 2026-09-15: TensorRT-LLM is no longer shipped** — descriptor, pin and manifest entry removed ([R6b §5](../plans/R6b-the-silicon-matrix.md)). It is lowest priority against the silicon matrix and can come back on customer demand; nothing was orphaned, because it declared no `prepare` (below) and no Go code named it outside comments. The three that remain are vLLM, SGLang and llama.cpp
   - *done:* all four are embedded. **TensorRT-LLM needed no `[backend.prepare]` after all, and the reason it was thought to is worth keeping.** 0.x served an engine directory — `convert_checkpoint.py`, `trtllm-build`, then serve the output — which is exactly what §4's stage → prepare → serve exists for. 1.x's serving path compiles in-process from a HuggingFace checkpoint: the quick-start is `trtllm-serve "TinyLlama/TinyLlama-1.1B-Chat-v1.0"` and nothing is built first. Read from the 1.2.0 sources the pinned digest is a build of, not from memory
   - **the consequence is not the missing table, it is `tensor_parallel`.** It is a *runtime* flag here (`--tp_size`, parsed by trtllm-serve), so a descriptor written to the old shape would have consumed it into a build and dropped it from the argv of the server that wants it — a deployment that starts, serves, and quietly runs on one GPU. Pinned by a test, because nothing else would notice
   - `--host` defaults to `localhost` in `tensorrt_llm/commands/serve.py`, so the descriptor sets it for llama.cpp's reason: otherwise the server binds a loopback that is not the one the published port maps to, and every request is refused by a deployment reporting healthy

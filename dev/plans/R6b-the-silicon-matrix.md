@@ -107,10 +107,18 @@ remains is the offer:
 
 ## 5. Open questions
 
-- **TensorRT-LLM.** In or out? It is built, pinned, the only user of `prepare`, and carries a
-  live hardware claim in [status.md](../status.md). NVIDIA-only either way, so it does not
-  complicate the matrix — but if the matrix is the supported set, an absent backend is a
-  deprecation and `prepare` loses its only exercise.
+- ~~**TensorRT-LLM.** In or out?~~ **Decided: out.** Lowest priority against the matrix, and
+  revisitable on customer demand. The descriptor, the pin and the manifest entry are gone; the
+  three that ship are vLLM, SGLang and llama.cpp.
+  - **It was not "the only user of `prepare`" — it was not a user at all.** Its descriptor
+    declared no `[backend.prepare]` and said so as a deliberate correction: the phase was
+    written for 0.x, which served an engine directory, and 1.x compiles in-process through
+    `trtllm-serve`. So nothing was orphaned. `prepare` stays, is still exercised by
+    `internal/agent/prepare_test.go`'s own synthetic descriptor, and
+    [04 §4](../specs/04-backends.md#4-the-prepare-phase) now describes it generically instead
+    of naming a backend the tree no longer carries.
+  - No Go code named it outside comments, which is what made the removal a deletion rather
+    than a refactor.
 - **Nothing here has run on an AMD or Intel card.** As with R6a, the design is measured against
   registries and sysfs documentation, and the development fleet is a single NVIDIA host under
   WSL2 where `/sys/class/drm` holds no cards at all.
