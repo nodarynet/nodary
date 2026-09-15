@@ -9,10 +9,11 @@
 # The image is `server-cuda` from ghcr.io/ggml-org/llama.cpp, the project's own
 # publication, pinned by digest in components.json like every other. The same
 # repository publishes `server-vulkan`, `server-intel` and a CPU-only `server`,
-# which is the route to hosts that are not NVIDIA -- but every one of them needs
-# a GPU seam nodary does not have yet (preflight, enumeration, CDI naming and
-# the --gpus flag all resolve through nvidia-smi and nvidia-ctk), so this
-# descriptor pins the one that works on the hardware the agent can already see.
+# which is the route to hosts that are not NVIDIA. The seam those need is now
+# built -- preflight, enumeration and the device flag all ask the vendor that
+# answered (R4-41, R4-42, R6-14), and an artifact may pin a per-vendor image
+# (R6-13) -- and what remains is the pin itself and a run on real AMD hardware,
+# so this descriptor still names the one the fleet has been proved against.
 [backend]
 name           = "llama-cpp"
 api            = "openai"

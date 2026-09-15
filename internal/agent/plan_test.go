@@ -81,7 +81,7 @@ func TestOneDocumentRendersOneUnit(t *testing.T) {
 		"NODARY_ARGS": "/root/.cache/huggingface/hub/models--acme--tiny " +
 			"--max-model-len=131072 --tensor-parallel-size=2 --enable-prefix-caching",
 		"NODARY_CONTAINER_PORT": "8000",
-		"NODARY_GPUS":           "device=0,1",
+		"NODARY_GPUS":           "--gpus device=0,1",
 		// Empty and still present. The template reads `$NODARY_ENV`, and a
 		// variable the env file omits is one systemd expands to nothing —
 		// which works, and leaves the file a different shape per deployment.
@@ -400,38 +400,76 @@ func TestAnEmptyDocumentPlansNothing(t *testing.T) {
 // died in a restart loop with "unresolvable CDI devices nvidia.com/gpu=0" on a
 // host where `nerdctl run --gpus all` works.
 func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
-	one := map[int]bool{0: true}
-	two := map[int]bool{0: true, 1: true}
+	one := map[int]GPU{0: {Index: 0, Vendor: VendorNVIDIA}}
+	two := map[int]GPU{0: {Index: 0, Vendor: VendorNVIDIA}, 1: {Index: 1, Vendor: VendorNVIDIA}}
+	// An offer written before the vendor existed, which every node enrolled
+	// before this release still holds: absent reads as nvidia or the fleet that
+	// shipped is stranded (docs/specs/02-enrollment.md §3).
+	legacy := map[int]GPU{0: {Index: 0}}
 
 	for _, tc := range []struct {
 		name     string
 		assigned []int
-		offered  map[int]bool
+		present  map[int]GPU
 		cdi      []string
 		want     string
 		wantErr  string
 	}{
 		{"indexed devices are used when they exist", []int{0}, two,
-			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1", "nvidia.com/gpu=all"}, "device=0", ""},
+			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1", "nvidia.com/gpu=all"}, "--gpus device=0", ""},
 		{"several indices", []int{0, 1}, two,
-			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1"}, "device=0,1", ""},
+			[]string{"nvidia.com/gpu=0", "nvidia.com/gpu=1"}, "--gpus device=0,1", ""},
 		// The WSL2 case: `all` is the only device, and the node offers exactly
 		// the one card being assigned, so `all` is not a widening.
 		{"all is equivalent on a single-GPU host", []int{0}, one,
-			[]string{"nvidia.com/gpu=all"}, "all", ""},
+			[]string{"nvidia.com/gpu=all"}, "--gpus all", ""},
 		// The case that must not silently widen: `all` would hand this
 		// deployment a card it was not assigned.
 		{"a subset of a multi-GPU host is refused", []int{0}, two,
 			[]string{"nvidia.com/gpu=all"}, "", "subset"},
-		{"a device nothing declares is named", []int{3}, map[int]bool{3: true},
+		{"a device nothing declares is named", []int{3}, map[int]GPU{3: {Index: 3, Vendor: VendorNVIDIA}},
 			[]string{"nvidia.com/gpu=0"}, "", "none of them names"},
 		// nvidia-ctk could not be asked. The indexed form stands: preflight
 		// already refuses a node with no toolkit, and guessing `all` here would
 		// be exactly the widening this refuses above.
-		{"an unknown specification changes nothing", []int{0}, one, nil, "device=0", ""},
+		{"an unknown specification changes nothing", []int{0}, one, nil, "--gpus device=0", ""},
+		{"a node that enrolled before vendors did is nvidia", []int{0}, legacy, nil, "--gpus device=0", ""},
+
+		// The AMD half. No toolkit, no CDI, and nothing to enumerate against —
+		// the device node is the whole mechanism, which is less machinery than
+		// the NVIDIA path rather than more (R6a §5).
+		{"a device node is handed over directly", []int{0},
+			map[int]GPU{0: {Index: 0, Vendor: VendorAMD, Render: "/dev/dri/renderD128"}},
+			nil, "--device /dev/dri/renderD128", ""},
+		// The CDI specification is a fact about the NVIDIA toolkit and says
+		// nothing about a Radeon. A host with both must not have one vendor's
+		// answer decided by the other's tooling.
+		{"a CDI specification does not reach an AMD card", []int{1},
+			map[int]GPU{1: {Index: 1, Vendor: VendorAMD, Render: "/dev/dri/renderD129"}},
+			[]string{"nvidia.com/gpu=all"}, "--device /dev/dri/renderD129", ""},
+		{"two AMD cards are two device flags", []int{0, 1},
+			map[int]GPU{
+				0: {Index: 0, Vendor: VendorAMD, Render: "/dev/dri/renderD128"},
+				1: {Index: 1, Vendor: VendorAMD, Render: "/dev/dri/renderD129"},
+			}, nil, "--device /dev/dri/renderD128 --device /dev/dri/renderD129", ""},
+		{"intel arrives free", []int{0},
+			map[int]GPU{0: {Index: 0, Vendor: VendorIntel, Render: "/dev/dri/renderD128"}},
+			nil, "--device /dev/dri/renderD128", ""},
+		// A DRM device with no render node is a display output, not something
+		// to run a model on. Handing the container nothing would start it with
+		// no device at all, which is R5's toolkit failure by another road.
+		{"a card with no render node is refused", []int{0},
+			map[int]GPU{0: {Index: 0, Vendor: VendorAMD}}, nil, "", "no render node"},
+		// One container, one device argument. `model register` refuses to
+		// write this, and a hand-edited document does not pass through it.
+		{"a mixed assignment is refused", []int{0, 1},
+			map[int]GPU{
+				0: {Index: 0, Vendor: VendorNVIDIA},
+				1: {Index: 1, Vendor: VendorAMD, Render: "/dev/dri/renderD128"},
+			}, nil, "", "amd and nvidia"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := gpuFlag(tc.assigned, tc.offered, tc.cdi)
+			got, err := gpuFlag(tc.assigned, tc.present, tc.cdi)
 			switch {
 			case tc.wantErr != "":
 				if err == nil {
@@ -443,7 +481,7 @@ func TestTheGPUFlagFollowsWhatTheHostDeclares(t *testing.T) {
 			case err != nil:
 				t.Fatalf("unexpected refusal: %v", err)
 			case got != tc.want:
-				t.Errorf("--gpus %q, want %q", got, tc.want)
+				t.Errorf("device argument %q, want %q", got, tc.want)
 			}
 		})
 	}

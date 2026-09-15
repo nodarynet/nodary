@@ -188,3 +188,50 @@ func TestACheckCalledDirectlyDoesNotNeedARunner(t *testing.T) {
 		_ = checkFreeVRAM(ctx, Options{Role: role})
 	}
 }
+
+// TestTheRenderNodeIsReadRatherThanDerived is the difference between a pairing
+// and a guess.
+//
+// `renderD(128+index)` is the arithmetic every version of this starts as, and
+// it is dense only when every DRM device in the machine is a render-capable
+// GPU. A display-only device in the middle, or a card the driver gives no
+// render node at all, shifts every card after it — and the failure is not an
+// error, it is a container handed *another card's* device node, which starts,
+// serves, and answers on hardware the deployment was never assigned.
+func TestTheRenderNodeIsReadRatherThanDerived(t *testing.T) {
+	root := t.TempDir()
+	// card0 is display-only and holds no renderD node, which is what makes the
+	// arithmetic wrong: the first GPU here is card1, and its render node is
+	// renderD129 rather than the renderD128 an index would compute.
+	for _, c := range []struct{ card, vendor, render string }{
+		{"card0", "0x1002", ""},
+		{"card1", "0x1002", "renderD129"},
+		{"card2", "0x8086", "renderD130"},
+	} {
+		dev := filepath.Join(root, c.card, "device")
+		if err := os.MkdirAll(filepath.Join(dev, "drm", c.card), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dev, "vendor"), []byte(c.vendor+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if c.render != "" {
+			if err := os.MkdirAll(filepath.Join(dev, "drm", c.render), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	old := DRMRoot
+	DRMRoot = root
+	t.Cleanup(func() { DRMRoot = old })
+
+	cards := DRMCards()
+	if len(cards) != 3 {
+		t.Fatalf("enumerated %d cards, want 3: %+v", len(cards), cards)
+	}
+	for i, want := range []string{"", "/dev/dri/renderD129", "/dev/dri/renderD130"} {
+		if cards[i].Render != want {
+			t.Errorf("card%d render = %q, want %q", i, cards[i].Render, want)
+		}
+	}
+}

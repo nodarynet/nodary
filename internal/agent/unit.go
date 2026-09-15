@@ -19,14 +19,22 @@ import (
 // NODARY_ARGS produces a model server started with no arguments at all, so the
 // agent rewrites this when it drifts rather than trusting what it finds.
 //
-// **NODARY_ARGS is unbraced and every other variable is braced, and the
-// difference is load-bearing.** systemd splits `$FOO` at whitespace into
-// separate arguments and passes `${FOO}` as one argument, never split. The
-// argument list has to be split; an image reference must not be. Measured on
-// systemd 255: with `${NODARY_ARGS}` the whole argv arrives as a single string
-// and the model server exits on an unrecognized argument, which is a failure
-// that surfaces on a GPU host as a container that will not start. This
-// corrects docs/specs/03-agent.md §6, which had it braced.
+// **NODARY_ARGS and NODARY_GPUS are unbraced and every other variable is
+// braced, and the difference is load-bearing.** systemd splits `$FOO` at
+// whitespace into separate arguments and passes `${FOO}` as one argument, never
+// split. An argument list has to be split; an image reference must not be.
+// Measured on systemd 255: with `${NODARY_ARGS}` the whole argv arrives as a
+// single string and the model server exits on an unrecognized argument, which
+// is a failure that surfaces on a GPU host as a container that will not start.
+// This corrects docs/specs/03-agent.md §6, which had it braced.
+//
+// **NODARY_GPUS carries its own flag and there is no literal `--gpus` here.**
+// A card is reached by `--gpus device=0` on NVIDIA and by
+// `--device /dev/dri/renderD128` on AMD — a different flag, not a different
+// value (docs/plans/R6a-a-second-gpu-vendor.md §2), and a unit file has no
+// conditional to choose between them. So gpuFlag renders both halves and this
+// line holds neither. The variable is unbraced for the same reason
+// NODARY_ARGS is: `--device /dev/dri/renderD128` is two arguments.
 const unitTemplate = `# Written by nodary. Edits are overwritten; see docs/specs/03-agent.md §6.
 [Unit]
 Description=nodary model deployment %%i
@@ -48,7 +56,7 @@ Type=exec
 EnvironmentFile=%[1]s/deployments/%%i.env
 ExecStartPre=-/usr/local/bin/nerdctl rm -f nodary-%%i
 ExecStart=/usr/local/bin/nerdctl run --rm --name nodary-%%i \
-    --gpus ${NODARY_GPUS} \
+    $NODARY_GPUS \
     $NODARY_ENV \
     --network ${NODARY_NETWORK} \
     -v ${NODARY_MODELS_DIR}:${NODARY_MOUNT_PATH}:ro \

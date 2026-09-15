@@ -38,6 +38,17 @@ type DRMCard struct {
 	Name   string
 	// MemoryMiB is 0 when the driver publishes no total. i915 does not.
 	MemoryMiB int
+	// Render is the /dev/dri node a container is handed to reach this card,
+	// empty when the driver exposes none (a display-only device, and nothing
+	// to run a model on).
+	//
+	// **Read rather than derived.** `renderD(128+index)` is the tempting
+	// arithmetic and it is a guess: the numbering is dense only when every DRM
+	// device in the machine is a render-capable GPU, and a card with no render
+	// node at all shifts every card after it. The kernel already publishes the
+	// pairing under the card's own device directory, so the answer costs one
+	// glob and cannot be off by one.
+	Render string
 }
 
 // DRMCards enumerates the cards a vendor tool is not needed to see.
@@ -78,6 +89,13 @@ func DRMCards() []DRMCard {
 		// Bytes here, unlike nvidia-smi's MiB.
 		if b, err := strconv.ParseInt(sysfsField(dev, "mem_info_vram_total"), 10, 64); err == nil {
 			c.MemoryMiB = int(b / (1 << 20))
+		}
+		// /sys/class/drm/card1/device/drm/ holds this card's own nodes —
+		// card1 and renderD129 — which is the kernel stating the pairing that
+		// arithmetic on the index only assumes.
+		if nodes, err := filepath.Glob(filepath.Join(dev, "drm", "renderD*")); err == nil && len(nodes) > 0 {
+			slices.Sort(nodes)
+			c.Render = filepath.Join("/dev/dri", filepath.Base(nodes[0]))
 		}
 		out = append(out, c)
 	}

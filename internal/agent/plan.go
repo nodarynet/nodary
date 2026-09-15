@@ -264,10 +264,8 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 		}
 		descriptors[b.Name] = d
 	}
-	offered := map[int]bool{}
 	present := map[int]GPU{}
 	for _, g := range opt.Present {
-		offered[g.Index] = true
 		present[g.Index] = g
 	}
 	// GPU index -> the deployment this plan has already given it to.
@@ -397,7 +395,7 @@ func Build(doc api.Desired, opt PlanOptions) (Plan, error) {
 			p.Prepare = append(p.Prepare, got)
 			prep = &got
 		}
-		u, err := unitFor(d, descriptors, offered, byModel, prep, opt)
+		u, err := unitFor(d, descriptors, present, byModel, prep, opt)
 		if err != nil {
 			p.Refused = append(p.Refused, Refusal{Deployment: d.ID, Reason: err.Error()})
 			continue
@@ -457,7 +455,7 @@ func plural(idx []int) string {
 
 // unitFor renders one deployment, or says why it cannot be rendered.
 func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
-	offered map[int]bool, staged map[string]Stage, prep *Prepared, opt PlanOptions) (Unit, error) {
+	present map[int]GPU, staged map[string]Stage, prep *Prepared, opt PlanOptions) (Unit, error) {
 	desc, ok := descriptors[d.Backend]
 	if !ok {
 		return Unit{}, fmt.Errorf("backend %q is not one this build has (%s)",
@@ -476,12 +474,12 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 	// a hard refusal, and it deliberately does not test for /dev/nvidia<index>:
 	// a WSL2 host has no such device and nvidia-smi still reports the card.
 	for _, idx := range d.GPUs {
-		if !offered[idx] {
+		if _, ok := present[idx]; !ok {
 			return Unit{}, fmt.Errorf("GPU %d is not on this node's offer", idx)
 		}
 	}
 
-	gpus, err := gpuFlag(d.GPUs, offered, opt.CDIDevices)
+	gpus, err := gpuFlag(d.GPUs, present, opt.CDIDevices)
 	if err != nil {
 		return Unit{}, err
 	}
@@ -593,8 +591,10 @@ func unitFor(d api.DesiredDeployment, descriptors map[string]backend.Descriptor,
 		Env: []EnvVar{
 			{"NODARY_ARGS", strings.Join(args, " ")},
 			{"NODARY_CONTAINER_PORT", strconv.Itoa(desc.Backend.ContainerPort)},
-			// The whole `--gpus` value, not just the indices: what the runtime
-			// accepts depends on what the host's CDI specification declares.
+			// The whole device argument, flag included: the flag itself is
+			// `--gpus` on NVIDIA and `--device` on everything else, and its
+			// value depends on what the host's CDI specification declares.
+			// Unbraced in the template so systemd splits it — see gpuFlag.
 			{"NODARY_GPUS", gpus},
 			// `-e KEY=VALUE` pairs, or empty. Unbraced in the template so
 			// systemd splits it, the same mechanism NODARY_ARGS uses.
@@ -656,7 +656,19 @@ func sortedStageKeys(m map[string]Stage) []string {
 	return out
 }
 
-// gpuFlag is the value the unit passes to `--gpus`.
+// gpuFlag is the whole device argument the unit passes to `nerdctl run`, flag
+// and value.
+//
+// **The flag is not a constant, which is why the value is not one either.**
+// `--gpus device=0` reaches a card through the CDI specification nvidia-ctk
+// writes; the same llama.cpp descriptor on an AMD card reaches it with
+// `--device /dev/dri/renderD128` and no toolkit at all. Same backend, same
+// deployment, different argument — decided by the vendor of the silicon, which
+// the node offered and an administrator approved
+// (docs/plans/R6a-a-second-gpu-vendor.md §2). So the unit template holds
+// `$NODARY_GPUS` unbraced and no literal flag, and this function renders both.
+//
+// The NVIDIA half below is unchanged and is the older and harder of the two:
 //
 // **The runtime resolves `device=0` to the CDI device `nvidia.com/gpu=0`, and
 // on WSL2 no such device exists.** There is no /dev/nvidia0 there — the only
@@ -680,8 +692,49 @@ func sortedStageKeys(m map[string]Stage) []string {
 // then used unchanged: preflight already refuses a node with no toolkit, and
 // guessing `all` on a host whose specification nobody read would be the
 // widening this function exists to prevent.
-func gpuFlag(assigned []int, offered map[int]bool, cdi []string) (string, error) {
-	indexed := "device=" + joinIndices(assigned)
+func gpuFlag(assigned []int, present map[int]GPU, cdi []string) (string, error) {
+	// Every assigned card, one vendor. A mixed assignment has no right answer
+	// — one container gets one device argument — and `model register` already
+	// refuses to write one, but a hand-edited document reaches here without
+	// passing through that verb (docs/plans/R6a-a-second-gpu-vendor.md §9).
+	vendors := map[string]bool{}
+	for _, idx := range assigned {
+		vendors[present[idx].VendorName()] = true
+	}
+	if len(vendors) > 1 {
+		names := make([]string, 0, len(vendors))
+		for v := range vendors {
+			names = append(names, v)
+		}
+		sort.Strings(names)
+		return "", fmt.Errorf("GPUs %v are %s cards and one container is handed one device "+
+			"argument; split this into a deployment per vendor", assigned, strings.Join(names, " and "))
+	}
+	if !vendors[VendorNVIDIA] {
+		// **No toolkit, no CDI, and nothing to enumerate against.** The device
+		// node is the whole mechanism here, which is less machinery than the
+		// NVIDIA path rather than more (R6a §5). What it does need and CDI does
+		// not is for the container's user to be able to *open* the node, which
+		// depends on the group that owns it and varies by distribution — the
+		// AMD equivalent of the CDI trap R4-23a found, and it will not show up
+		// until this runs on real hardware.
+		//
+		// ponytail: no --group-add. Add it when a real AMD node shows the
+		// container cannot open a node it was handed.
+		var args []string
+		for _, idx := range assigned {
+			g := present[idx]
+			if g.Render == "" {
+				return "", fmt.Errorf("GPU %d is a %s card and the kernel publishes no render "+
+					"node for it under /sys/class/drm; there is nothing to hand a container",
+					idx, g.VendorName())
+			}
+			args = append(args, "--device", g.Render)
+		}
+		return strings.Join(args, " "), nil
+	}
+
+	indexed := "--gpus device=" + joinIndices(assigned)
 	if len(cdi) == 0 {
 		return indexed, nil
 	}
@@ -707,12 +760,12 @@ func gpuFlag(assigned []int, offered map[int]bool, cdi []string) (string, error)
 		return "", fmt.Errorf("this host's CDI specification declares %v, and none of them "+
 			"names the assigned GPU(s) %v; `nvidia-ctk cdi generate` writes it", cdi, assigned)
 	}
-	if len(assigned) != len(offered) {
+	if len(assigned) != len(present) {
 		return "", fmt.Errorf("this host's CDI specification declares only `all`, so a subset "+
 			"cannot be assigned: %d of %d GPU(s) were requested. On WSL2 there is no per-GPU "+
-			"device node for nvidia-ctk to name", len(assigned), len(offered))
+			"device node for nvidia-ctk to name", len(assigned), len(present))
 	}
-	return "all", nil
+	return "--gpus all", nil
 }
 
 // envFlags renders a deployment's environment as `-e KEY=VALUE` pairs.

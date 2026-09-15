@@ -27,6 +27,19 @@ type GPU struct {
 	// device node on everything else (docs/plans/R6a-a-second-gpu-vendor.md §2).
 	// Absent means nvidia — see VendorName.
 	Vendor string `json:"vendor,omitempty"`
+	// Render is the /dev/dri node this card is reached through, on the vendors
+	// that are reached that way.
+	//
+	// **Never serialized, so never in an offer.** The vendor belongs in the
+	// offer because an administrator approves the silicon a deployment may be
+	// placed on ([R6a §4](../../docs/plans/R6a-a-second-gpu-vendor.md)); a
+	// device path is not a thing to approve, it is a fact about this boot of
+	// this machine. Putting it in the offer would freeze it there —
+	// docs/specs/02-enrollment.md §3 gates restating an offer behind
+	// certificate expiry — so a card that moved would be reached at the path it
+	// had a year ago. The node reads its own sysfs each reconcile instead,
+	// which is exactly what CDIDevices already does for NVIDIA.
+	Render string `json:"-"`
 }
 
 // VendorName is the vendor an offer names, with the default that keeps an
@@ -105,6 +118,7 @@ func probeDRM(from int) []GPU {
 	for i, c := range preflight.DRMCards() {
 		gpus = append(gpus, GPU{
 			Index: from + i, Vendor: c.Vendor, Name: c.Name, MemoryMiB: c.MemoryMiB,
+			Render: c.Render,
 		})
 	}
 	return gpus

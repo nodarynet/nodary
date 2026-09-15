@@ -483,10 +483,12 @@ func planPrepare(d api.DesiredDeployment, desc backend.Descriptor, st Stage,
 		return out
 	}
 
-	flag, err := gpuFlag(d.GPUs, map[int]bool{}, opt.CDIDevices)
+	// The builder reaches a card the same way the server will, because it is
+	// the same card: TensorRT-LLM compiles against the architecture it is
+	// handed (docs/specs/04-backends.md §4), so a build that got a different
+	// device than the deployment would produce an engine for the wrong one.
+	flag, err := gpuFlag(d.GPUs, present, opt.CDIDevices)
 	if err != nil {
-		// gpuFlag's offer check is unitFor's job and has already run by the
-		// time this matters; an empty offer map here only skips it.
 		out.State, out.Reason = StateFailed, err.Error()
 		return out
 	}

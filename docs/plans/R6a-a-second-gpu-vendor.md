@@ -1,7 +1,7 @@
 # R6a — A second GPU vendor: llama.cpp on Vulkan
 
 **Slice of:** [R6](../tasks/R6-backends.md), [R4](../tasks/R4-agent.md) ·
-**Tasks:** R4-41, R4-42, R6-13, R6-14 · **Status:** planned, nothing built
+**Tasks:** R4-41, R4-42, R6-13, R6-14 · **Status:** all four built; the pin and real AMD hardware remain
 
 llama.cpp is embedded and serves GGUF on CUDA ([R6-02](../tasks/R6-backends.md), `61946b4`).
 The project publishes the same server built against Vulkan, which is the practical route to
@@ -163,11 +163,11 @@ one before it, which is why this is one slice and not four.
 
 - [x] **R4-41** `agent.GPU` carries a vendor; `LocalInventory` detects it, `nvidia-smi` first and
       sysfs second, and an absent value reads as `nvidia` so an enrolled fleet keeps working
-- [ ] **R4-42** Preflight's five GPU checks ask the vendor that answered, and a host with no
+- [x] **R4-42** Preflight's five GPU checks ask the vendor that answered, and a host with no
       NVIDIA toolkit is a failure only where CDI is the mechanism
-- [ ] **R6-13** `components.json` artifacts carry an optional `vendors` map; `imageFor` takes a
+- [x] **R6-13** `components.json` artifacts carry an optional `vendors` map; `imageFor` takes a
       vendor; `model register` resolves against the node's rather than the control plane's
-- [ ] **R6-14** `gpuFlag` renders per vendor; `[backend.gpu] mechanism` is **deleted** from the
+- [x] **R6-14** `gpuFlag` renders per vendor; `[backend.gpu] mechanism` is **deleted** from the
       descriptor schema, being a field nothing has ever read
 - [ ] Pin `server-vulkan` beside `server-cuda` for `llama-cpp`, and only then
 - [ ] Verify on real AMD hardware: enroll, approve, register a GGUF, serve a token, and run
