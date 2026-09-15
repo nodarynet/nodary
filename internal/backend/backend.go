@@ -135,10 +135,12 @@ type Metrics struct {
 // Prepare is dev/specs/04-backends.md §4: the lifecycle is stage → prepare →
 // serve, not stage → serve.
 //
-// Absent for most backends. TensorRT-LLM is why it exists: it compiles a
-// per-GPU-architecture engine from the staged weights before it can answer
-// anything, which is hours of work producing a second artifact that itself has
-// to be cached and verified. §4 calls omitting this phase "the standard
+// Absent from every descriptor nodary ships. It was written for TensorRT-LLM
+// 0.x, which compiled a per-GPU-architecture engine from the staged weights
+// before it could answer anything — hours of work producing a second artifact
+// that itself had to be cached and verified. 1.x compiles in-process and
+// needed none, and that backend is no longer shipped at all; the phase stays
+// because an operator's own descriptor (§9) can declare one. §4 calls omitting this phase "the standard
 // mistake in 'just swap the image' plugin designs" — the interface looks
 // sufficient until the first backend that needs a build step.
 //

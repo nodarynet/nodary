@@ -186,7 +186,7 @@ name           = "trt"
 api            = "openai"
 weights_layout = "engine-dir"
 container_port = 8000
-image_default  = "nvcr.io/nvidia/trtllm-serve:1"
+image_default  = "registry.example/engine-serve:1"
 
 [backend.args]
 model_path = "--model={v}"
@@ -201,8 +201,8 @@ ready_timeout_s = 1800
 }
 
 const trtPrepare = `required          = true
-image             = "nvcr.io/nvidia/tensorrt-llm:1"
-command           = "trtllm-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"
+image             = "registry.example/engine-build:1"
+command           = "engine-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"
 artifact          = "engine-dir"
 gpu_arch_specific = true
 timeout_s         = 21600
@@ -244,10 +244,10 @@ func TestPrepareIsRefusedWhenItCouldNotWork(t *testing.T) {
 		{"not required", strings.Replace(trtPrepare, "required          = true",
 			"required          = false", 1), "required must be true"},
 		{"no builder image", strings.Replace(trtPrepare,
-			`image             = "nvcr.io/nvidia/tensorrt-llm:1"`, `image = ""`, 1),
+			`image             = "registry.example/engine-build:1"`, `image = ""`, 1),
 			"image is required"},
 		{"no command", strings.Replace(trtPrepare,
-			`command           = "trtllm-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"`,
+			`command           = "engine-build --checkpoint_dir {src} --output_dir {out} --tp_size {tp}"`,
 			`command = ""`, 1), "command is required"},
 		{"reads nothing", strings.Replace(trtPrepare, "--checkpoint_dir {src} ", "", 1),
 			"no {src}"},
@@ -289,7 +289,7 @@ func TestThePrepareCommandRendersAsAnArgv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"trtllm-build", "--checkpoint_dir", "/w/src", "--output_dir", "/w/out",
+	want := []string{"engine-build", "--checkpoint_dir", "/w/src", "--output_dir", "/w/out",
 		"--tp_size", "4"}
 	if len(argv) != len(want) {
 		t.Fatalf("argv = %q, want %q", argv, want)

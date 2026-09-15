@@ -80,7 +80,9 @@ type StatusUnit struct {
 	EgressReason string `json:"egress_reason,omitempty"`
 	// Artifact is the key of the build this deployment serves from — R6-06,
 	// dev/specs/04-backends.md §4. Empty for every backend that serves what
-	// was staged, which is all of them but TensorRT-LLM.
+	// was staged, which is every backend nodary ships: no built-in descriptor
+	// declares a prepare phase. An operator's own descriptor (§9) can, and
+	// this is what it reports.
 	//
 	// **Empty means "no new answer" here too**, for the reason Egress does: a
 	// heartbeat sent while a build is still running carries none, and blanking
