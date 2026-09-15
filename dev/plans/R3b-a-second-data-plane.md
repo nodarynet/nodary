@@ -180,17 +180,35 @@ under the variable the gateway already reads, rendered into `bifrost.json`, both
 `paths.ModeMasterKey`, whose comment gains one word. `restrictConfigSecrets`' allowlist gains
 the file. `enforce_auth_on_inference: true` is in the assertion table.
 
-**Fallback if gate 2 finds virtual keys need the config store.** The config store is enabled on
-a SQLite file under `/var/lib/nodary/bifrost/`, holding provider configuration and keys and no
-content — and that directory joins the set R3-15's canary is searched for in, because a file
-the data plane writes is a file the guarantee has to cover. Recorded in ADR 0009 as a cost if it
-comes to that; not designed for until it does.
+**The config store is on, and that is settled rather than contingent.**
+[Gate 3 §7.10](../spike-bifrost.md) measured it: without the store the binary logs *"auth
+middleware requires config store, skipping auth middleware initialization"*, `GET /api/config`
+answers **200 with no credential**, and `enforce_auth_on_inference` reads back `false` however
+it was rendered. So the fallback below is the design.
+
+A SQLite file under `/var/lib/nodary/bifrost/`, holding provider configuration and keys and no
+content. **The rendered file stays the source of truth** — it seeds the store on every start
+([spike §0](../spike-bifrost.md)), so a restart is still how configuration changes and the
+store is derived, not authoritative. That directory joins the set R3-15's canary is searched
+for in, because a file the data plane writes is a file the guarantee has to cover. ADR 0009
+records it under **Cost**, paid: the alternative is a data plane and an admin API on loopback
+that anything local can call without a credential.
+
+The unit R3-20 writes therefore mounts the rendered configuration read-only and a **separate
+writable directory** for the store — and carries `BIFROST_SKIP_WRITE_CHECK=1`, without which
+a read-only `/app/data` is refused before startup ([spike §7.12](../spike-bifrost.md)).
 
 ### 3.5 Pinned off, asserted on the bytes, and re-checked on the host
 
 **Decided.** ADR 0009 §2's table becomes a Go table beside `pinnedOff`, rendered explicitly and
 asserted by walking the rendered JSON — not string-matched, because JSON has no fixed line shape
-the way the YAML renderer's output does. `verify-privileged.sh` §13 reads the selected plane
+the way the YAML renderer's output does.
+
+Gate 3 added four rows the plan did not know about, and they are not all "it might keep what it
+should not": `compat.convert_text_to_chat` is the only reason `/v1/completions` answers at all,
+`compat.should_drop_params` silently discards a parameter Bifrost does not recognize, and the
+two timeouts default to 300 s and 120 s and are reported as `0` by the running process, so
+neither can be confirmed from the configuration it is serving. `verify-privileged.sh` §13 reads the selected plane
 from `server.toml` and checks that plane's file with that plane's keys.
 
 **The admin credential is rendered and kept nowhere.** A random value into

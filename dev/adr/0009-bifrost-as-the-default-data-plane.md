@@ -1,17 +1,17 @@
 # ADR 0009 — Bifrost as the default data plane, LiteLLM retained
 
-**Status:** Proposed · **Date:** 2026-09-15 ·
+**Status:** Accepted · **Date:** 2026-09-15 ·
 **Amends:** [ADR 0003](0003-litellm-as-data-plane.md) ·
 **Settles the reconsider-if in:** [ADR 0003](0003-litellm-as-data-plane.md)
 
-Accepted when the spike in [R3b §2](../plans/R3b-a-second-data-plane.md#2-the-spike-measured-before-anything-is-designed)
-passes its three gates, and not before. [ADR 0008](0008-container-runtime.md) was written after
-its measurements; this one is written before them, and says so rather than reading as though
+Accepted on the spike in [R3b §2](../plans/R3b-a-second-data-plane.md#2-the-spike-measured-before-anything-is-designed)
+passing its three gates, and not before. [ADR 0008](0008-container-runtime.md) was written after
+its measurements; this one was written before them, and said so rather than reading as though
 the measurements were in.
 
 **All three gates have now run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather
-than the v1 documentation this was written from. **None of them fails**, and this is still
-Proposed for one reason, stated below.
+than the v1 documentation this was written from. **None of them fails**, so this is Accepted —
+with one cost this ADR did not originally price, paid deliberately and recorded below.
 
 **Gate 1 chose shape P** — not the shape §3.3's rule pointed at. Both shapes name who served,
 accurately; only one fails over, because Bifrost retries inside a key and falls back only
@@ -24,12 +24,15 @@ start** without that reach, both pinned in §2's table below and both closed by 
 embeddings all pass through against a real backend — and found that **this release has no
 `vllm` provider type**, only the generic `openai` custom type, which is sufficient.
 
-**What holds it at Proposed is [§7.10](../spike-bifrost.md):** `enforce_auth_on_inference` is
-inert without the config store — the auth middleware is skipped outright and the admin API
-answers unauthenticated. The credential the gateway holds cannot be enforced from the rendered
-file alone, so accepting this ADR now means accepting a SQLite store the data plane writes
-**inside the CUI boundary**, which R3-15's canary must then be searched for across. That is a
-cost this ADR did not price, and it is the one thing left to decide.
+**The cost, from [§7.10](../spike-bifrost.md): the config store is not optional.**
+`enforce_auth_on_inference` is inert without it — the auth middleware is skipped outright and
+the admin API answers unauthenticated — so the credential §3 gives the data plane cannot be
+enforced from the rendered file alone. §2's "config store: off" row becomes "on, on a SQLite
+file under `/var/lib/nodary/bifrost/`, holding provider configuration and keys and no content",
+and that directory joins the set [R3-15](../tasks/R3-gateway.md)'s canary is searched for
+across. **Paid rather than avoided**, because the alternative is a data plane on loopback that
+anything local can call without a credential, and an admin API beside it — which is a worse
+trade than one more directory inside a boundary the canary already sweeps.
 
 ## Context
 
@@ -119,16 +122,19 @@ because the failure looks exactly like success:
 
 | Setting | Pinned | Because |
 | :--- | :--- | :--- |
-| `config_store.enabled` | `false` | no database: identity and configuration live in nodary ([00 §7](../specs/00-overview.md#7-why-litellm-stays)). The file is the whole configuration, and a restart is how it changes |
+| `config_store.enabled` | **`true`**, on a SQLite file under `/var/lib/nodary/bifrost/` | it was `false` here until [§7.10](../spike-bifrost.md) measured what that costs: **the auth middleware is skipped outright without it**, so `enforce_auth_on_inference` below is inert and the admin API answers unauthenticated. The store holds provider configuration and keys and no content, the rendered file stays the source of truth (it seeds the store on every start), and the directory joins the set [R3-15](../tasks/R3-gateway.md)'s canary is searched for across |
 | `logs_store.enabled` | `false` | the logging plugin stores complete prompts and responses by default. This is the setting whose default is the incident |
 | `client.disable_content_logging` | `true` | belt over braces: if a logs store ever appears, it holds metadata only |
-| `client.enforce_auth_on_inference` | `true` | the data plane answers only the gateway (§3) |
+| `client.enforce_auth_on_inference` | `true` | the data plane answers only the gateway (§3). Inert without the config store above, which is why that row moved |
 | `plugins` | none | a plugin is how content leaves the process — `otel`, `maxim`, `datadog` and `semantic_cache` each do |
 | `mcp` | absent | a tool executor in the data path is a new capability, never a default |
 | `governance.auth_config.is_enabled` | `true`, under a credential nobody keeps | Bifrost has no switch that removes its dashboard and admin API, and both are open until an administrator exists. On loopback, locked under a password rendered and recorded nowhere, they are off in effect |
 | `providers.*.network_config.max_retries` | `2` | the default is `0`. **It does not satisfy [R3-14](../tasks/R3-gateway.md) on its own**: measured, a retry re-tries the same key and a dead member returns `502` to the client. "Another member" is a *fallback*, which is provider-level — the reason [the spike](../spike-bifrost.md#6-gate-1--both-shapes-report-who-served-only-one-of-them-fails-over) chose shape P |
-| `providers.*.network_config.allow_private_network` | left `false` | the default refuses RFC 1918, and loopback is exempt regardless. `gatewaysync.go` renders every member as `http://127.0.0.1:<port>/v1`, so nothing needs it — recorded because the error when it does bite names an IP rather than a policy |
-| request and stream-idle timeouts | pinned | a generation takes minutes; a default read off documentation is not a value nodary can stand behind |
+| `providers.*.network_config.allow_private_network` | left `false` | the default refuses RFC 1918, and loopback is exempt regardless. `gatewaysync.go` renders every member on `http://127.0.0.1:<port>`, so nothing needs it — recorded because the error when it does bite names an IP rather than a policy |
+| `providers.*.network_config.default_request_timeout_in_seconds` | pinned | a generation takes minutes, and the default is **300 s** — [measured](../spike-bifrost.md#76-the-numbers-gate-3-asked-for), not read off documentation, because `GET /api/providers` reports `0` for it, meaning *unset*. Five minutes holding a request for a member that will never answer, against a 15.7 s fallback window |
+| `providers.*.network_config.stream_idle_timeout_in_seconds` | pinned | default `120` per the schema, echoed nowhere by the running process |
+| `client.compat.convert_text_to_chat` | `true` | `/v1/completions` ([06 §1](../specs/06-gateway.md#1-request-path)) is served **by this shim**, not natively — [§7.2](../spike-bifrost.md). A default that turns off is a route that stops answering |
+| `client.compat.should_drop_params` | `false` | it defaults `true`: a parameter Bifrost does not recognize is **dropped**, not passed and not refused. In front of backends whose vocabularies [04 §3](../specs/04-backends.md#3-normalize-the-few-pass-through-the-rest) deliberately does not normalize, silent loss between the gateway and the engine |
 | `framework.pricing.pricing_url`, `.model_parameters_url`, `.mcp_library_url` | `file://` paths into the rendered directory | **measured, not read off documentation.** On defaults these are fetched from `getbifrost.ai`, and on a cold start with no egress the process exits 1 rather than degrading. [The spike](../spike-bifrost.md#1-on-defaults-it-will-not-start-without-the-internet) |
 | `framework.pricing.mcp_library_sync_interval`, `.live_models_sync_interval` | `0` | the schema names `0` as the air-gapped setting for the first. The second re-fetches each *provider's* model list, which for nodary is a loopback backend, and is off because nothing here changes between renders |
 
@@ -230,7 +236,10 @@ a hung one costs a timeout, for up to about a minute. Named here and in
 [06 §5](../specs/06-gateway.md#5-failure-behavior) rather than discovered.
 
 **Cost.** Two renderers, two assertion tables, two unit templates, and the seam that keeps every
-list naming the data plane's unit to one place. A second single-vendor upstream on a two-to-three
+list naming the data plane's unit to one place. **A SQLite config store inside the CUI
+boundary**, which this ADR did not originally price: §2's table explains why it is on, and the
+directory it lives in joins R3-15's canary sweep so that "no request content lands here" stays
+a checked claim rather than an assumed one. A second single-vendor upstream on a two-to-three
 day patch cadence to pin, upgrade and advise on. Bifrost's enterprise features — clustering,
 adaptive balancing, the circuit breaker, OIDC and SCIM, RBAC, guardrails, secret-manager
 references — are gated by Maxim's license; nodary neither needs nor depends on any of them. The
