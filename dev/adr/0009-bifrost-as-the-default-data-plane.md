@@ -9,6 +9,12 @@ passes its three gates, and not before. [ADR 0008](0008-container-runtime.md) wa
 its measurements; this one is written before them, and says so rather than reading as though
 the measurements were in.
 
+**Part of gate 2 has run** ([the spike](../spike-bifrost.md)), against v2.1.1 rather than the
+v1 documentation this was written from. It found nothing that stops the decision and two
+things that change §2: the data plane reaches its vendor on a timer, and on defaults it
+**refuses to start** without that reach. Both are pinned in §2's table below. Gates 1 and 3
+are unrun, so this is still Proposed.
+
 ## Context
 
 [ADR 0003](0003-litellm-as-data-plane.md) chose LiteLLM as the data plane and named the terms
@@ -106,6 +112,8 @@ because the failure looks exactly like success:
 | `governance.auth_config.is_enabled` | `true`, under a credential nobody keeps | Bifrost has no switch that removes its dashboard and admin API, and both are open until an administrator exists. On loopback, locked under a password rendered and recorded nowhere, they are off in effect |
 | `providers.*.network_config.max_retries` | `2` | the default is `0`; [R3-14](../tasks/R3-gateway.md)'s "retried on another member, not returned to the client" |
 | request and stream-idle timeouts | pinned | a generation takes minutes; a default read off documentation is not a value nodary can stand behind |
+| `framework.pricing.pricing_url`, `.model_parameters_url`, `.mcp_library_url` | `file://` paths into the rendered directory | **measured, not read off documentation.** On defaults these are fetched from `getbifrost.ai`, and on a cold start with no egress the process exits 1 rather than degrading. [The spike](../spike-bifrost.md#1-on-defaults-it-will-not-start-without-the-internet) |
+| `framework.pricing.mcp_library_sync_interval`, `.live_models_sync_interval` | `0` | the schema names `0` as the air-gapped setting for the first. The second re-fetches each *provider's* model list, which for nodary is a loopback backend, and is off because nothing here changes between renders |
 
 Governance in particular: Bifrost's virtual keys, budgets and rate limits duplicate
 [06 §2–§4](../specs/06-gateway.md) and are held in memory per process, so they would be a

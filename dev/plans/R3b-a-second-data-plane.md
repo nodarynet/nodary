@@ -243,9 +243,10 @@ rather than a property of whichever plane happens to speak more dialects.
 ## 5. Steps
 
 - [ ] The spike (§2): three gates measured against the pinned image, written up beside the FIPS spike, ADR 0009's status line updated with the result
+  - part of gate 2 is measured and written up in [the spike](../spike-bifrost.md): the vendor round trip, and the cold start that fails without it. Gates 1 and 3 remain
 - [ ] R3-17 — the seam, LiteLLM alone behind it, no behavior change, every test green
 - [ ] R3-18 — `bifrost` in the manifest by digest, generated, moved by `upgrade`
-- [ ] R3-19 — the renderer in the shape the spike chose, the pinned table, the assertion
+- [ ] R3-19 — the renderer in the shape the spike chose, the pinned table, the assertion — **two files**: `bifrost.json` and the stub datasheet its `file://` URLs name ([the spike](../spike-bifrost.md#3-file-works-and-the-content-is-almost-free))
 - [ ] R3-20 — the credential, the locked admin surface, the unit, no secret on argv
 - [ ] R3-21 — attribution through the signal the spike found, asserted against the image streamed and not
 - [ ] R3-22 — the real image on the generated file, through the gateway, the canary searched for
@@ -279,6 +280,14 @@ does.
 | `docs/administering.md` | attribution, the master key, backup contents, the CVE path, and a section on choosing and switching the plane | open |
 
 ## 7. Open items
+
+- **The version this plan was written against.** §3.3's JSON and ADR 0009's table come from v1
+  documentation; the release is **v2.1.1**, which moved configuration into a SQLite store.
+  A rendered `config.json` is still read and still seeds that store, so the shape survives —
+  but every field name in this plan is a v1 field name until the spike confirms it, and
+  `framework` is already known to be nested one level deeper than §3.5 assumes. Worse, that
+  object is `additionalProperties: false`: a block written at the wrong depth is accepted,
+  ignored, and leaves no message.
 
 - **The hung-member window.** Bifrost's open-source build has no cooldown, so between a member
   hanging and the next sync, a weight's share of requests wait a timeout before falling back.
