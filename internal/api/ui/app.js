@@ -224,13 +224,6 @@ views.push({
                 el("span", {}, el("a", { href: href }, "open"))))))
         : null,
 
-      // Named "not shown here" rather than left out: an operator who sees a
-      // clean overview should know which questions it did not ask.
-      el("p", { class: "note" },
-        "Deployment-level problems — a failed start, a refusal, an egress assertion that did "
-        + "not come back compliant — are on ", el("a", { href: "#attention" }, "Needs attention"),
-        ", which asks every node directly rather than summarising what the fleet listing carries."),
-
       el("h2", {}, "Busiest models"),
       rows.length
         ? el("div", { class: "bars" }, rows.slice(0, 8).map((r) =>
@@ -378,10 +371,7 @@ function topology(node) {
     })));
   return el("div", {},
     el("h2", {}, "How the cards reach each other"),
-    el("p", { class: "note" }, `From \`${t.source}\`. `
-      + "Two cards on the same NVLink behave nothing like two that reach each other across "
-      + "the host bridge — an index set spanning the second pair runs a tensor-parallel "
-      + "deployment slowly for no visible reason."),
+    el("p", { class: "note" }, "from ", el("code", {}, t.source)),
     el("table", {}, el("thead", {}, head), el("tbody", {}, rows)));
 }
 
@@ -422,15 +412,13 @@ views.push({
 
       node.reboot_policy === "host-managed" && node.logon_task === "absent"
         ? el("p", { class: "problem" },
-            "No scheduled task starts this distribution at logon. A Windows reboot leaves this "
-            + "node stale until somebody opens a shell — which looks identical to any other "
-            + "unreachable node and is fixed in thirty seconds by whoever knows that is what "
-            + "happened.")
+            "No scheduled task starts this distribution at logon: a Windows reboot leaves "
+            + "this node stale until somebody opens a shell.")
         : null,
       node.reboot_policy === "manual-console"
         ? el("p", { class: "problem" },
-            "This host needs somebody at the physical console to come back up: its root "
-            + "filesystem is encrypted with no automatic unlock. The agent will not reboot it.")
+            "Needs somebody at the physical console to come back up. The agent will not "
+            + "reboot it.")
         : null,
 
       nodeActions(node),
@@ -504,9 +492,7 @@ views.push({
       el("h2", {}, "Models"),
       table(["Model", "Backend", "Source", "Size", "Staged", ""], rows,
         "No model is registered. `nodary model register` places one."),
-      (models.models || []).some((m) => m.origin_country)
-        ? el("p", { class: "note" }, "Origin and licence are recorded per model in the configuration.")
-        : null);
+    );
   },
 });
 
@@ -538,9 +524,7 @@ views.push({
         "Nothing has been served yet."),
       // ADR 0006, said on the screen that reports requests: this is a count of
       // what happened, and there is nowhere for what was said.
-      el("p", { class: "note" },
-        "Counts only. nodary records that a request happened and never what it said — "
-        + "the metering schema has no field to write a body into."));
+      el("p", { class: "note" }, "Counts only. No prompt or response text is recorded."));
   },
 });
 
@@ -635,10 +619,6 @@ views.push({
 
       leaking.length ? el("div", {},
         el("h2", {}, "Deployments that are not isolated"),
-        el("p", { class: "note" },
-          "03 §5 puts a deployment on a network with no route off the box, and the assertion "
-          + "runs on the node after every start. `inconclusive` is not `compliant`: it means "
-          + "nobody could show the control was in force."),
         table(["Node", "Deployment", "Egress", "Why"],
           leaking.map((d) => el("tr", {},
             el("td", {}, d.node), el("td", {}, d.id), el("td", {}, egress(d)),
@@ -646,10 +626,6 @@ views.push({
 
       refusals.length ? el("div", {},
         el("h2", {}, "Refused by a node"),
-        el("p", { class: "note" },
-          "`refused` means nothing started. `out_of_policy` means something is still serving "
-          + "and the node will stop it in its maintenance window — they read alike and mean "
-          + "opposite things."),
         table(["Node", "Deployment", "Kind", "Reason", "Since"],
           refusals.map((r) => el("tr", {},
             el("td", {}, r.node), el("td", {}, r.deployment_id),
@@ -687,12 +663,7 @@ views.push({
         `on ${doc.node} · ${doc.state} · captured ${since(doc.captured_at)}`),
       doc.lines
         ? el("pre", {}, doc.lines)
-        : el("p", { class: "empty" },
-            "Nothing is captured: the last hundred lines are taken when a deployment fails, "
-            + "and this one has not."),
-      el("p", { class: "note" },
-        "What was captured when it failed, not a live tail — 00 §2 makes traffic to a node "
-        + "agent-initiated, so the control plane has no channel to ask for one."));
+        : el("p", { class: "empty" }, "Nothing was captured: this deployment has not failed."));
   },
 });
 
@@ -1039,9 +1010,6 @@ views.push({
 
     show(
       el("h2", {}, "Routes"),
-      el("p", { class: "note" },
-        "A route carries only members that are ready (06 §2). A route with none answers 503 "
-        + "rather than an error from a model server nobody can read."),
       table(["Route", "Strategy", "Members", ""], rows,
         "No route is defined. `nodary model register` creates one."));
   },
@@ -1080,8 +1048,7 @@ views.push({
         button("Delete", {
           title: `Delete ${u.name}`, method: "DELETE",
           path: "/users/" + encodeURIComponent(u.name), verb: "Delete",
-          cost: "The account goes. The audit chain keeps every act they took — 07 §3 makes "
-            + "the record append-only, so deleting a person does not delete what they did.",
+          cost: "The account goes. The audit chain keeps every act they took.",
         }, "danger")))));
 
     const tokenRows = (tokens.tokens || []).map((t) => el("tr", {},
@@ -1109,8 +1076,8 @@ views.push({
       path: "/users", verb: "Add",
       body: { name: name.input.value.trim(), email: email.input.value.trim(), role: role.value },
       cost: role.value === "admin"
-        ? "An admin can change configuration, register backends, approve nodes and manage "
-          + "every other account. 07 §1 gives that role everything."
+        ? "An admin can change configuration, register backends, approve nodes and "
+          + "manage every other account."
         : null,
     }));
 
@@ -1123,9 +1090,6 @@ views.push({
         el("div", { class: "row" }, add)),
 
       el("h2", {}, "Credentials"),
-      el("p", { class: "note" },
-        "A token is shown once, when it is created. nodary keeps a hash and a prefix — there "
-        + "is nothing here to read it back from."),
       table(["Prefix", "Name", "Kind", "State", "Unattended", "Expires", ""], tokenRows,
         "No credential has been issued."));
   },
@@ -1170,9 +1134,6 @@ views.push({
 
     show(
       el("h2", {}, "Limits"),
-      el("p", { class: "note" },
-        "06 §4: a request over a limit is refused with 429 and a Retry-After, and is not "
-        + "metered as served. Zero means no limit of that kind."),
       table(["Kind", "Subject", "RPM", "TPM", "Daily tokens", "Concurrent"], rows,
         "No limit is set, so nothing is throttled."),
       el("div", { class: "card-inline" },
@@ -1214,10 +1175,6 @@ views.push({
       el("h2", {}, "Policy"),
       el("p", {}, "Profile in force: ",
         pill(policy.name, policy.name === "default" ? "" : "warn")),
-      el("p", { class: "note" },
-        "07 §4: the profile decides what an act costs — whether a justification is "
-        + "required and how long it must be, whether a code is re-entered, and what may be "
-        + "registered at all."),
       table(["Setting", "Value"], settings, "The profile carries no settings."),
       actions(...["default", "regulated"]
         .filter((p) => p !== policy.name)
@@ -1232,9 +1189,6 @@ views.push({
         }, p === "default" ? "danger" : "primary"))),
 
       el("h2", {}, "Configuration history"),
-      el("p", { class: "note" },
-        "Each revision carries a complete snapshot and its hash. `nodary config verify` walks "
-        + "the chain; this is what it walks."),
       table(["Seq", "Applied", "By", "Why", ""], rows, "No revision has been applied."));
   },
 });
