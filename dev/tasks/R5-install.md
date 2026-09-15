@@ -177,8 +177,9 @@ the mirror, upgrade, uninstall and `doctor`. R0's own outstanding items
   - a cask is also the *right* idiom rather than a concession: on macOS the binary is the operator CLI only, which is a standalone binary rather than something a formula would build. A Linux operator who wants the CLI has `install.sh`, PyPI and npm, each carrying both platforms
   - **validated against a real `goreleaser`, not reasoned about** — which is how `homebrew_casks.binary` turned out to be deprecated *as well*, one release after the property it replaced. `binaries:` is the current spelling and `check` is now clean rather than exit-2
   - the cask carries a post-install hook clearing `com.apple.quarantine`. The release artifacts are not codesigned or notarized, so without it Gatekeeper refuses to execute what the cask just downloaded, and the dialog says the file is damaged — which reads as a corrupt download rather than an unsigned one
-- [ ] **R5-24** Move npm's `latest` tag off the release candidate
-  - *done:* `npm install -g nodary` resolves to a stable version. `--tag next` does not hold on a package's **first** publish — npm must give a new package a `latest` and has nowhere else to point it — so `0.0.1-rc1` currently owns it. Publishing `0.0.1` with `--tag latest` fixes it; `npm deprecate` warns installers in the meantime
+- [x] **R5-24** Move npm's `latest` tag off the release candidate
+  - *done:* `npm install -g nodary` resolves to a stable version. `--tag next` does not hold on a package's **first** publish — npm must give a new package a `latest` and has nowhere else to point it — so `0.0.1-rc1` owned it. Publishing `0.0.1` with `--tag latest` fixed it, so `npm deprecate` was never needed
+  - **the registry lags the publish.** `npm publish` returned `+ nodary@0.0.1` and said the package "may take a few minutes to become available"; `dist-tags` still read `0.0.1-rc1` for about ninety seconds afterwards. A check run immediately after a green workflow reads as a silent failure — poll until it flips rather than concluding from one query
 
 ## FIPS and the manifest
 
