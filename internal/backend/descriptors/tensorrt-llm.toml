@@ -61,9 +61,6 @@ port                = "--port={v}"
 # request. vLLM needs no such line because its default is already 0.0.0.0.
 host = "--host={v}"
 
-[backend.gpu]
-mechanism = "device-flag"
-
 [backend.probe]
 health = "/health"
 ready  = "/health"

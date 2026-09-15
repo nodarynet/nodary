@@ -35,9 +35,6 @@ cpu_offload     = false
 model_path = "--model={v}"
 port       = "--port={v}"
 
-[backend.gpu]
-mechanism = "device-flag"
-
 [backend.probe]
 health          = "/healthz"
 ready           = "/healthz"

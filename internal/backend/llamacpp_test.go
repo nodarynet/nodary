@@ -81,8 +81,6 @@ model_path = "-m {v}"
 max_context = "-c {v}"
 [backend.extra]
 %s
-[backend.gpu]
-mechanism = "device-flag"
 [backend.probe]
 health = "/health"
 ready = "/health"

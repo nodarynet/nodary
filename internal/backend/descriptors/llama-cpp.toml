@@ -57,9 +57,6 @@ gpu_layers = "-ngl {v}"
 # nodary's code holding a fact about llama.cpp.
 tensor_split = "--tensor-split {v}"
 
-[backend.gpu]
-mechanism = "device-flag"
-
 [backend.probe]
 health = "/health"
 # llama.cpp has one endpoint for both: /health answers 503 while the model is

@@ -112,7 +112,6 @@ func (d Descriptor) validateDerive() error {
 		{"capabilities", b.Capabilities.TensorParallel || b.Capabilities.ExpertParallel ||
 			b.Capabilities.LoRA || b.Capabilities.CPUOffload ||
 			len(b.Capabilities.Quantization) > 0},
-		{"gpu", b.GPU != GPU{}},
 		{"probe", b.Probe != Probe{}},
 		{"metrics", b.Metrics != Metrics{}},
 		{"prepare", b.Prepare != nil},

@@ -44,9 +44,6 @@ port                = "--port={v}"
 [backend.env_wsl2]
 VLLM_WSL2_ENABLE_PIN_MEMORY = "1"
 
-[backend.gpu]
-mechanism = "device-flag"
-
 [backend.probe]
 health          = "/health"
 ready           = "/health"

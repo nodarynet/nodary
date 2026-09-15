@@ -29,9 +29,6 @@ image_default  = "acme/trtllm-serve:1"
 model_path = "--model={v}"
 port       = "--port={v}"
 
-[backend.gpu]
-mechanism = "device-flag"
-
 [backend.probe]
 health          = "/health"
 ready           = "/health"

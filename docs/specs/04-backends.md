@@ -191,9 +191,6 @@ gpu_memory_fraction = "--gpu-memory-utilization={v}"
 dtype               = "--dtype={v}"
 port                = "--port={v}"
 
-[backend.gpu]
-mechanism = "device-flag"         # device-flag | cuda-visible-devices
-
 [backend.probe]
 health          = "/health"
 ready           = "/health"
@@ -202,6 +199,14 @@ ready_timeout_s = 1800
 [backend.metrics]
 path = "/metrics"
 ```
+
+**A descriptor does not say how a GPU is reached.** Earlier drafts carried
+`[backend.gpu] mechanism`, and nothing ever read it. The mechanism is not a
+property of the backend: the same llama.cpp descriptor reaches a card by
+`--gpus device=0` through CDI on NVIDIA and by `--device /dev/dri/renderD128`
+on AMD. It follows the vendor of the card, which the node offered and an
+administrator approved, so it is settled on the node at plan time and the table
+is refused if a descriptor still declares it.
 
 ### Reference descriptors
 

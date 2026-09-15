@@ -169,8 +169,6 @@ mount_path = "/m"
 container_port = 8000
 [backend.args]
 model_path = "--model={v}"
-[backend.gpu]
-mechanism = "device-flag"
 [backend.probe]
 health = "/health"
 ready = "/health"
@@ -223,9 +221,6 @@ image_default  = "nvcr.io/nvidia/trtllm-serve:1"
 
 [backend.args]
 model_path = "--model={v}"
-
-[backend.gpu]
-mechanism = "device-flag"
 
 [backend.probe]
 health          = "/health"
@@ -348,5 +343,51 @@ func TestThePrepareCommandRendersAsAnArgv(t *testing.T) {
 	// argv is split again downstream and no quoting we invent survives it.
 	if _, err := d.Backend.Prepare.Argv("/w/my weights", "/w/out", 1); err == nil {
 		t.Error("a path holding whitespace was accepted into an argv that gets split")
+	}
+}
+
+// TestTheRemovedGPUTableSaysItWasRemoved is about the sentence, not the refusal.
+//
+// `[backend.gpu] mechanism` was in this schema and in docs/specs/04-backends.md
+// §6 with two documented values, and R6-07 made writing a descriptor a road
+// operators are meant to take — so somebody has copied it out of the spec. The
+// generic "unknown keys backend.gpu.mechanism" is true and useless: it reads as
+// a typo in a word they can see is spelled correctly, which sends them hunting
+// for a mistake they did not make instead of at the one sentence that explains
+// what happened. The field was never read by anything, and wiring it up would
+// have put the answer permanently in the wrong place: the flag that reaches a
+// card follows the vendor of the card, not the backend.
+func TestTheRemovedGPUTableSaysItWasRemoved(t *testing.T) {
+	base := `
+[backend]
+name = "x"
+api = "openai"
+weights_layout = "hf-cache"
+mount_path = "/m"
+container_port = 8000
+[backend.args]
+model_path = "--model={v}"
+[backend.probe]
+health = "/health"
+ready = "/health"
+ready_timeout_s = 60
+`
+	for _, body := range []string{
+		base + "\n[backend.gpu]\nmechanism = \"device-flag\"\n",
+		// An empty table is what is left after somebody deletes only the line.
+		base + "\n[backend.gpu]\n",
+	} {
+		_, err := Parse([]byte(body))
+		if err == nil {
+			t.Fatal("a descriptor still declaring [backend.gpu] parsed; a field nothing reads " +
+				"is the cheapest thing in the tree to delete, and leaving it accepted leaves " +
+				"two places to look")
+		}
+		if !strings.Contains(err.Error(), "was removed") || !strings.Contains(err.Error(), "vendor") {
+			t.Errorf("the refusal does not say the table was removed or why: %v", err)
+		}
+		if strings.Contains(err.Error(), "unknown keys") {
+			t.Errorf("a documented field was removed and the message calls it unknown: %v", err)
+		}
 	}
 }

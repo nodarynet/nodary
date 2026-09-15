@@ -102,7 +102,6 @@ type Backend struct {
 	// inventing the general form for a single case would be a mechanism nobody
 	// has exercised.
 	EnvWSL2 map[string]string `json:"env_wsl2" toml:"env_wsl2"`
-	GPU     GPU               `json:"gpu" toml:"gpu"`
 	Probe   Probe             `json:"probe" toml:"probe"`
 	Metrics Metrics           `json:"metrics" toml:"metrics"`
 	// Prepare is nil for a backend that serves what was staged. R6-06.
@@ -121,10 +120,6 @@ type Capabilities struct {
 	Quantization   []string `json:"quantization" toml:"quantization"`
 	LoRA           bool     `json:"lora" toml:"lora"`
 	CPUOffload     bool     `json:"cpu_offload" toml:"cpu_offload"`
-}
-
-type GPU struct {
-	Mechanism string `json:"mechanism" toml:"mechanism"`
 }
 
 type Probe struct {
@@ -246,9 +241,8 @@ func (p Prepare) Argv(src, out string, tensorParallel int) ([]string, error) {
 // Closed vocabularies. Each is a value the agent or the gateway switches on, so
 // an unrecognized one is a descriptor that would be silently mishandled.
 var (
-	apis     = []string{"openai", "triton", "custom"}
-	layouts  = []string{"hf-cache", "single-file", "engine-dir"}
-	gpuModes = []string{"device-flag", "cuda-visible-devices"}
+	apis    = []string{"openai", "triton", "custom"}
+	layouts = []string{"hf-cache", "single-file", "engine-dir"}
 )
 
 // Parse reads one descriptor.
@@ -268,6 +262,20 @@ func Parse(body []byte) (Descriptor, error) {
 			keys[i] = k.String()
 		}
 		sort.Strings(keys)
+		// **Removed, not unknown.** `[backend.gpu] mechanism` was in this
+		// schema and in docs/specs/04-backends.md §6 with two legal values,
+		// and R6-07 made writing a descriptor a road operators are meant to
+		// take — so somebody has copied it. "unknown keys" reads as a typo in
+		// a word they can see is spelled right, which sends them looking for
+		// the mistake instead of at the sentence that would explain it.
+		for _, k := range keys {
+			if k == "backend.gpu.mechanism" || k == "backend.gpu" {
+				return Descriptor{}, fmt.Errorf("%w: [backend.gpu] was removed: the flag that "+
+					"reaches a card follows the node's GPU vendor, not the backend — the same "+
+					"descriptor is `--gpus device=0` on NVIDIA and `--device /dev/dri/renderD128` "+
+					"on AMD. Delete the table", ErrInvalid)
+			}
+		}
 		return Descriptor{}, fmt.Errorf("%w: unknown keys %s", ErrInvalid, strings.Join(keys, ", "))
 	}
 	return d, d.Validate()
@@ -296,9 +304,6 @@ func (d Descriptor) Validate() error {
 			ErrInvalid, b.Name)
 	case b.ContainerPort <= 0 || b.ContainerPort > 65535:
 		return fmt.Errorf("%w: %s: container_port %d is not a port", ErrInvalid, b.Name, b.ContainerPort)
-	case !contains(gpuModes, b.GPU.Mechanism):
-		return fmt.Errorf("%w: %s: gpu.mechanism must be one of %s",
-			ErrInvalid, b.Name, strings.Join(gpuModes, ", "))
 	case b.Probe.Health == "" || b.Probe.Ready == "":
 		// Without both, a deployment can never be marked healthy or ready, so
 		// it would sit `starting` forever and nothing would say why.
