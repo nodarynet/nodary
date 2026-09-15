@@ -210,9 +210,18 @@ func TestEveryEndpointTheConsoleCallsIsServed(t *testing.T) {
 	}
 
 	script := mustAsset(t, f, "app.js")
+	fetched := map[string]bool{}
 	for _, m := range regexp.MustCompile(`api\("([^"]*)"`).FindAllStringSubmatch(script, -1) {
+		fetched[m[1]] = true
 		if _, ok := called[m[1]]; !ok {
 			t.Errorf("app.js fetches %q and this test does not cover it", m[1])
+		}
+	}
+	// And the other direction: an entry here that nothing fetches is an
+	// endpoint the console has stopped using.
+	for literal := range called {
+		if !fetched[literal] {
+			t.Errorf("nothing in app.js fetches %q any more", literal)
 		}
 	}
 
@@ -229,6 +238,37 @@ func TestEveryEndpointTheConsoleCallsIsServed(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("the console calls %s (from %q) and it answers %d", path, literal, resp.StatusCode)
+		}
+	}
+}
+
+// The screens R7 owes, by name.
+//
+// **This exists because one went missing and nothing noticed.** A `git checkout
+// --` during an injection reverted app.js and took the node view with it, and
+// the commit after that shipped the GPU topology with nothing displaying it.
+// The endpoint test above did not catch it: another screen fetches /nodes/ too,
+// so every covered endpoint was still being called. What was actually lost was
+// a *view*, so a view is what has to be checked.
+func TestTheConsoleDeclaresEveryScreenR7Owes(t *testing.T) {
+	f := newFixture(t)
+	script := mustAsset(t, f, "app.js")
+
+	declared := map[string]bool{}
+	for _, m := range regexp.MustCompile(`route:\s*"([^"]+)"`).FindAllStringSubmatch(script, -1) {
+		declared[m[1]] = true
+	}
+	for _, want := range []struct{ route, owes string }{
+		{"fleet", "R7-02: nodes, their state, offer, reboot policy and last seen"},
+		{"node", "R7-03: a node's deployments, their health, and the GPU topology"},
+		{"catalog", "R7-04: the catalog and staging progress"},
+		{"usage", "R7-05: usage over the metering record"},
+		{"audit", "R7-06: the audit browser and the chain's verification status"},
+		{"attention", "R7-08: refusals, out_of_policy and deployments that are not isolated"},
+		{"logs", "R2-29: a failed deployment's captured log"},
+	} {
+		if !declared[want.route] {
+			t.Errorf("the console declares no %q view — %s", want.route, want.owes)
 		}
 	}
 }

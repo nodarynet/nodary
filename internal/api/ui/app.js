@@ -81,18 +81,24 @@ async function header() {
 
 function tabs(active) {
   const nav = document.getElementById("tabs");
-  nav.replaceChildren(...views.map((v) =>
+  nav.replaceChildren(...views.filter((v) => !v.hidden).map((v) =>
     el("a", { href: "#" + v.route, class: v.route === active ? "on" : "" }, v.title)));
 }
 
 /** route renders whichever view the fragment names, defaulting to the first. */
 async function route() {
-  const name = (window.location.hash || "").replace(/^#/, "") || views[0].route;
+  // "#node/gpu-01" is the view and its argument. The fragment rather than a
+  // path, so the console routes itself and the server serves one shell — there
+  // is no second place that has to agree about which screens exist.
+  const fragment = (window.location.hash || "").replace(/^#/, "") || views[0].route;
+  const cut = fragment.indexOf("/");
+  const name = cut < 0 ? fragment : fragment.slice(0, cut);
+  const arg = cut < 0 ? "" : decodeURIComponent(fragment.slice(cut + 1));
   const view = views.find((v) => v.route === name) || views[0];
   tabs(view.route);
   show(el("p", { class: "empty" }, "Loading…"));
   try {
-    await view.render();
+    await view.render(arg);
   } catch (err) {
     if (err.message !== "unauthenticated") problem(err);
   }
@@ -148,10 +154,26 @@ function gpus(node) {
 }
 
 /** rebootPolicy is displayed prominently because R7-02 asks for it: a node
- *  that will not come back on its own is a different machine to plan around. */
+ *  that will not come back on its own is a different machine to plan around.
+ *
+ *  03 §7's two cases, and they are different machines. `manual-console` needs
+ *  somebody at the physical console to unlock a disk. `host-managed` is WSL2,
+ *  where a reboot inside the distribution does not restart Windows at all —
+ *  and whether that node comes back turns on a scheduled task in the Windows
+ *  scheduler, which is the other half §7 asks to be displayed.
+ */
 function rebootPolicy(node) {
   if (node.reboot_policy === "manual-console") return pill("manual-console", "warn");
-  return el("span", { class: "dim" }, node.reboot_policy || "—");
+  if (node.reboot_policy !== "host-managed") {
+    return el("span", { class: "dim" }, node.reboot_policy || "—");
+  }
+  const logon = {
+    present: ["starts at logon", "ok"],
+    absent: ["no logon task", "bad"],
+    unknown: ["logon task unknown", "warn"],
+  }[node.logon_task];
+  if (!logon) return pill("host-managed", "");
+  return el("span", {}, pill("host-managed", ""), " ", pill(logon[0], logon[1]));
 }
 
 views.push({
@@ -180,6 +202,107 @@ views.push({
       nodes.some((n) => n.upgrade_error)
         ? el("p", { class: "problem" }, "A node failed to upgrade itself and is running what it had.")
         : null);
+  },
+});
+
+// --- R7-03: one node, its deployments, and how its cards are connected ----
+
+/** deploymentState reads a deployment the way an operator does: `stopped` on a
+ *  disabled one is a decision, on anything else it is a fault. */
+function deploymentState(d) {
+  if (d.disabled) return pill("stopped · disabled", "warn");
+  switch (d.state) {
+    case "ready":
+      return pill(d.health === "healthy" ? "ready" : "ready · " + d.health,
+        d.health === "healthy" ? "ok" : "warn");
+    case "failed": return pill("failed", "bad");
+    case "stopped": return pill("stopped", "warn");
+    default: return pill(d.state, "warn");
+  }
+}
+
+/** egress renders 03 §5's verdict. `inconclusive` is deliberately not "fine":
+ *  a deployment that could not be shown to be isolated is not one that was. */
+function egress(d) {
+  if (!d.egress) return el("span", { class: "dim" }, "never run");
+  if (d.egress === "compliant") return pill("isolated", "ok");
+  if (d.egress === "non-compliant") return pill("has a way off the box", "bad");
+  return pill(d.egress, "warn");
+}
+
+/** topology renders the connection matrix, which is why an index set is
+ *  sensible or not. Absent on a one-card host, which is not a fault. */
+function topology(node) {
+  const t = node.topology || {};
+  if (!t.matrix || !t.matrix.length) return null;
+  const head = el("tr", {}, el("th", {}, ""), t.gpus.map((g) => el("th", {}, g)));
+  const rows = t.matrix.map((row, i) => el("tr", {},
+    el("th", {}, t.gpus[i]),
+    row.map((cell, j) => {
+      // Self is not a link, and a bonded NVLink is the pairing worth seeing.
+      const kind = cell.startsWith("NV") ? "ok" : "";
+      return el("td", {}, i === j ? el("span", { class: "dim" }, "—") : pill(cell, kind));
+    })));
+  return el("div", {},
+    el("h2", {}, "How the cards reach each other"),
+    el("p", { class: "note" }, `From \`${t.source}\`. `
+      + "Two cards on the same NVLink behave nothing like two that reach each other across "
+      + "the host bridge — an index set spanning the second pair runs a tensor-parallel "
+      + "deployment slowly for no visible reason."),
+    el("table", {}, el("thead", {}, head), el("tbody", {}, rows)));
+}
+
+views.push({
+  route: "node",
+  title: "Node",
+  hidden: true,
+  async render(name) {
+    if (!name) {
+      const doc = await api("/nodes");
+      const first = (doc.nodes || [])[0];
+      if (!first) return show(el("p", { class: "empty" }, "No node has enrolled yet."));
+      window.location.hash = "#node/" + encodeURIComponent(first.name);
+      return;
+    }
+    const node = await api("/nodes/" + encodeURIComponent(name));
+
+    const deployments = (node.deployments || []).map((d) => el("tr", {},
+      el("td", {}, d.state === "failed"
+        ? el("a", { href: "#logs/" + encodeURIComponent(d.id) }, d.id)
+        : d.id),
+      el("td", {}, d.model_id),
+      el("td", {}, deploymentState(d)),
+      el("td", { class: "num" }, (d.gpus || []).join(", ") || "—"),
+      el("td", {}, egress(d)),
+      el("td", {}, (d.routes || []).join(", ") || el("span", { class: "dim" }, "no route")),
+      el("td", { class: "dim" }, since(d.updated_at))));
+
+    show(
+      el("h1", {}, node.name, " ", nodeState(node)),
+      el("p", { class: "note" },
+        `${node.os}/${node.arch}`,
+        node.driver_version ? ` · driver ${node.driver_version}` : "",
+        node.agent_version ? ` · agent ${node.agent_version}` : "",
+        ` · seen ${since(node.last_seen)} · `,
+        rebootPolicy(node)),
+
+      node.reboot_policy === "host-managed" && node.logon_task === "absent"
+        ? el("p", { class: "problem" },
+            "No scheduled task starts this distribution at logon. A Windows reboot leaves this "
+            + "node stale until somebody opens a shell — which looks identical to any other "
+            + "unreachable node and is fixed in thirty seconds by whoever knows that is what "
+            + "happened.")
+        : null,
+      node.reboot_policy === "manual-console"
+        ? el("p", { class: "problem" },
+            "This host needs somebody at the physical console to come back up: its root "
+            + "filesystem is encrypted with no automatic unlock. The agent will not reboot it.")
+        : null,
+
+      el("h2", {}, "Deployments"),
+      table(["Deployment", "Model", "State", "GPUs", "Egress", "Routes", "Updated"],
+        deployments, "Nothing is placed on this node."),
+      topology(node));
   },
 });
 
