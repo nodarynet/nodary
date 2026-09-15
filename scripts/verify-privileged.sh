@@ -67,6 +67,24 @@ ok()   { PASS=$((PASS+1)); printf '  \033[32m✔\033[0m %s\n' "$*"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31m✘\033[0m %s\n' "$*"; }
 skip() { SKIP=$((SKIP+1)); printf '  \033[33m–\033[0m %s\n' "$*"; }
 
+# node_name is the name this host actually enrolled as, which is not reliably
+# the hostname: enrollment lowercases it (internal/agent/agent.go), because a
+# node name becomes a certificate common name, a systemd instance after %i, a
+# container name and a directory, and none of those agree about case. agent.toml
+# records what enrollment settled on, so it is the authority.
+#
+# `hostname -s` is a guess that is wrong on exactly the hosts the normalization
+# exists for — this box answers `Fractal` and enrolled as `fractal` — and two
+# checks below were quietly failing on it, one of them blaming an unimplemented
+# verb for a mismatch in case.
+node_name() {
+  if [ -r /etc/nodary/agent.toml ]; then
+    _n=$(sed -n 's/^name *= *"\(.*\)"/\1/p' /etc/nodary/agent.toml | head -1)
+    [ -n "$_n" ] && { printf '%s\n' "$_n"; return; }
+  fi
+  hostname -s | tr 'A-Z' 'a-z'
+}
+
 need_root() {
   if [ "$(id -u)" -ne 0 ]; then
     echo "This script needs root: it writes to /etc, /usr/local/bin and /etc/systemd/system." >&2
@@ -224,6 +242,11 @@ fi
 say "7. R5-09 — node install on this same host (--with-node shape)"
 TOK=$("$BIN" token join --uses 1 --yes --justify "privileged verification" 2>/dev/null | tail -1)
 if [ -z "$TOK" ]; then bad "could not mint a join token"; fi
+# **The host's own spelling on purpose.** `hostname -s` answers `Fractal` here,
+# and enrollment lowercases it — internal/agent/agent.go carries the note about
+# why, and about the release where `--name "$(hostname -s)"` reached the control
+# plane as `Fractal` and was refused. Passing it uncorrected keeps that path
+# exercised; everything downstream asks node_name() what it became.
 if "$BIN" node install --server "https://127.0.0.1:$PORT" --token "$TOK" \
      --ca-fingerprint "$FP" --name "$(hostname -s)" 2>&1 | sed 's/^/  /'; then
   ok "node install completed"
@@ -290,10 +313,11 @@ say "11. The agent is running and reports in"
 if systemctl is-active --quiet nodary-agent.service; then
   ok "nodary-agent is active"
   sleep 16   # one heartbeat
-  if "$BIN" node list 2>/dev/null | grep -q "$(hostname -s)"; then
+  if "$BIN" node list 2>/dev/null | grep -q "$(node_name)"; then
     ok "the node appears in the fleet"
   else
-    skip "node list is not implemented yet; check the database directly"
+    bad "$(node_name) does not appear in \`nodary node list\`"
+    "$BIN" node list 2>&1 | sed 's/^/    /'
   fi
 else
   bad "nodary-agent did not start"
@@ -452,7 +476,7 @@ say "15. Registering a model and calling it"
 #
 # No --backend is passed on purpose: the default is whatever this node's GPU
 # vendor can run, so this exercises the offer as well as the serving.
-NODE="$(hostname -s)"
+NODE="$(node_name)"
 # **Approve first.** A pending node receives no desired state at all (02 §1), so
 # every check below would fail on a node that is working perfectly. It is done
 # here rather than after `node install` on purpose: steps 11-14 are worth
